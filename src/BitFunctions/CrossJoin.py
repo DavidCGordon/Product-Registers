@@ -1,34 +1,25 @@
 from BitVector import BitVector
-from random import randrange, randint, sample
-class BitFunction:
-    def __init__(self, fn):
-        self.fn = fn
-        self.size = len(fn)
+from .BitFunction import BitFunction
+from random import randint, sample
+
+class CrossJoin(BitFunction):
+    def __init__(self, size, hexStr, maxAnds = 3, density = .75):
+        taps = list(BitVector(intVal = int(hexStr, 16), size = size))
+        LFSRFunc = [[(size-idx)%size] for (idx, t) in enumerate(taps) if t == 1]
+
+        self.fn = [[[(i+1)%size]] for i in range(size-1)] + [LFSRFunc]
+        self.size = size
         self.tau = self.size-1
 
-    def __getitem__(self, idx): return self.fn[idx]
-
-    def __setitem__(self, idx, val): self.fn[idx] = val
-
-    def __len__(self): return len(self.fn)
+        self.generateNonlinearity(maxAnds, density)
 
     def __str__(self):
         outstr = ""
         for i in range(len(self.fn)-1,-1,-1):
             outstr += ("Bit " + str(i)
-                + ": " + str((i + 1) % self.size) + " + ("
-                + (" + ".join([str(term) for term in self.fn[i]])) + ")\n")
+                + ": " + str(self.fn[i][0][0]) + " + ("
+                + (" + ".join([str(term) for term in self.fn[i]][1:])) + ")\n")
         return outstr
-    
-    @classmethod
-    def fromLFSR(self,hexStr, size):
-        taps = list(BitVector(intVal = int(hexStr, 16), size = size))
-        LFSRFunc = [[idx] for (idx, t) in enumerate(taps) if t == 1]
-        try:
-            LFSRFunc.remove([0])
-        except ValueError:
-            pass
-        return BitFunction([[] for _ in range(size-1)] + [LFSRFunc])
 
     def shiftTerms(self, terms, idxA, idxB):
         alteredTerms = []
@@ -42,7 +33,7 @@ class BitFunction:
                 self.fn[idxA].remove(term)
                 self.fn[idxB] += [altTerm]
             else:
-                print("Term " + str(term) + " cannot be shifted that far")
+                raise ValueError("Invalid shift attempted for term: " + str(term))
         return [idx for term in alteredTerms for idx in term]
 
     def getMinDestination(self, term):
@@ -69,7 +60,7 @@ class BitFunction:
         newTaps.append(self.shiftTerms([newTerm], self.size-1, idx2))
         return [tap for sublist in newTaps for tap in sublist]
 
-    def generateNLFSR(self, maxAnds, density):
+    def generateNonlinearity(self, maxAnds, density):
         self.tau = int(density * self.size)
         tapped = BitVector(intVal = 0, size = self.size)
 
@@ -77,7 +68,7 @@ class BitFunction:
             [term for term in self.fn[self.size-1] if term[0] > self.tau],
              self.size-1, self.tau
         )
-        
+
         while tapped.count_bits() < self.tau:
             newTaps = self.addNonLinearTerm(maxAnds)
             for tap in newTaps:
