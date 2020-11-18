@@ -23,3 +23,16 @@ class BitFunction:
                     outstr += "(" + ",".join(str(t) for t in term) + "),"
             outstr = outstr[:-1] + ";\n"
         return outstr
+    
+    def gateSummary(self):
+        xors = 0
+        ands = 0
+        for b in self.fn:
+            for term in b:
+                xors += 1
+                for element in term:
+                    ands += 1
+                ands -= 1
+        print(f"\nMaximum # of XORS: {xors}")
+        #print(f"Maximum # of ANDS: {ands}")
+        return (xors, ands)

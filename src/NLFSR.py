@@ -7,13 +7,13 @@ class NLFSR:
         if seed == 0:
             raise ValueError("Seed value cannot be 0 or 1")
         else:
-            self.bits = BitVector(intVal = seed, size = self.size)
+            self.state = BitVector(intVal = seed, size = self.size)
 
     def __iter__(self): return self
     
-    def __str__(self): return self.bits.__str__()
+    def __str__(self): return self.state.__str__()
 
-    def int_val(self): return int(self.bits)
+    def int_val(self): return int(self.state)
 
     def reverse(self, bitIdx): return (self.size-1-bitIdx % self.size)
     
@@ -27,11 +27,11 @@ class NLFSR:
                 
                 product = 1
                 for idx in term:
-                    product &= self.bits[self.reverse(idx)]
+                    product &= self.state[self.reverse(idx)]
 
                 summation ^=  product
 
             nextState[(self.reverse(bitIdx))] = summation
         
-        self.bits = nextState
-        return self.bits
+        self.state = nextState
+        return self.state

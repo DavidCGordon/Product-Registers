@@ -1,5 +1,7 @@
 **/__pycache__/*
 **/personalTests.py
 Data
+Data/*
+StandardMISR.py
 test.py
 **/polynomial.py
