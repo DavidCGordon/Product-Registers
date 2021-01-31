@@ -1,9 +1,10 @@
 from BitVector import BitVector
 from .BitFunction import BitFunction
+from .Fibonacci import Fibonacci
 from random import randint, sample
 
-class CrossJoin(BitFunction):
-    def __init__(self, size, hexStr, maxAnds = 3, density = .75):
+class CrossJoin(Fibonacci):
+    def __init__(self, size, hexStr, randomize = True, maxAnds = 3, density = .75):
         taps = list(BitVector(intVal = int(hexStr, 16), size = size))
         LFSRFunc = [[(size-idx)%size] for (idx, t) in enumerate(taps) if t == 1]
 
@@ -11,15 +12,7 @@ class CrossJoin(BitFunction):
         self.size = size
         self.tau = self.size-1
 
-        self.generateNonlinearity(maxAnds, density)
-
-    def __str__(self):
-        outstr = ""
-        for i in range(len(self.fn)-1,-1,-1):
-            outstr += ("Bit " + str(i)
-                + ": " + str(self.fn[i][0][0]) + " + ("
-                + (" + ".join([str(term) for term in self.fn[i]][1:])) + ")\n")
-        return outstr
+        if randomize: self.generateNonlinearity(maxAnds, density)
 
     def shiftTerms(self, terms, idxA, idxB):
         alteredTerms = []

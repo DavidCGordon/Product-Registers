@@ -1,13 +1,10 @@
 from BitVector import BitVector
 
-class NLFSR:
+class ProductRegister:
     def __init__(self, seed, fn):
         self.fn = fn
         self.size = len(fn)
-        if seed == 0:
-            raise ValueError("Seed value cannot be 0 or 1")
-        else:
-            self.state = BitVector(intVal = seed, size = self.size)
+        self.state = BitVector(intVal = seed, size = self.size)
 
     def __iter__(self): return self
     
@@ -22,12 +19,18 @@ class NLFSR:
         
         for bitIdx in range(self.size):
             
+            #make the first value of the function True in order to flip the values of the function
+
             summation = 0
+            
             for term in self.fn[bitIdx]:
-                
-                product = 1
-                for idx in term:
-                    product &= self.state[self.reverse(idx)]
+
+                if type(term) == bool:
+                    product = int(term)
+                else:
+                    product = 1
+                    for idx in term:
+                        product &= self.state[self.reverse(idx)]
 
                 summation ^=  product
 

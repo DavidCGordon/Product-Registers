@@ -16,13 +16,15 @@ class BitFunction:
         outstr = ""
         for i in range(len(self.fn)-1,-1,-1):
             outstr += str(i) + "="
-            for term in self.fn[i]: 
-                if len(term) == 1:
+            for term in self.fn[i]:
+                if type(term) == bool:
+                    outstr += str(term) + ","
+                elif len(term) == 1:
                     outstr += str(term[0]) + ","
                 else:
                     outstr += "(" + ",".join(str(t) for t in term) + "),"
             outstr = outstr[:-1] + ";\n"
-        return outstr
+        return outstr[:-1]
     
     def gateSummary(self):
         xors = 0
