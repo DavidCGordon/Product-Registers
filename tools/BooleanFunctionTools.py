@@ -1,6 +1,7 @@
 from BitVector import BitVector
 from itertools import permutations
 
+#XOR implemented for lists
 def listXor(a,b):
     c = []
     for n in range(len(a)):
@@ -10,6 +11,8 @@ def listXor(a,b):
             c.append(1)
     return c
 
+#convert truth table vector to ANF
+#algorithm from: 
 def TT_to_ANF(n,tt):
     tt = [[x] for x in tt]
     nextRow = [x for x in range(len(tt)//2)]
@@ -30,28 +33,36 @@ def TT_to_ANF(n,tt):
                 ANF.append(anfTerm)
     return ANF
 
-def reOrder(size,stateLoops):
+#reorder entries in the Truth table
+#stateloops is a list of  binary strings
+def stateTable(size,stateLoops):
     table = []
     for i in range(2**size):
         bitStr = format(i, "0" + str(size) + "b")
         
+        #look for bitStr in stateloops, then append it's successor:
         for loop in stateLoops:
             for idx in range(len(loop)):
                 if loop[idx] == bitStr:
                     table.append(loop[(idx + 1) % len(loop)])
-                    
+    
     return table
 
+#convert state-loops/cycle decription into an ANF function:
 def writeFn(size,stateLoops):
     bitFn = []
-    bigTable = reOrder(size,stateLoops)
+    #create big table of strings
+    bigTable = stateTable(size,stateLoops)
 
-    for bit in range(size):    
+    #for each bit position:
+    for bit in range(size):
+        #index at ith position to get truth table, then convert to ANF    
         bitTable = [int(bitStr[bit]) for bitStr in bigTable]
         bitAnf = TT_to_ANF(size,bitTable)
         bitFn.append(bitAnf)
     return bitFn[::-1]
 
+#permute two edges in the state cycle graph.
 def permuteEdges (p1, p2,stateLoops):
     out = stateLoops[:]
     loc1 = None

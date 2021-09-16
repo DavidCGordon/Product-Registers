@@ -3,7 +3,7 @@ from .BitFunction import BitFunction
 from .Fibonacci import Fibonacci
 from random import randint, sample
 
-class CrossJoin(Fibonacci):
+class CrossJoin():
     def __init__(self, size, hexStr, randomize = True, maxAnds = 3, density = .75):
         taps = list(BitVector(intVal = int(hexStr, 16), size = size))
         LFSRFunc = [[(size-idx)%size] for (idx, t) in enumerate(taps) if t == 1]
