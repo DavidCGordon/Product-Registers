@@ -43,7 +43,7 @@ begin
                     elif len(term) == 1:
                         writestr += f"currstate({str(term[0])}) XOR "
                     else :
-                        writestr += "(" + " AND ".join(str(t) for t in term) +") XOR "
+                        writestr += "(" + " AND ".join(f"currstate({str(t)})" for t in term) +") XOR "
                 writestr = writestr[:-5] + ";\n"
                 f.write(writestr);
             f.write("""
