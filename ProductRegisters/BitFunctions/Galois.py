@@ -2,6 +2,9 @@ from BitVector import BitVector
 from .BitFunction import BitFunction
 from copy import deepcopy
 
+#inversion = opposite polynomial + bit flip
+#alternatively
+#reciprocal polynomial = inversion + bit flip
 
 class Galois(BitFunction):
     #construction
@@ -10,21 +13,25 @@ class Galois(BitFunction):
         self.taps = []
         for i in range(self.size):
             if p[i+1]:
-                self.taps.append(self.size-1-i)
+                self.taps.append(i)
                 
         for tap in self.taps:
             self.fn[tap] += [[self._tap_bit]]
             
-    def __init__(self, size, polynomial):
+    def __init__(self, size, primitive_poly):
         self.size = size
 
         #internal use
         self._tap_bit = 0
-        self._polynomial = polynomial
-        
+        #convert koopman string into polynomial:
+        if type(primitive_poly) == str:
+            primitive_poly = list(BitVector( \
+                intVal = int(primitive_poly, 16), size = size)) + [1]
+        self.primitive_polynomial = primitive_poly
+
         #calculate function
         self.fn = [[[i+1]] for i in range(self.size-1)] + [[]]
-        self._taps_from_poly(self._polynomial)
+        self._taps_from_poly(self.primitive_polynomial)
         
 
     def invert(self):
@@ -36,11 +43,11 @@ class Galois(BitFunction):
         self.flip()
         
         #flip the polynomial and set the tap_bit
-        self._polynomial = self._polynomial[::-1]
+        self.primitive_polynomial = self.primitive_polynomial[::-1]
         self._tap_bit = self.size-1-self._tap_bit
         
         #add back new taps:
-        self._taps_from_poly(self._polynomial)
+        self._taps_from_poly(self.primitive_polynomial)
             
 
     #returns an equivalent Galois LFSR ANF and initial state:
@@ -59,7 +66,6 @@ class Galois(BitFunction):
         
         #n = bit we are correcting.
         for n in range(N):
-
             #calculate discrepancy from LFSR frame
             d = 0
             for i in range(L+1):
@@ -91,5 +97,4 @@ class Galois(BitFunction):
                 s_i ^= (seq[i-j] & c[j])
             s.append(s_i)
         s = BitVector(bitlist = s[::-1])
-
         return s, Galois(L, c[:L+1])

@@ -1,14 +1,19 @@
 from BitVector import BitVector
 from .BitFunction import BitFunction
-from .Fibonacci import Fibonacci
 from random import randint, sample
 
-class CrossJoin():
-    def __init__(self, size, hexStr, randomize = True, maxAnds = 3, density = .75):
-        taps = list(BitVector(intVal = int(hexStr, 16), size = size))
-        LFSRFunc = [[(size-idx)%size] for (idx, t) in enumerate(taps) if t == 1]
+class CrossJoin(BitFunction):
+    def __init__(self, size, primitive_poly, \
+                 randomize = True, maxAnds = 4, density = .75):
+        #convert koopman string into polynomial:
+        if type(primitive_poly) == str:
+            primitive_poly = list(BitVector(intVal = int(primitive_poly, 16), size = size)) + [1]
+        self.primitive_polynomial = primitive_poly
 
-        self.fn = [[[(i+1)%size]] for i in range(size-1)] + [LFSRFunc]
+        top_fn = [[size-idx] for (idx, t) in enumerate(primitive_poly) if t == 1][::-1][:-1]
+        #[1,0,1,1] -> [0,2,3] -> [3,1,0] -> [0,1,3] -> [0,1]
+        
+        self.fn = [[[(i+1)%size]] for i in range(size-1)] + [top_fn]
         self.size = size
         self.tau = self.size-1
 

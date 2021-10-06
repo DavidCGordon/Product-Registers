@@ -3,22 +3,36 @@ from .BitFunction import BitFunction
 from copy import deepcopy
 
 class Fibonacci(BitFunction):
-    def __init__(self, size, topFunc):
-        if type(topFunc) == str:
-            taps = list(BitVector(intVal = int(topFunc, 16), size = size))
-            topFunc = [[(size-idx)%size] for (idx, t) in enumerate(taps) if t == 1]
+    def __init__(self, size, primitive_poly):
+        #convert koopman string into polynomial:
+        if type(primitive_poly) == str:
+            primitive_poly = list(BitVector( \
+                intVal = int(primitive_poly, 16), size = size)) + [1]
+        self.primitive_polynomial = primitive_poly
 
-        self.fn = [[[(i+1)%size]] for i in range(size-1)] + [topFunc]
-        self.size = size
-
-    def invert(self):
-        #flip_taps
-        self.fn[self.size-1] = [[0]] + \
-            [[self.size-i[0]] for i in self.fn[self.size-1][1:]][::-1]
-
-        #flip_bit_labelling:
-        self.flip()
+        #[1,0,1,1] -> [0,2,3] -> [3,1,0] -> [0,1,3] -> [0,1]
+        top_fn = [[size-idx] for (idx, t) in enumerate(primitive_poly) if t == 1][::-1][:-1]
+        self.fn = [[[i+1]] for i in range(size-1)] + [top_fn]
         
+        self.size = size        
+        self._inverted = False
+        
+    def invert(self):
+        if not self._inverted:
+            #reverse taps:
+            self.fn[self.size-1] = [[0]] + \
+                [[self.size-i[0]] for i in self.fn[-1][1:]][::-1]
+            #flip bit labelling:
+            self.flip()
+            self._inverted = True
+        else:
+            #flip bit labelling:
+            self.flip()
+            #reverse taps:
+            self.fn[self.size-1] = [[0]] + \
+            [[self.size-i[0]] for i in self.fn[-1][1:]][::-1]
+            self._inverted = False
+            
     #use berlekamp-massey algorithm to generate a Fibonacci LFSR
     @classmethod
     def fromSeq(self,seq):
@@ -58,9 +72,8 @@ class Fibonacci(BitFunction):
                     L = n + 1 - L
                     b = temp
                     m = n
-
+                    
         #return (initial_state of register,fibonacci bitFn)
-        fn = Fibonacci(L, [[L-i] for i in range(1,L+1) if c[i]][::-1])
-        init_state = int(BitVector(bitlist = seq[:L][::-1]))
-        return init_state, fn
+        init_state = BitVector(bitlist = seq[:L][::-1])
+        return init_state, Fibonacci(L, c[:L+1])
             

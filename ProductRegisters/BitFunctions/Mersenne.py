@@ -2,36 +2,53 @@ from BitVector import BitVector
 from .BitFunction import BitFunction
 
 class Mersenne(BitFunction):
-    def __init__(self, size, hexStr, update = None):
+    def __init__(self, size, primitive_poly, update_poly = None):
         self.size = size
-        # here U denotes update polynomial, P denotes primitive polynomial 
 
-        #Format U & P:-----------------------------------------
-        #U format: [1,0,0,1,1] = x^4 + x^3 + 1
-        if not update: update = [0,1] + [0]*(size-2)
-        #covert update: [1,0,0,1,1] -> [0,3,4] -> powers of x
-        update = [idx for (idx, t) in enumerate(update) if t == 1]
+        #Format Update & Primitive polyomials: -----------------------------
 
-        #get P from koopman string:
-        #P format: "12" -> "10010" (koopman format)-> "100101" (x^5 + x^2 + 1) -> [3,5] 
-        primePolynomial = list(BitVector(intVal = int(hexStr, 16), size = size))[1:] + [1]
-        primePoly = [(idx+1) for (idx, t) in enumerate(primePolynomial) if t == 1]
+        #convert U to a list:
+        if not update_poly:
+            update_poly = [0,1] + [0]*(size-2)
+        elif type(update_poly) == int:
+            update_poly = list(BitVector(intVal = update_poly, size = size))[::-1]
 
-        #represent multiplication in GF(2^n): -----------------
-        #Shift U copies (multiply by update polynomial)
-        bitValues = [[] for _ in range(2*size + 1)]
-        for i in range(size):
-            for u in update:
-                bitValues[i+u].append([i])
+        #covert update to powers ([1,0,0,1,1] -> [0,3,4])
+        self.update_polynomial = update_poly
+        update_powers = [idx for (idx, t) in enumerate(update_poly) if t == 1]
         
-        #Shift P copies (mod by prime polynomial)
-        for i in range(2*size-2, size-1, -1):
-            for p in primePoly:
-                for x in bitValues[i]:
-                    #adding mod 2
-                    if x in bitValues[i-p]:
-                        bitValues[i-p].remove(x)
-                    else:
-                        bitValues[i-p].append(x)
 
-        self.fn = [sorted(bitFunc) for bitFunc in bitValues[:size]]
+        #P can be either polynomial list or koopman hex string:
+        #   -koopman format note: binary interpretation is missing final 1
+        #   -example: "12" -> "10010" -> "100101" = (1 + x^3 + x^5) -> [0,3,5]
+        if type(primitive_poly) == str:
+            primitive_poly = list(BitVector(intVal = int(primitive_poly, 16), size = size))+[1]
+
+        self.primitive_polynomial = primitive_poly
+        primitive_powers = [(idx) for (idx, t) in enumerate(primitive_poly) if t == 1]
+
+
+        #represent multiplication in GF(2^n): ----------------------------
+
+        #the anf also includes n-1 "hypothetical bits" for higher powers
+        #anf[:size] is real bits, anf [size:] is hypothetical
+        anf = [[] for i in range(2*size - 1)]
+        
+        #Shift U copies (multiply by update polynomial)
+        for idx in range(size):
+            for power in update_powers:
+                anf[idx+power].append([idx])
+
+        #Shift P copies (mod by prime polynomial)
+        for idx in range(2*size-2, size-1, -1):
+            for power in primitive_powers[:-1]:
+
+                #list xor
+                for term in anf[idx]:
+                    if term in anf[idx - size + power]:
+                        anf[idx-size+power].remove(term)
+                    else:
+                        anf[idx-size+power].append(term)
+
+        #return real bits
+        self.fn = [sorted(bitFn) for bitFn in anf[:size]]

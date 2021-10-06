@@ -1,11 +1,8 @@
 from BitVector import BitVector
 
 class FeedbackRegister:
-    #Initialization and data:
+    #INITIALIATION/DATA:
     def __init__(self, seed, fn):
-        
-        #register variables:
-        self.order = "MSB"
         
         #feedback variables
         self.fn = fn
@@ -20,28 +17,31 @@ class FeedbackRegister:
 
 
 
-    #Type conversions
+    #TYPE CONVERSIONS
     def __int__(self): return int(self._state)
     def __str__(self): return str(self._state)
     def __list__(self): return list(self._state)[::-1]
 
 
-    
-    #State manipulation methods:
-    def bit(self, bitIdx): return (self.size-1-bitIdx % self.size)
+
+    #STATE MANIPULATION:
+    def _bit(self, bitIdx): return (self.size-1-bitIdx % self.size)
     def __getitem__(self, key): return list(self._state)[::-1][key]
     def __setitem__(self, idx, val): self._state[self.bit(idx)] = val
+    def __reverse__(self): self._state.reverse()
 
 
 
-    #ITERATION METHODS:
+    #ITERATION:
+    
     #iterate through bits in the register
     def __iter__(self):
         for i in range(self.size):
-            yield self._state[self.bit(i)]
+            yield self._state[self._bit(i)]
 
 
     #iterate register state through time:
+            
     #clock the register
     def clock(self):
         nextState = BitVector(intVal = 0, size = self.size)
@@ -54,9 +54,9 @@ class FeedbackRegister:
                 else:
                     product = 1
                     for idx in term:
-                        product &= self._state[self.bit(idx)]
+                        product &= self._state[self._bit(idx)]
                 summation ^=  product
-            nextState[(self.bit(bitIdx))] = summation
+            nextState[(self._bit(bitIdx))] = summation
         self._state = nextState
         
     #clock the register and XOR input:
@@ -96,9 +96,11 @@ class FeedbackRegister:
                 yield self
                 self.clock()
                 
-            
+
+    #DIAGNOSTIC AND EXTRA INFO     
     #return the period of the register:
     def period(self, lim = 2**18):
+        curState = self._state
         first_state = self._state
         self.clock()
         count = 1
@@ -107,5 +109,55 @@ class FeedbackRegister:
             count += 1
             if count > lim:
                 return None
-        self.reset()
+        self._state = curState
         return count
+
+    #linear complexity profile of the sequence:
+    def LinearComplexity(self,bit,lim):
+        #generate a sequence of length lim
+        seq = []
+        curState = self._state
+        for state in self.run(lim):
+            seq.append(state[bit])
+        self._state = curState
+
+        Ls = []
+        #berlekamp-massey
+        N = len(seq)
+        #c = current connection polynomial
+        c = [1] + [0 for i in range(N-1)]
+        #b = prev. connection polynomial
+        b = [1] + [0 for i in range(N-1)]
+
+        #L = len(LFSR frame) = upper bound on deg(C)
+        L = 0
+        #m is index of last change
+        m = -1
+        
+        #n = bit we are correcting.
+        for n in range(N):
+            #calculate discrepancy from LFSR frame
+            d = 0
+            for i in range(L+1):
+                d ^= (c[i] & seq[n-i])
+
+            #handle discrepancy if needed
+            if d != 0:
+                
+                #store copy of C
+                temp = c[:]
+
+                #c = c - x^(n-m)b
+                shift = n-m
+                for i in range (shift, N):
+                    c[i] ^= b[i - shift]
+
+                #if 2L <= n, then the polynomial is unique
+                #it's safe to update
+                if 2*L <= n:
+                    L = n + 1 - L
+                    Ls.append((n,L))
+                    b = temp
+                    m = n
+       
+        return Ls

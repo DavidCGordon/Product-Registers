@@ -1,4 +1,8 @@
 **/__pycache__
 **/Data
-*Script.py
+
 .gitignore
+
+*Hidden
+*Script.py
+**/*.json

@@ -19,9 +19,12 @@ class Composition(BitFunction):
                 newfn = []
                 for term in fn:
                     newTerm = []
-                    for i in term:
-                        #shift every term by i:
-                        newTerm.append(i+shift) 
+                    if type(term) == bool:
+                        newTerm = term
+                    else:
+                        for i in term:
+                            #shift every term by i:
+                            newTerm.append(i+shift) 
                     newfn.append(newTerm)
                 shiftedFn.append(newfn)
             currFn += shiftedFn
