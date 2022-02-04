@@ -12,7 +12,8 @@ def listXor(a,b):
     return c
 
 #convert truth table vector to ANF
-#algorithm from: 
+#algorithm from: http://www.selmer.uib.no/odbf/help/ttanf.pdf
+
 def TT_to_ANF(n,tt):
     tt = [[x] for x in tt]
     nextRow = [x for x in range(len(tt)//2)]
@@ -35,6 +36,7 @@ def TT_to_ANF(n,tt):
 
 #reorder entries in the Truth table
 #stateloops is a list of  binary strings
+
 def stateTable(size,stateLoops):
     table = []
     for i in range(2**size):

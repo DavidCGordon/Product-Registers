@@ -1,24 +1,30 @@
 from BitVector import BitVector
-from .BitFunction import BitFunction
 
-class Mersenne(BitFunction):
+from ProductRegisters.Functions import FeedbackFunction
+from ProductRegisters.ANF import ANF
+
+from ProductRegisters import FeedbackRegister
+from ProductRegisters.Functions import Fibonacci
+
+
+class MPR(FeedbackFunction):
     def __init__(self, size, primitive_poly, update_poly = None):
         self.size = size
 
-        #Format Update & Primitive polyomials: -----------------------------
+        # Format Update & Primitive polyomials: -----------------------------
 
-        #convert U to a list:
+        # convert U to a list:
         if not update_poly:
             update_poly = [0,1] + [0]*(size-2)
         elif type(update_poly) == int:
             update_poly = list(BitVector(intVal = update_poly, size = size))[::-1]
 
-        #covert update to powers ([1,0,0,1,1] -> [0,3,4])
+        # covert update to powers ([1,0,0,1,1] -> [0,3,4])
         self.update_polynomial = update_poly
         update_powers = [idx for (idx, t) in enumerate(update_poly) if t == 1]
-        
 
-        #P can be either polynomial list or koopman hex string:
+
+        # P can be either polynomial list or koopman hex string:
         #   -koopman format note: binary interpretation is missing final 1
         #   -example: "12" -> "10010" -> "100101" = (1 + x^3 + x^5) -> [0,3,5]
         if type(primitive_poly) == str:
@@ -27,28 +33,32 @@ class Mersenne(BitFunction):
         self.primitive_polynomial = primitive_poly
         primitive_powers = [(idx) for (idx, t) in enumerate(primitive_poly) if t == 1]
 
-
+        
         #represent multiplication in GF(2^n): ----------------------------
 
         #the anf also includes n-1 "hypothetical bits" for higher powers
-        #anf[:size] is real bits, anf [size:] is hypothetical
-        anf = [[] for i in range(2*size - 1)]
+        #anf[:size] are real bits, anf [size:] are hypothetical bits
+        functions = [[] for i in range(2*size - 1)]
         
-        #Shift U copies (multiply by update polynomial)
+        # Multiply by update polynomial U
         for idx in range(size):
             for power in update_powers:
-                anf[idx+power].append([idx])
+                functions[idx+power].append([idx])
 
-        #Shift P copies (mod by prime polynomial)
+        #convert to ANF objects (easiest here):
+        functions = [ANF(func) for func in functions]
+
+        # Mod by primitive polynomial P
         for idx in range(2*size-2, size-1, -1):
             for power in primitive_powers[:-1]:
 
-                #list xor
-                for term in anf[idx]:
-                    if term in anf[idx - size + power]:
-                        anf[idx-size+power].remove(term)
-                    else:
-                        anf[idx-size+power].append(term)
+                #Xor the ANFs
+                functions[idx - size + power] += functions[idx]
 
         #return real bits
-        self.fn = [sorted(bitFn) for bitFn in anf[:size]]
+        self.anf = functions[:size]
+
+        #create a feedbackregister to determine minimal polynomial
+        #not necessary to generate hardware, but nice to have
+        testReg = FeedbackRegister(2**self.size-1,self)
+        self.minimal_polynomial = Fibonacci.fromReg(testReg,0)[1].primitive_polynomial

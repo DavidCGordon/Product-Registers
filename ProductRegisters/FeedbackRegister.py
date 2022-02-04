@@ -4,45 +4,49 @@ class FeedbackRegister:
     #INITIALIATION/DATA:
     def __init__(self, seed, fn):
         
-        #feedback variables
+        # attributes
         self.fn = fn
         self.size = len(fn)
 
-        #state and seed (internal use only)
+        # set seed
+        self.seed(seed)
+        # set state to seed
+        self._state = self._seed
+
+    def __len__(self): return self.size
+
+
+    #REGISTER SEED:
+    def seed(self, seed):
+        if type(seed) == BitVector:
+            self._seed = seed
         if type(seed) == int:
-            self._state = BitVector(intVal = seed, size = self.size)
-        else:
-            self._state = seed            
-        self._seed = self._state
+            self._seed = BitVector(intVal = seed, size = self.size)
+        #allowing random.random to be used as a seed:
+        if type(seed) == float and 0 < seed  and seed < 1:
+            closest_int = round(seed * 2**self.size)
+            self.seed(closest_int)
+        
+    def reset(self):
+        self._state = self._seed
 
 
-
-    #TYPE CONVERSIONS
+    #TYPE CONVERSIONS / CASTING:
     def __int__(self): return int(self._state)
     def __str__(self): return str(self._state)
     def __list__(self): return list(self._state)[::-1]
 
-
-
     #STATE MANIPULATION:
     def _bit(self, bitIdx): return (self.size-1-bitIdx % self.size)
-    def __getitem__(self, key): return list(self._state)[::-1][key]
-    def __setitem__(self, idx, val): self._state[self.bit(idx)] = val
-    def __reverse__(self): self._state.reverse()
-
-
-
-    #ITERATION:
+    def __getitem__(self, key): return self._state[self._bit(key)]
+    def __setitem__(self, idx, val): self._state[self._bit(idx)] = val
     
-    #iterate through bits in the register
-    def __iter__(self):
-        for i in range(self.size):
-            yield self._state[self._bit(i)]
+    #ITERATION THROUGH REGISTER BITS:
+    def __iter__(self): return reversed(self._state)
+    def __reversed__(self): return iter(self._state)
 
 
-    #iterate register state through time:
-            
-    #clock the register
+    #CLOCKING AND RUNNING THE REGISTER:
     def clock(self):
         nextState = BitVector(intVal = 0, size = self.size)
         
@@ -68,10 +72,6 @@ class FeedbackRegister:
         self.clock()
         self._state ^= inpt
 
-    #reset to initial_state
-    def reset(self):
-        self._state = self._seed
-        
     #generate a sequence of states, in order
     def run(self, arg = None):
         #different input cases:
@@ -85,7 +85,7 @@ class FeedbackRegister:
 
         #number of iterations to run
         elif type(arg) == int:
-            for i in range(arg-1):
+            for _ in range(arg):
                 yield self
                 self.clock()
             yield self
@@ -95,7 +95,7 @@ class FeedbackRegister:
             while True:
                 yield self
                 self.clock()
-                
+
 
     #DIAGNOSTIC AND EXTRA INFO     
     #return the period of the register:
@@ -113,7 +113,7 @@ class FeedbackRegister:
         return count
 
     #linear complexity profile of the sequence:
-    def LinearComplexity(self,bit,lim):
+    def linearComplexity(self,bit,lim):
         #generate a sequence of length lim
         seq = []
         curState = self._state

@@ -1,6 +1,4 @@
-from bisect import insort_left, bisect_left
 from itertools import chain, combinations
-from time import time
 from math import log
 
 class Node:
@@ -26,75 +24,12 @@ MerExp = [2,3,5,7,13,17,19,31,61,89,107,127,521,607,1279,
           6972593,13466917,20996011,24036583,25964951,
           30402457,32582657,37156667,42643801,43112609]
 
-"""
-#OLD CODE for documentation:
-def analyzeAll_old(lim):
-    #possible contains (whetheter it is possible to make, [all ways to make it])
-    possible = [(True, [[]])]
-
-    for i in range(lim):
-        value = i+1
-
-        j = 0
-        isGood = False         #start by assuming not possible
-        solutions = []      #start by assuming no solutions
-        while MerExp[j] <= value:
-            #check if it's possible in theory to make the desired value
-            combinable = possible[value - MerExp[j]][0] 
-
-            #if it is, check the validity of all solutions
-            if combinable: 
-                unused = False
-                
-                for combo in possible[value - MerExp[j]][1]: 
-                    #expand out the ways to make value
-                    if MerExp[j] not in combo:
-                        unused = True
-
-                        #just does an insert with python's garbage array manipulation
-                        proposedSol = combo[:]
-                        insort_left(proposedSol, MerExp[j])
-
-                        if proposedSol not in solutions:
-                            solutions.append(proposedSol)
-
-            isGood = combinable and unused
-            j += 1
-
-        possible.append((isGood, solutions))
-    return possible
-
-def analyze_old(ns):
-    ls = analyzeAll(max(ns))
-    return [(n, ls[n][1]) for n in ns]
-
-def listPossible_old(*args):
-    if len(args) == 1:
-        start = 0
-        stop = args[0]
-        step = 1
-    elif len(args) == 2:
-        start = args[0]
-        stop = args[1]
-        step = 1
-    elif len(args) == 3:
-        start = args[0]
-        stop = args[1]
-        step = args[2]
-    else: 
-        raise ValueError
-
-    ls = list(enumerate(analyzeAll_old(stop)))[start:stop+1:step]
-    return [i for (i,v) in ls if v[0]]
-"""
-
-
 #unwrap and helper fn get all solutions, given the node
 def unwrap(node):
     return sorted(unwrap_helper(node), key = lambda x: x[0])
 
 def unwrap_helper(node):
-    #define empty lists for completely defined vars:
+    #define empty lists to initialize vars:
     if node is None: return []
     left_sol = []
     right_sol = []
@@ -111,8 +46,6 @@ def unwrap_helper(node):
             #append this value to all solutions not using this value:
             right_sol = [x+[node.val] for x in unwrap_helper(node.right)]
     return left_sol+right_sol
-
-
 
 def analyzeAll(lim):
     #select only necessary mersenne exponents
@@ -138,7 +71,7 @@ def analyzeAll(lim):
                 table[n][k].right = table[n-exp][k-1]
                 table[n][k].count += table[n-exp][k-1].count
 
-    return table #O(nk) to find table
+    return table #O(nk) < O(nlogn) to find table
 
 def analyze(ns):
     out = []
@@ -172,8 +105,9 @@ def listPossible(*args):
         raise ValueError
 
     table = analyzeAll(stop) #O(nlogn) call dominates this function
-    num_primes = len(table[0]) 
-    values = [node_list[num_primes-1].count for node_list in table[start:stop+1:step]]
+    row_length = len(table[0]) 
+    rows_in_range = table[start:stop+1:step]
+    values = [row[row_length-1].count for row in rows_in_range]
     return [(i+start,v) for (i,v) in enumerate(values) if v][1:]
 
 
@@ -215,7 +149,6 @@ def pprint(ns):
 
 #single number check:
 def single(target):
-    
     #select only necessary mersenne exponents
     i = 0
     while (i<len(MerExp) and target >= MerExp[i]): i += 1
@@ -228,12 +161,16 @@ def single(target):
             out.append(sset)
     return out
 
-def analyze_(ns):
+#more performant for small numbers, but scales worse.
+def analyze_(ns, sort = False):
     out = []
     for n in ns:
         sols = single(n)
-        sols_exp = sols_exps = [(s, exp(s)) for s in sols]
-        #sols_exp = sorted(sols_exp, key = lambda x: x[1])
-        sols_exps = [(s, exp(s)) for s in sols]
-        out.append((n,sols_exps))
+        sols_and_epr = [(s, exp(s)) for s in sols]
+
+        #if sorted by EPR:
+        if sort:
+             sols_and_epr = sorted(sols_and_epr, key = lambda x: x[1])
+
+        out.append((n,sols_and_epr))
     return out

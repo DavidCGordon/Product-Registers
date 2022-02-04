@@ -1,54 +1,54 @@
 from BitVector import BitVector
-from .BitFunction import BitFunction
+
+from ProductRegisters.Functions import FeedbackFunction
+from ProductRegisters import ANF
+
 from copy import deepcopy
 
 #inversion = opposite polynomial + bit flip
 #alternatively
 #reciprocal polynomial = inversion + bit flip
 
-class Galois(BitFunction):
-    #construction
-    def _taps_from_poly(self, p):
-        #build tap set fn from polynomial
-        self.taps = []
-        for i in range(self.size):
-            if p[i+1]:
-                self.taps.append(i)
-                
-        for tap in self.taps:
-            self.fn[tap] += [[self._tap_bit]]
-            
-    def __init__(self, size, primitive_poly):
+class Galois(FeedbackFunction):
+        
+    def __init__(self, size, primitive_polynomial):
         self.size = size
 
-        #internal use
-        self._tap_bit = 0
         #convert koopman string into polynomial:
-        if type(primitive_poly) == str:
-            primitive_poly = list(BitVector( \
-                intVal = int(primitive_poly, 16), size = size)) + [1]
-        self.primitive_polynomial = primitive_poly
+        if type(primitive_polynomial) == str:
+            primitive_polynomial = list(BitVector( \
+                intVal = int(primitive_polynomial, 16), size = size)) + [1]
+        self.primitive_polynomial = primitive_polynomial
 
-        #calculate function
-        self.fn = [[[i+1]] for i in range(self.size-1)] + [[]]
-        self._taps_from_poly(self.primitive_polynomial)
+        #calculate function / taps
+        self._anf_from_poly(primitive_polynomial)
+        self.is_inverted = False
+
+
+    #helper methods for anf construction
+    def _anf_from_poly(self, polynomial):
+        #build tap set fn from polynomial
+        newFn = [[[i+1]] for i in range(self.size-1)] + [[]]
+        for i in range(self.size):
+            if polynomial[i+1]:
+                newFn[i] += [[0]]
+        self.anf = [ANF(bitFn) for bitFn in newFn]
+    
+    def _inverted_from_poly(self, polynomial):
+        newFn = [[]] + [[[i-1]] for i in range(1,self.size)]
+        for i in range(self.size):
+            if polynomial[i]:
+                newFn[i] += [[self.size-1]]
+        self.anf = [ANF(bitFn) for bitFn in newFn]
         
 
     def invert(self):
         #remove current taps:
-        for tap in self.taps:
-            self.fn[tap].remove([self._tap_bit])
+        if not self.is_inverted:
+            self._inverted_from_poly(self.primitive_polynomial)
+        else:
+            self._anf_from_poly(self.primitive_polynomial)
 
-        #flip the non-tap bits
-        self.flip()
-        
-        #flip the polynomial and set the tap_bit
-        self.primitive_polynomial = self.primitive_polynomial[::-1]
-        self._tap_bit = self.size-1-self._tap_bit
-        
-        #add back new taps:
-        self._taps_from_poly(self.primitive_polynomial)
-            
 
     #returns an equivalent Galois LFSR ANF and initial state:
     @classmethod
@@ -98,3 +98,10 @@ class Galois(BitFunction):
             s.append(s_i)
         s = BitVector(bitlist = s[::-1])
         return s, Galois(L, c[:L+1])
+
+    @classmethod 
+    def fromReg(self, F, bit):
+        numIters = 2*F.size + 4
+        seq = [state[bit] for state in F.run(numIters)]
+        return Galois.fromSeq(seq)
+

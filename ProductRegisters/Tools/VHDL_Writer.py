@@ -1,7 +1,7 @@
 class VHDL_Writer :
 
     def __init__(self, fn):
-        self.fn = fn;
+        self.fn = fn
 
     def gen(self, filename):
         with open(filename, "w") as f:
@@ -45,7 +45,7 @@ begin
                     else :
                         writestr += "(" + " AND ".join(f"currstate({str(t)})" for t in term) +") XOR "
                 writestr = writestr[:-5] + ";\n"
-                f.write(writestr);
+                f.write(writestr)
             f.write("""
 
     output <= currstate;
