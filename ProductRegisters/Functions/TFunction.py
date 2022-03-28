@@ -3,7 +3,7 @@ from ProductRegisters import ANF
 
 from random import randint, sample, shuffle
 
-class Induction(FeedbackFunction):
+class TFunction(FeedbackFunction):
     def __init__(self, size, nonlinear = True, permute = False):
         self.anf = [ [[i], list(range(i))] for i in range(size) ]
         self.anf[0][1] = True

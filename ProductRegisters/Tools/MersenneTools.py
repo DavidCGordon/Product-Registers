@@ -1,22 +1,19 @@
 from itertools import chain, combinations
 from math import log
 
+#small node class for 
 class Node:
     def __init__(self,val,left,right, count = 0):
         self.val = val
         self.left = left
         self.right = right
         self.count = count
-    
-    #def __str__(self): return str(self.val)
-    #def __repr__(self): return str(self.val)
 
     @classmethod
     def leaf(self):
         return Node(None,None,None)
 
-
-#first 47 mersenne exponents
+#first 47 mersenne exponents (well beyond what is needed) from the OEIS:
 MerExp = [2,3,5,7,13,17,19,31,61,89,107,127,521,607,1279,
           2203,2281,3217,4253,4423,9689,9941,11213,19937,
           21701,23209,44497,86243,110503,132049,216091,
@@ -45,7 +42,7 @@ def unwrap_helper(node):
         else:
             #append this value to all solutions not using this value:
             right_sol = [x+[node.val] for x in unwrap_helper(node.right)]
-    return left_sol+right_sol
+    return left_sol + right_sol
 
 def analyzeAll(lim):
     #select only necessary mersenne exponents
@@ -89,6 +86,7 @@ def analyze(ns):
     return out
 
 def listPossible(*args):
+    #match the range() interface
     if len(args) == 1:
         start = 0
         stop = args[0]
@@ -104,10 +102,15 @@ def listPossible(*args):
     else: 
         raise ValueError
 
+    #analyse the selected values
     table = analyzeAll(stop) #O(nlogn) call dominates this function
     row_length = len(table[0]) 
+
+    #get the counts of the appropriate nodes
     rows_in_range = table[start:stop+1:step]
     values = [row[row_length-1].count for row in rows_in_range]
+
+    #return nonzero counts:
     return [(i+start,v) for (i,v) in enumerate(values) if v][1:]
 
 
@@ -124,7 +127,7 @@ def cyc_sizes(sizes):
 			prod *= c
 		out.append(prod)
 	return out
-    
+
 def exp(sizes):
 	cycs = cyc_sizes(sizes)
 	tot = sum(cycs)
@@ -147,11 +150,12 @@ def pprint(ns):
 
 
 
-#single number check:
+#single number brute force check:
 def single(target):
     #select only necessary mersenne exponents
     i = 0
-    while (i<len(MerExp) and target >= MerExp[i]): i += 1
+    while (i<len(MerExp) and target >= MerExp[i]): 
+        i += 1
     MerTable = MerExp[:i]
 
     out = []

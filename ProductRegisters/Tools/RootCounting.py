@@ -1,380 +1,323 @@
-from itertools import product,chain,combinations
-from ProductRegisters.ANF import ANF
+from itertools import product
+from itertools import groupby
 
-#small combinatorial helper fns:
-def powerset(iterable):
-	    s = list(iterable)
-	    return chain.from_iterable(combinations(s, r) for r in range(1,len(s)+1))
+from functools import cached_property
 
+#class only used internally for CMPR algorithm at the moment
+
+class RootExpression:
+    # ANF FORMAT:
+    # XOR: xors are handled as a list of terms
+    # AND: terms are handled as a dict of basis->count
+    # GF(2): GF(2) values are ignored, and are handled outside.
+
+    def __init__(self,anf = None):
+        if anf is None:
+            anf = []
+        self.anf = anf
+
+    def __add__(self, other):
+        #clean out redundant subsets and merge.
+        new_anf = maximalElements(
+            leq_ordering=isSubset, 
+            input_lists=[self.anf, other.anf]
+        )
+
+        return RootExpression(new_anf)
+
+    # handle foiling multiplication
+    def __mul__(self, other):
+        #foil
+        new_term_lists = []
+        for term_a, term_b in product(self.anf, other.anf):
+            new_term_lists.append([merge_terms(term_a,term_b)])
+
+        #clean out redundant subsets.
+        new_anf = maximalElements(
+            leq_ordering = isSubset,
+            input_lists = new_term_lists
+        )
+
+        return RootExpression(new_anf)
+
+
+    #calculate upper bound (ignoring bases in locked list)
+    def upper(self, locked_list = None):
+
+        #clean/remove embedded SUBsets:
+        cleaned_terms = maximalElements(
+            leq_ordering = isEmbeddedSubset,
+            input_lists = [self.anf]
+        )
+
+        #create basis table:
+        basis_table = createBasisTable(
+            term_list = cleaned_terms,
+            optimistic = True,
+            locked_list = locked_list
+        )
+
+        #evaluate basis table using hyperrec algorithm:
+        linear_complexity = 0
+        for x in basis_table.values():
+            linear_complexity += solve(x)
+        return linear_complexity
+
+
+    #calculate lower bound (ignoring bases in locked list)
+    def lower(self, locked_list = None, safety_factor = None):
+        
+        #clean/remove embedded sets:
+        cleaned_terms = maximalElements(
+            leq_ordering = isEmbeddedSet,
+            input_lists = [self.anf]
+        )
+
+        #create basis table:
+        basis_table = createBasisTable(
+            term_list = cleaned_terms,
+            optimistic = False,
+            locked_list = locked_list,
+            safety_factor = safety_factor
+        )
+
+        #evaluate basis table using hyperrec algorithm:
+        linear_complexity = 0
+        for x in basis_table.values():
+            linear_complexity += solve(x)
+        return linear_complexity
+
+        
+
+def createBasisTable(term_list,optimistic,locked_list, safety_factor=None):
+    basis_table = {}
+    for term in term_list:
+        converted = [] #stores binsum(basis,count) for the term
+        basis = []     #stores the bases for the term
+
+        # sort the term for consistent ordering of dimensions.
+        ordered = sorted(term.items(),key = lambda x:x[0], reverse = True)
+
+        locked = False
+
+        for b,c in ordered:
+            
+            # don't add terms whose basis is locked:
+            if locked_list and b in locked_list:
+                locked = True
+                break
+
+            # optimistic flag determines whether we include embedded sets.
+            if optimistic:
+                converted.append(binsum(b,c))
+            else:
+                converted.append(safety_margin(b,c,safety_factor))
+            basis.append(b)
+
+        # if this term was not locked, append it to the list.
+        if not locked:
+            basis = tuple(basis)
+            if basis in basis_table:
+                basis_table[basis].append(tuple(converted))
+            else:
+                basis_table[basis] = [tuple(converted)]
+    return basis_table
+
+# Union (AND) of terms, combining counts as needed
+# returns a new dict (new term).
+def merge_terms(*terms):
+    new_term = {}
+    
+    # sum all counts in the same basis
+    # uses a table for efficient lookup
+    for term in terms:
+        for basis,count in term.items():
+            
+            if basis in new_term:
+                new_term[basis] += count
+            else:
+                new_term[basis] = count
+
+    # reduce the sums so no value > key
+    for basis in new_term:
+        new_term[basis] = min(basis,new_term[basis])
+        
+    return new_term
+
+#HELPERS FOR EVAL:
 def choose(n,k):
     prod = 1
     for i in range(k):
         prod *= (n-i)/(k-i)
     return round(prod)
 
-def binsum(n,k):
+def binsum(n,d):
     tot = 0
-    for i in range(1,k+1):
-        tot += choose(n,i)
+    for k in range(1,d+1):
+        tot += choose(n,k)
     return tot
 
-#A small pair class, to designate pairs describing root sets 
-class RootPair:
-    def __init__(self,basis,count):
-        self.basis = basis
-        self.count = count
+def safety_margin(b,c,safety_factor):
+    if b == c: 
+        return binsum(b,c-1) - safety_factor * b
+    else:
+        return binsum(b,c) - safety_factor * b
+"""
+TERM RELATIONSHIPS ------------------------------------------------------------------------------------------
 
-    def __repr__(self):
-        return f"<{self.basis},{self.count}>"
+Math Note:
+all three methods "is____" methods define partial orders;
+this makes the O(n^2) single pass "kick out" algorithm correct
+    - it is also likely optimal, unfortunately.
+"""
 
-#A class which implements general sequence manipulation
-class RootExpression:
+#leq_ordering(A,B) returns true if A <= B
+def maximalElements(leq_ordering, input_lists):
 
-    #An easy constructor of a given size. 
-    @classmethod
-    def fromPrimitive(self,n):
-        return RootExpression([[RootPair(n,1)]])
+    maximal_list = []
+    for input_list in input_lists:
+        for term in input_list:
+            maximal = True
+
+            for already_added in maximal_list:
+                if leq_ordering(already_added, term):
+                    maximal_list.remove(already_added)
+                    break
+
+                elif leq_ordering(term,already_added):
+                    maximal = False
+                    break
+                
+            if maximal:
+                maximal_list.append(term)
+
+    return maximal_list
+
+
+# If the roots in A are a subset of those in B
+def isSubset(a,b):
+    if a.keys() != b.keys():
+        return False
+
+    # all counts in A must be < B to be a subset.
+    for k in a.keys():
+        if a[k] > b[k]:
+            return False
+
+    # if all conditions pass, return true
+    return True
+
+
+# If A might be embedded in B (causing a degeneracy)
+def isEmbeddedSet(a,b):
+    a_keyset = set(a.keys())
+    b_keyset = set(b.keys())
+
+    # there should be a strict subset relationship on keys:
+    if not a_keyset.issubset(b_keyset):
+        return False
+
+    # all shared keys should have equal values.
+    for k in b_keyset.intersection(a_keyset):
+        if a[k] != b[k]:
+            return False
+
+    # all non shared keys should be maxed out.
+    for k in (b_keyset - a_keyset):
+        if b[k] != k:
+            return False
+
+    # if all conditions pass, return true
+    return True
+
+#  If set A is a subset of something that might be embedded in B:
+def isEmbeddedSubset(a,b):
+    a_keyset = set(a.keys())
+    b_keyset = set(b.keys())
+
+    # there should be a strict subset relationship on keys:
+    if not a_keyset.issubset(b_keyset):
+        return False
+
+    # all shared keys should have A <= B .
+    for k in b_keyset.intersection(a_keyset):
+        if a[k] > b[k]:
+            return False
+
+    # all non shared keys should be maxed out.
+    for k in (b_keyset - a_keyset):
+        if b[k] != k:
+            return False
+
+    # if all conditions pass, return true
+    return True
+
+
+
+
+"""
+HYPERREC-ALG FOR FASTER EVALUATION --------------------------------------------------------------------------
+
+API:
+solve
+"""
+
+#group tuples by first dimension, and add an empty "0" layer
+def preprocess(rectangle_list):
+    output = sorted(rectangle_list, key = lambda x: x[0], reverse=True)
+    output = [(k, [x[1:] for x in g]) for k, g in groupby(output, key = (lambda x: x[0]))]
+    output.append((0,[]))
+    return output
+
+# check if tuple 1 is <= than tuple 2 in every index
+# this indicates rectangle A is contained entirely in rectangle B
+def rect_sset(rect_A,rect_B):
+    return all(a <= b for a,b in zip(rect_A,rect_B))
+
+#insert tuples from a into b, if they are still needed.
+def insert_tuples(upper_layer, lower_layer):
+    still_needed = []
+    for upper_rectangle in upper_layer:
+        needed = True
+
+        # if any rectangle in the lower layer needs includes this one:
+        # it is not needed for further area calculations
+        for lower_rectangle in lower_layer:
+            if rect_sset(upper_rectangle,lower_rectangle):
+                needed = False
+                break
+        if needed:
+            still_needed.append(upper_rectangle)
+
+    #add the rectangles which are still needed:
+    lower_layer += still_needed
+
+#recursive call to solve (grows poorly with dim, but MUCH better with
+#number of rectangles: significantly faster/more useable.
+def _solve_rec(dimension,rectangle_list):
+    # base case:
+    if dimension == 1:
+        return max(x[0] for x in rectangle_list)
     
-    
-    def __init__(self,rootANF):
-        #{tuple: ANF} table.
-        #the Label tuple is sorted descending (e.g. [7,5,3]).
-        #the Corresponding ANF consists of all terms with the same basis.
-        self.rootANF = ANF(rootANF)
+    total_area = 0
+    processed_list = preprocess(rectangle_list)
 
-    def clone(self):
-        newterms = []
-        for term in self.rootANF:
-            newterms.append([RootPair(rp.basis, rp.count) for rp in term])
-        return RootExpression(newterms)
+    for layer in range(len(processed_list)-1):
 
-    #construct basis table:
-    def basis_table(self):
-        table = {}
-        for term in self.rootANF:
-            label = tuple(sorted([rp.basis for rp in term]))
-            if label in table:
-                table[label].add(term)
-            else:
-                table[label] = ANF([term])
-        return table 
+        # use the current dimension to get the width of the layer
+        layer_width = processed_list[layer][0] - processed_list[layer+1][0]
+        # solve the subproblem 1 dimension down to get the cross-sectional area
+        cross_section_area = _solve_rec(dimension-1, processed_list[layer][1])
+        # multiply to get the volume of the cross-section and add to total area
+        total_area += layer_width * cross_section_area
 
-    #combinationANF :: ANF of ints
-    #varMap :: int -> RootExpression map
-    @classmethod 
-    def fromCombination(self, varMap, combinationANF):
-        # initial ANF product
-        # this handles "forced" degeneracies. 
-        initialANF = ANF()
-        for term in combinationANF:
-            newTerms = ANF([True])
-            for var in term:
-                newTerms *= varMap[var].rootANF
-            initialANF += newTerms
+        # insert any still needed rectangles into the next layer:
+        # this ensures the cross-sectional area remains correct.
+        insert_tuples(processed_list[layer][1], processed_list[layer+1][1])
 
-        # merge same basis pairs and convert full root sets
-        # this handles combination logic and overflow.
-        convertedANF = ANF()
-        for term in initialANF:
-            # term is a frozenSet of rootPairs:
+    return total_area
 
-            # newTerms holds the ANF of the stuff being added.
-            # because it is a product, it is initialized to "1"
-            newTerms = ANF([True])
-
-            # group rootPairs by basis (within a single term)
-            # table looks like {(basis):[list of RootPairs]}
-            table = {}
-            for rootpair in term:
-                if rootpair.basis in table:
-                    table[rootpair.basis] += [rootpair]
-                else:
-                    table[rootpair.basis] = [rootpair]
-
-            # create newTerms
-            for b,ls in table.items():
-                # if its a single term, keep the same RootPair for xor-cancellation
-                if len(ls) == 1:
-                    newTerms *= ANF([[ls[0]]])
-                # else, merge counts, and create new terms
-                else:
-                    c = sum(rp.count for rp in ls)
-                    if c >= b:
-                        newPair = RootPair(b,b-1)
-                        newTerms *= ANF([[newPair],True])
-                    else:
-                        newPair = RootPair(b,c)
-                        newTerms *= ANF([[newPair]])
-            convertedANF += newTerms
-
-        # simplify ANF assuming nondegeneracy 
-        # NOTE: this introduces error, which grows the more this function is called
-        # but, it is also necessary for this to not explode.
-
-        finalANF = ANF()
-        table = {}
-
-        #construct basis table using tuples
-        for term in convertedANF:
-
-            #create sorted label/count tuples for the term:
-            label = []
-            counts = []
-            ls = sorted([(rp.basis,rp.count) for rp in term], key = lambda x: x[0])
-            for basis,count in ls:
-                label.append(basis)
-                counts.append(count)
-            label = tuple(label)
-            counts = tuple(counts)
-
-            # if the label is in the table:
-            if label in table:
-
-                useful = True
-                for other_counts, other_term in table[label]:
-
-                    # if this term's root set is a subset of other term, don't add.
-                    if not any((a > b) for a, b in zip(counts,other_counts)):
-                        useful = False
-                        break
-
-                    # if other root set is a subset of this term's, remove the old one.
-                    elif all((a >= b) for a, b in zip(counts,other_counts)):
-                        table[label].remove((other_counts,other_term)) 
-
-                #only append to table if it's useful
-                if useful:
-                    table[label] += [(counts,term)]
-            else:
-                table[label] = [(counts,term)]
-
-        # convert table back into a single ANF
-        for group in table.values():
-            finalANF += ANF([term for counts,term in group])
-        return RootExpression(finalANF)
-
-    def __add__(self,other):
-        return RootExpression(self.rootANF + other.rootANF)
-              
-    def __str__(self):
-        outStr = ""
-        for label, anf in self.basis_table().items():
-            outStr += "--<"
-            empty = True
-            for basis in label:
-                empty = False
-                outStr += f"{basis}, "
-            if not empty:
-                outStr = outStr[:-2] + ">--\n"
-            else:
-                outStr += " Identity >--"
-        
-            for term in anf:
-                outStr += "("
-                for rp in term:
-                    outStr += f"{rp.__str__()}, "
-                outStr = outStr[:-2] + ")\n"
-        return outStr
-
-    def eval(self):
-        LinearComplexity = 0
-
-        #remove duplicates before calculating
-        table = {}
-        for term in self.rootANF:
-
-            #create sorted label/count tuples for the term:
-            label = []
-            counts = []
-            ls = sorted([(rp.basis,rp.count) for rp in term], key = lambda x: x[0])
-            for basis,count in ls:
-                label.append(basis)
-                counts.append(count)
-            label = tuple(label)
-            counts = tuple(counts)
-
-            # if the label is in the table()
-            if label in table:
-
-                useful = True
-                for other_counts in table[label]:
-                    #if its less than or equal something already added, break and dont add.
-                    if (counts == other_counts) or not any((a > b) for a, b in zip(counts,other_counts)):
-                        useful = False
-                        break
-
-                    # if its strictly greater than something already added, remove the lesser.
-                    # this may not ever proc?
-                    elif all((a >= b) for a, b in zip(counts,other_counts)):
-                        table[label].remove(other_counts)
-
-                #only append to table if it's useful/unique
-                if useful:
-                    table[label] += [counts]
-            else:
-                table[label] = [counts]
-
-        #use relevant terms to calculate LC:             
-        for label,group in table.items():
-            for subset in powerset(group):
-                #calculate intersection:
-                intersection = [min(cs) for cs in zip(*subset)]
-
-                #calculate intersection binsum product
-                termProduct = 1
-                for basis,count in zip(label,intersection):
-                    termProduct *= binsum(basis,count)
-                sign = (-1)**(len(subset)+1)
-                LinearComplexity += (sign*termProduct)
-        return LinearComplexity
-
-
-
-    """
-    def __mul__(self,other):
-        # initial ANF product
-        initialANF = self.rootANF * other.rootANF
-
-        # merge same basis pairs and
-        # convert full root sets
-        convertedANF = ANF()
-        for term in initialANF:
-            # term is a frozenSet of rootPairs:
-
-            # newTerms holds the ANF of the stuff being added.
-            # because it is a product, it is initialized to "1"
-            newTerms = ANF([True])
-
-            # group rootPairs by basis (within a single term)
-            # table looks like {(basis):[list of RootPairs]}
-            table = {}
-            for rootpair in term:
-                if rootpair.basis in table:
-                    table[rootpair.basis] += [rootpair]
-                else:
-                    table[rootpair.basis] = [rootpair]
-
-            # create newTerms
-            for b,ls in table.items():
-                # if its a single term, keep the same RootPair for xor-cancellation
-                if len(ls) == 1:
-                    newTerms *= ANF([[ls[0]]])
-                # else, merge counts, and create new terms
-                else:
-                    c = sum(rp.count for rp in ls)
-                    if c >= b:
-                        newPair = RootPair(b,b-1)
-                        newTerms *= ANF([[newPair],True])
-                    else:
-                        newPair = RootPair(b,c)
-                        newTerms *= ANF([[newPair]])
-            convertedANF += newTerms
-        #remove "useless" terms:
-        #construct basis table using tuples
-        table = {}
-        for term in convertedANF:
-
-            #create sorted label/count tuples for the term:
-            label = []
-            counts = []
-            ls = sorted([(rp.basis,rp.count) for rp in term], key = lambda x: x[0])
-            for basis,count in ls:
-                label.append(basis)
-                counts.append(count)
-            label = tuple(label)
-            counts = tuple(counts)
-
-            # if the label is in the table:
-            if label in table:
-
-                useful = True
-                for other_counts, other_term in table[label]:
-
-                    # something in the table is useful according to what we've seen so far
-                    #  => if you find something that matches it: stop thinking - just add :)
-                    if counts == other_counts:
-                        break
-
-                    # if other root set is a subset of this term's, remove the old one.
-                    elif all((a >= b) for a, b in zip(counts,other_counts)):
-                        table[label].remove((other_counts, other_term))
-
-                    # if this term's root set is a subset of other term.
-                    elif not any((a <= b) for a, b in zip(counts,other_counts)) and counts != other_counts:
-                        useful = False
-                        break
-
-                #only append to table if it's useful
-                if useful:
-                    table[label] += [(counts,term)]
-            else:
-                table[label] = [(counts,term)]
-
-        # convert table back into a single ANF
-        finalANF = ANF()
-        for group in table.values():
-            finalANF += ANF([term for counts,term in group])
-        return RootExpression(finalANF)
-        """
-    """
-        #create table of identical label/count pairs
-        #construct basis table: (basis,count) -> [terms]
-        duplicates_table = {}
-        for term in convertedANF:
-            #create sorted label/count tuples for the term:
-            label = []
-            counts = []
-            ls = sorted([(rp.basis,rp.count) for rp in term], key = lambda x: x[0])
-            for basis,count in ls:
-                label.append(basis)
-                counts.append(count)
-            label = tuple(label)
-            counts = tuple(counts)
-            
-            if (label,counts) in duplicates_table:
-                duplicates_table[label,counts] += [term]
-            else:
-                duplicates_table[label,counts] = [term]
-        for (label,counts),terms in duplicates_table.items():
-            print(label,counts,terms)
-            if len(terms) > 1:
-                for term in terms:
-                    convertedANF.remove(term)
-                convertedANF.add(frozenset(RootPair(basis, count) for basis, count in zip(label,counts)))
-        
-        #return RootExpression(convertedANF)
-
-        #clean ANF of (same basis-lower count) terms
-        #create new ANFs grouped by term-basis
-        table = {}
-        for term in convertedANF:
-            label = []
-            counts = []
-            ls = sorted([(rp.basis,rp.count) for rp in term], key = lambda x: x[0])
-            for b,c in ls:
-                label.append(b)
-                counts.append(c)
-            label = tuple(label)
-            counts = tuple(counts)
-            if label in table:
-                table[label] += [(counts,term)]
-            else:
-                table[label] = [(counts,term)]
-        
-        #remove duplicates
-        for label,group in table.items():
-            something_removed = True
-            while len(group) > 1 and something_removed:
-                for counts1, term1 in group:
-                    for counts2, term2 in group:
-                        something_removed = False
-                        if all((a >= b) for a, b in zip(counts1,counts2)) and term1 != term2:
-                            group.remove((counts2,term2))
-                            something_removed = True
-
-        #convert lists into ANFs:
-        finalANF = ANF()
-        for label,group in table.items():
-            finalANF += ANF(term for count,term in group)
-        """
-        #return RootExpression(finalANF
+#wrapper to preprocess dimension for ease of use.
+def solve(rectangle_list):
+    dimension = len(rectangle_list[0])
+    return _solve_rec(dimension,rectangle_list)

@@ -2,23 +2,29 @@ from BitVector import BitVector
 
 from ProductRegisters.Functions import FeedbackFunction
 from ProductRegisters.Functions import MPR
-from ProductRegisters.ANF import ANF
 
+from ProductRegisters.ANF import ANF
+from ProductRegisters.Tools.RootCounting import RootExpression
 
 from random import randint, sample
 import numpy as np
 
+from functools import cached_property
+
 class CMPR(FeedbackFunction):
+
     def __init__(self, FnList):
-        self.divisions = []
+        #list of [0..sizes.. size]
+        self.num_subregisters = len(FnList)
+        self.divisions = [] 
 
         shift = 0
         currFn = []
         for MPR in FnList[::-1]:
             
             self.divisions.append(shift)
-            #self.subregister_types.append(type(bitFn).__name__)
             shiftedFn = []
+
             for fn in MPR.anf:
                 newfn = []
                 for term in fn:
@@ -40,13 +46,13 @@ class CMPR(FeedbackFunction):
         self.size = len(self.anf)
         self.divisions.append(self.size)
 
-    @property
+    @cached_property 
     def blocks(self):
-        blocks = []
+        block_list = []
         for d in range(len(self.divisions)-1):
             bits = list(range(self.divisions[d], self.divisions[d+1]))
-            blocks.append(bits)
-        return blocks[::-1]
+            block_list.append(bits)
+        return block_list[::-1]
 
     #overwrite bitfn str method, adds block divisions
     def __str__(self):
@@ -61,6 +67,8 @@ class CMPR(FeedbackFunction):
         return outstr[:-1]
 
 
+    # TODO: This samples poorly for linear complexity:
+    #  - we whould rewrite with better heuristics
     def generateChaining(self, maxTerms = 4, maxTermSize = 5):
         #iterate through the blocks:
         for d in range(len(self.divisions)-2):
@@ -68,7 +76,6 @@ class CMPR(FeedbackFunction):
             #Calculate the range of the upperblocks
             upperBlocks = range(self.divisions[d+1], self.size)
             blockSize = len(upperBlocks)
-            print(blockSize)
             #iterate through the bits in the current block
             for bit in range(self.divisions[d], self.divisions[d+1]):
                 
@@ -169,27 +176,91 @@ class CMPR(FeedbackFunction):
            
         return BitVector(bitlist = [key[i] for i in range(self.size)][::-1])
     
+    @property
+    def RootExpressions(self):
+        block_map = {}   # map: bit -> block
+        expr_table = {}  # map: block -> expression
 
-    """
-    ALGORITHM IN PROGRESS:
-    #use this to automate the LC estimate
-    def LC_estimate(self):
+        blocks = self.blocks
+        for b in range(len(blocks)):
+            
+            #create inital RE for each block
+            expr_table[b] = RootExpression([{len(blocks[b]) : 1}]) 
 
-        #create a bunch of range objects for each block:
-        divs = self.divisions + [self.size]
-        blocks = []
-        for d in range(len(self.divisions)):
-            blocks.append(list(range(divs[d],divs[d+1])))
-        blocks = blocks[::-1]
+            for bit in blocks[b]:
+                block_map[bit] = b # map each bit to its corresponding block            
 
-        
-        #create a table: bit index -> RootExpression
-        RootTable = {}
+            unified = RootExpression() #the unified expression for the entire block
+            for bit in blocks[b]:
+                for term in self.anf[bit]:
+                    #create RE for the term:
+                    if term == frozenset():
+                        pass
+                    else:
+                        new_term = None
+                        for val in term:
+                            if new_term == None: #use the first value as the base for the term
+                                new_term = expr_table[block_map[val]]
+                            else:
+                                new_term *= expr_table[block_map[val]]
+
+                    #insert unify the RE for the new term with the rest of the block
+                    unified += new_term
+
+            expr_table[b] = unified
+        out_list= [expr_table[block_map[bit]] for bit in range(self.size)]
+        return out_list
+
+
+    def estimate_LC(self, output_bit, safety_factor = 2, locked_list = None, benchmark = False):
+        # locked-list is used to cancel effects of the locked registers.
+        # the locked list contains the sizes of the locked MPRs
+
+        from time import time_ns
+        t1 = time_ns()
+        bitRE = self.RootExpressions[output_bit]
+        t2 = time_ns()
+
+        if benchmark:
+            print(f"Root Expression Generation: {len(bitRE.anf)} terms generated in {t2-t1} ns")
+
+        t1 = time_ns()
+        #get the length of the block bit is in.
+        blocks = self.blocks
         for block in blocks:
-            #figure out the total function by converting each:
-                #ANF -> root expr
-                #Union? all the root EXPRs (figure out how to combine them).
+            if output_bit in block:
+                blockLen = len(block)
+        
+        #lower the minimum if this block is locked:
+        if locked_list and blockLen in locked_list:
+            blockLen = 1
 
-            # clone and assign to each bit :)
-            for bit in block:
-    """
+        #add 1 to include the "True" / 1 in GF(2) value we ignore:
+        upper = bitRE.upper(locked_list) + 1
+
+        #subtract safety_factor * size to account for some natural degeneracies:
+        # TODO: need a better incorporation of the safety factor.
+
+        """
+        SAFETY FACTOR NOTES:
+
+        Issues:
+         - it is wildly unlikely for cosets to degenerate in the mathematical limit,
+           but the subregisters can be small, so the chance is non-negligible in reality;
+
+        - when cosets degenerate they take with them several roots, if these happen
+          to be in a product/term they can cause LARGE degeneracies.
+
+        - tracking the effect of one degeneracy either requires extreme pessimism 
+          (assuming everything degenerates) or individual tracking on the "wires"
+                - this may be mitigated by the cleaning we do?
+                - currently we use extreme pessimism in the safety factor, but this may be an
+                  area we can improve on in the future.
+        """
+
+        lower = max(blockLen,bitRE.lower(locked_list,safety_factor))
+        t2 = time_ns()
+        if benchmark:
+            print(f"Terms evaluated in {t2-t1} ns")
+
+        return (lower,upper)

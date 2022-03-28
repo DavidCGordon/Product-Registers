@@ -1,7 +1,7 @@
 from itertools import product
 
 # A container class which can hold an ANF of any hashable type
-# Note that this class is unordered.
+# Note that this class is unordered, because it uses sets. 
 class ANF:
 
     #converts iterables/bools to the internal format of ANF

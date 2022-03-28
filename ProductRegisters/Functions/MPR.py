@@ -4,8 +4,9 @@ from ProductRegisters.Functions import FeedbackFunction
 from ProductRegisters.ANF import ANF
 
 from ProductRegisters import FeedbackRegister
-from ProductRegisters.Functions import Fibonacci
+from ProductRegisters.Tools.BerlekampMassey import berlekamp_massey
 
+from functools import cached_property
 
 class MPR(FeedbackFunction):
     def __init__(self, size, primitive_poly, update_poly = None):
@@ -58,7 +59,12 @@ class MPR(FeedbackFunction):
         #return real bits
         self.anf = functions[:size]
 
-        #create a feedbackregister to determine minimal polynomial
-        #not necessary to generate hardware, but nice to have
+    @cached_property
+    def minimal_polynomial(self):
+        #create a feedback register to determine minimal polynomial
+        seq = []
         testReg = FeedbackRegister(2**self.size-1,self)
-        self.minimal_polynomial = Fibonacci.fromReg(testReg,0)[1].primitive_polynomial
+        for state in testReg.run((self.size+1)*2):
+            seq.append(state[0])
+        _, m = berlekamp_massey(seq)
+        return m

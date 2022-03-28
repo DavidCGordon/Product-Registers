@@ -78,17 +78,15 @@ class FeedbackRegister:
 
         #list of inputs
         if type(arg) == list:
-            yield self
             for inpt in arg:
-                self.input(inpt)
                 yield self
+                self.input(inpt)
 
         #number of iterations to run
         elif type(arg) == int:
             for _ in range(arg):
                 yield self
                 self.clock()
-            yield self
                 
         #no limit
         elif arg == None:

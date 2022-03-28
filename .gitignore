@@ -1,8 +1,11 @@
 **/__pycache__
 **/Data
+**/Hidden
 
 .gitignore
 
-*Hidden
-*Script.py
+
+Script.py
+
 **/*.json
+DifferentialTools.py

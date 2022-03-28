@@ -141,51 +141,59 @@ class FeedbackFunction:
     def generateVHDL(self, filename):
         with open(filename, "w") as f:
             f.write(f"""
-                library ieee;
-                use ieee.std_logic_1164.all;
+library ieee;
+use ieee.std_logic_1164.all;
 
-                entity fpr is
-                    port (
-                    i_clk :in std_logic;
-                    i_rst : in std_logic;
-                    i_seed_data: in std_logic_vector( {self.size - 1} downto 0);
-                    output: out std_logic_vector({self.size - 1} downto 0)
-                    );
-                end entity fpr;
+entity fpr is
+    port (
+    i_clk :in std_logic;
+    i_rst : in std_logic;
+    i_seed_data: in std_logic_vector( {self.size - 1} downto 0);
+    output: out std_logic_vector({self.size - 1} downto 0)
+    );
+end entity fpr;
 
-                architecture run of fpr is
+architecture run of fpr is
 
-                    signal currstate, nextstate:std_logic_vector({self.size - 1} downto 0);
+    signal currstate, nextstate:std_logic_vector({self.size - 1} downto 0);
 
 
-                begin
+begin
 
-                    statereg: process(i_clk, i_rst)
-                    begin
-                        if (i_rst = '1') then
-                            currstate <= i_seed_data;
-                        elsif (i_clk = '1' and i_clk'event) then
-                            currstate <= nextstate;
-                        end if;
-                    end process;\n""")
-                        
+    statereg: process(i_clk, i_rst)
+    begin
+        if (i_rst = '1') then
+            currstate <= i_seed_data;
+        elsif (i_clk = '1' and i_clk'event) then
+            currstate <= nextstate;
+        end if;
+    end process;\n""")
+        
             for i in range(self.size - 1, -1 , -1):
                 writestr = ""
                 writestr += f"    nextstate({str(i)}) <= "
                 for term in self.anf[i]:
-                    if type(term) == bool:
-                        writestr += f"currstate({str(i)}) XOR "
+                    #these conditions might cause errors:
+
+                    #if the FN contins a logical true:
+                    if type(term) == bool or term == frozenset():
+                        writestr += "'1' XOR "
+                    
+                    #if the term is a single value:
                     elif len(term) == 1:
-                        writestr += f"currstate({str(term[0])}) XOR "
+                        writestr += f"currstate({str(tuple(term)[0])}) XOR "
+
+                    #if the term is an AND group:
                     else :
                         writestr += "(" + " AND ".join(f"currstate({str(t)})" for t in term) +") XOR "
+                
                 writestr = writestr[:-5] + ";\n"
                 f.write(writestr)
             f.write("""
 
-                    output <= currstate;
+    output <= currstate;
 
-                end run;
+end run;
 
-                """)
+""")
     

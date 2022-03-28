@@ -1,9 +1,8 @@
 from BitVector import BitVector
 
-from ProductRegisters.Functions import FeedbackFunction
 from ProductRegisters import ANF
-
-from copy import deepcopy
+from ProductRegisters.Functions import FeedbackFunction
+from ProductRegisters.Tools.BerlekampMassey import berlekamp_massey
 
 class Fibonacci(FeedbackFunction):
 
@@ -46,53 +45,17 @@ class Fibonacci(FeedbackFunction):
             self.anf = self._anf_from_poly(self.size,self.primitive_polynomial)
             self.is_inverted = False
             
-    #use berlekamp-massey algorithm to generate a Fibonacci LFSR
     @classmethod
     def fromSeq(self,seq):
-        #N = total number of bits to process
-        N = len(seq)
-        #c = current connection polynomial guess
-        c = [1] + [0 for i in range(N-1)]
-        #b = prev. connection polynomial guess
-        b = [1] + [0 for i in range(N-1)]
-
-        #L = len(LFSR frame) = upper bound on deg(C)
-        L = 0
-        #m is the index of last change
-        m = -1
+        #run berlekamp massey to determine primitive polynomial
+        L, c = berlekamp_massey(seq)
         
-        #n = bit we are correcting.
-        for n in range(N):
-
-            #calculate discrepancy from LFSR frame
-            d = 0
-            for i in range(L+1):
-                d ^= (c[i] & seq[n-i])
-
-            #handle discrepancy (if needed)
-            if d != 0:
-                
-                #store copy of C
-                temp = c[:]
-
-                #c = c - (x**(n-m) * b)
-                shift = n-m
-                for i in range (shift, N):
-                    c[i] ^= b[i - shift]
-
-                #if 2L <= n, then the polynomial is unique
-                #it's safe to update the linear complexity.
-                if 2*L <= n:
-                    L = n + 1 - L
-                    b = temp
-                    m = n
-                    
-        #return (initial_state of register,fibonacci bitFn)
+        #return Fibonacci LFSR parameters
         init_state = BitVector(bitlist = seq[:L][::-1])
         return init_state, Fibonacci(L, c[:L+1])
 
     @classmethod 
-    def fromReg(self,F, bit):
+    def fromReg(self, F, bit):
         numIters = 2*F.size + 4
         seq = [state[bit] for state in F.run(numIters)]
         return Fibonacci.fromSeq(seq)
