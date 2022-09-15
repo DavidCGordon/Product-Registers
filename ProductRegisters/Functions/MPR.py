@@ -4,7 +4,7 @@ from ProductRegisters.Functions import FeedbackFunction
 from ProductRegisters.ANF import ANF
 
 from ProductRegisters import FeedbackRegister
-from ProductRegisters.Tools.BerlekampMassey import berlekamp_massey
+from ProductRegisters.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey
 
 from functools import cached_property
 

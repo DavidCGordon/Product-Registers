@@ -15,6 +15,12 @@ class RootExpression:
         if anf is None:
             anf = []
         self.anf = anf
+    
+    def __str__(self):
+        " + ".join(
+            ("<" + ", ".join(f"{k}:{v}" for k,v in term.items()) + ">")
+            for term in self.anf
+        )
 
     def __add__(self, other):
         #clean out redundant subsets and merge.
@@ -53,14 +59,14 @@ class RootExpression:
         #create basis table:
         basis_table = createBasisTable(
             term_list = cleaned_terms,
-            optimistic = True,
+            evaluation_function = optimistic_evaluation,
             locked_list = locked_list
         )
 
         #evaluate basis table using hyperrec algorithm:
         linear_complexity = 0
         for x in basis_table.values():
-            linear_complexity += solve(x)
+            linear_complexity += rectangle_solve(x)
         return linear_complexity
 
 
@@ -76,24 +82,23 @@ class RootExpression:
         #create basis table:
         basis_table = createBasisTable(
             term_list = cleaned_terms,
-            optimistic = False,
+            evaluation_function = pessimistic_expected_value,
             locked_list = locked_list,
-            safety_factor = safety_factor
         )
 
         #evaluate basis table using hyperrec algorithm:
         linear_complexity = 0
         for x in basis_table.values():
-            linear_complexity += solve(x)
+            linear_complexity += rectangle_solve(x)
         return linear_complexity
 
         
-
-def createBasisTable(term_list,optimistic,locked_list, safety_factor=None):
+#convert pairs to numerical values for the rectangle algorithm
+def createBasisTable(term_list,evaluation_function,locked_list):
     basis_table = {}
     for term in term_list:
-        converted = [] #stores binsum(basis,count) for the term
-        basis = []     #stores the bases for the term
+        converted = [] # stores binsum(basis,count) for the term
+        basis = []     # stores the bases for the term
 
         # sort the term for consistent ordering of dimensions.
         ordered = sorted(term.items(),key = lambda x:x[0], reverse = True)
@@ -107,11 +112,8 @@ def createBasisTable(term_list,optimistic,locked_list, safety_factor=None):
                 locked = True
                 break
 
-            # optimistic flag determines whether we include embedded sets.
-            if optimistic:
-                converted.append(binsum(b,c))
-            else:
-                converted.append(safety_margin(b,c,safety_factor))
+            # different flags for different computations:
+            converted.append(evaluation_function(b,c))
             basis.append(b)
 
         # if this term was not locked, append it to the list.
@@ -122,6 +124,39 @@ def createBasisTable(term_list,optimistic,locked_list, safety_factor=None):
             else:
                 basis_table[basis] = [tuple(converted)]
     return basis_table
+
+
+#different statistics to change the way the bounds are given:
+
+def optimistic_evaluation(b,c):
+    return binsum(b,c)
+
+def pessimistic_evaluation(b,c):
+    if b == c: 
+        return binsum(b,c-1)
+    else:
+        return binsum(b,c)
+
+def pessimistic_expected_value(b,c):
+    if b == c: 
+        return (binsum(b,c-1) * (2**b-1)**2) / (2**(2*b))
+    else:
+        return (binsum(b,c) * (2**b-1)**2) / (2**(2*b))
+
+""" 
+WORK IN PROGRESS DO NOT USE:
+ 
+def confidence_interval_lower(b,c,base_function, z = 2.58):
+    mean = base_function(b,c) * (2**b-1)**2) / (2**(2*b))
+    deviation = sqrt(((2**b-1) / 2**(2*b)) / (base_function(b,c) / b))
+    return mean - z*deviation
+
+def confidence_interval_upper(b,c,base_function, z = 2.58):
+    mean = base_function(b,c) * (2**b-1)**2) / (2**(2*b))
+    deviation = sqrt(((2**b-1) / 2**(2*b)) / (base_function(b,c) / b))
+    return mean + z*deviation
+"""
+
 
 # Union (AND) of terms, combining counts as needed
 # returns a new dict (new term).
@@ -144,7 +179,7 @@ def merge_terms(*terms):
         
     return new_term
 
-#HELPERS FOR EVAL:
+#HELPERS FOR EVALUATION:
 def choose(n,k):
     prod = 1
     for i in range(k):
@@ -157,11 +192,6 @@ def binsum(n,d):
         tot += choose(n,k)
     return tot
 
-def safety_margin(b,c,safety_factor):
-    if b == c: 
-        return binsum(b,c-1) - safety_factor * b
-    else:
-        return binsum(b,c) - safety_factor * b
 """
 TERM RELATIONSHIPS ------------------------------------------------------------------------------------------
 
@@ -209,6 +239,7 @@ def isSubset(a,b):
 
 
 # If A might be embedded in B (causing a degeneracy)
+# we remove these to avoid duplicates (we only want to count the largest one)
 def isEmbeddedSet(a,b):
     a_keyset = set(a.keys())
     b_keyset = set(b.keys())
@@ -222,7 +253,7 @@ def isEmbeddedSet(a,b):
         if a[k] != b[k]:
             return False
 
-    # all non shared keys should be maxed out.
+    # all non shared keys should be maximum (for each pair (b,c), b should equal c).
     for k in (b_keyset - a_keyset):
         if b[k] != k:
             return False
@@ -231,6 +262,7 @@ def isEmbeddedSet(a,b):
     return True
 
 #  If set A is a subset of something that might be embedded in B:
+#  we remove these when we assume B will be included.
 def isEmbeddedSubset(a,b):
     a_keyset = set(a.keys())
     b_keyset = set(b.keys())
@@ -244,7 +276,7 @@ def isEmbeddedSubset(a,b):
         if a[k] > b[k]:
             return False
 
-    # all non shared keys should be maxed out.
+    # all non shared keys should be maximum (for each pair (b,c), b should equal c).
     for k in (b_keyset - a_keyset):
         if b[k] != k:
             return False
@@ -318,6 +350,6 @@ def _solve_rec(dimension,rectangle_list):
     return total_area
 
 #wrapper to preprocess dimension for ease of use.
-def solve(rectangle_list):
+def rectangle_solve(rectangle_list):
     dimension = len(rectangle_list[0])
     return _solve_rec(dimension,rectangle_list)

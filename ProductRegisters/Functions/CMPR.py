@@ -212,7 +212,7 @@ class CMPR(FeedbackFunction):
         return out_list
 
 
-    def estimate_LC(self, output_bit, safety_factor = 2, locked_list = None, benchmark = False):
+    def estimate_LC(self, output_bit, locked_list = None, benchmark = False):
         # locked-list is used to cancel effects of the locked registers.
         # the locked list contains the sizes of the locked MPRs
 
@@ -241,24 +241,7 @@ class CMPR(FeedbackFunction):
         #subtract safety_factor * size to account for some natural degeneracies:
         # TODO: need a better incorporation of the safety factor.
 
-        """
-        SAFETY FACTOR NOTES:
-
-        Issues:
-         - it is wildly unlikely for cosets to degenerate in the mathematical limit,
-           but the subregisters can be small, so the chance is non-negligible in reality;
-
-        - when cosets degenerate they take with them several roots, if these happen
-          to be in a product/term they can cause LARGE degeneracies.
-
-        - tracking the effect of one degeneracy either requires extreme pessimism 
-          (assuming everything degenerates) or individual tracking on the "wires"
-                - this may be mitigated by the cleaning we do?
-                - currently we use extreme pessimism in the safety factor, but this may be an
-                  area we can improve on in the future.
-        """
-
-        lower = max(blockLen,bitRE.lower(locked_list,safety_factor))
+        lower = max(blockLen,bitRE.lower(locked_list))
         t2 = time_ns()
         if benchmark:
             print(f"Terms evaluated in {t2-t1} ns")

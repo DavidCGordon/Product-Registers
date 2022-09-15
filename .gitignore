@@ -4,7 +4,8 @@
 
 .gitignore
 
-
+Autocorrelation.py
+BerlekampMassey.py
 Script.py
 
 **/*.json

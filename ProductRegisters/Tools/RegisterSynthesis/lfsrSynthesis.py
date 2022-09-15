@@ -41,56 +41,47 @@ def berlekamp_massey(seq):
     #return the linear complexity and connection polynomial
     return (L, curr_guess[:L+1])
 
-def BM_iterative(reg, bit_idx, block_size):
-
-    seq = []
-    N = 0
-
-    #generate initial segment of sequence
-    for state in reg.run(block_size):
-        seq.append(state[bit_idx])
-    N += block_size
-
-    curr_guess = [1] + [0 for i in range(N-1)]
-    prev_guess = [1] + [0 for i in range(N-1)]
+def berlekamp_massey_iterator(seq, yield_rate = 1000):
+    
+    arr = []
+    curr_guess = [1]
+    prev_guess = [1]
 
     # L = current linear complexity
-    L = 0
+    linear_complexity = 0
     # m = index of last change
     m = -1
-    
-    # n = index of bit we are correcting.
-    n = -1
-    while True:
-        n += 1
 
-        #if we have finished a block:
-        if n == N:
-            yield (L)
-            for state in reg.run(block_size):
-                seq.append(state[bit_idx])
-                curr_guess.append(0)
-                prev_guess.append(0)
-            N += block_size
+    for n, bit in enumerate(seq):
+
+        arr.append(bit)
+        curr_guess.append(0)
+        prev_guess.append(0)
+
+        if n % yield_rate == 0:
+            yield (linear_complexity, curr_guess[:linear_complexity + 1])
 
         #calculate discrepancy from LFSR frame
-        d = 0
-        for i in range(L+1):
-            d ^= (curr_guess[i] & seq[n-i])
+        discrepancy = 0
+        for i in range(linear_complexity + 1):
+            discrepancy ^= (curr_guess[i] & arr[n-i])
 
         #handle discrepancy (if needed)
-        if d != 0:
+        if discrepancy:
             
             #store copy of current guess
             temp = curr_guess[:]
 
             #update current guess
             shift = n-m
-            for i in range (shift, N):
+            for i in range (shift, n+1):
                 curr_guess[i] ^= prev_guess[i - shift]
 
             #update LC 
-            if 2*L <= n:
-                L = n + 1 - L
+            if 2 * linear_complexity <= n:
+                linear_complexity = (n + 1) - linear_complexity
                 prev_guess = temp
                 m = n
+
+    while True:
+        yield(linear_complexity, curr_guess[:linear_complexity + 1])

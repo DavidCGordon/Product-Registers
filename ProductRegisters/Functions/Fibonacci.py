@@ -2,7 +2,7 @@ from BitVector import BitVector
 
 from ProductRegisters import ANF
 from ProductRegisters.Functions import FeedbackFunction
-from ProductRegisters.Tools.BerlekampMassey import berlekamp_massey
+from ProductRegisters.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey
 
 class Fibonacci(FeedbackFunction):
 
