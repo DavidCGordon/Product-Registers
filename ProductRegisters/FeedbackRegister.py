@@ -1,4 +1,15 @@
-from BitVector import BitVector
+from ProductRegisters.FeedbackFunctions import FeedbackFunction
+
+
+import numpy as np
+
+import subprocess
+
+from numba import jit
+
+import json
+#import system
+
 
 class FeedbackRegister:
     #INITIALIATION/DATA:
@@ -11,79 +22,58 @@ class FeedbackRegister:
         # set seed
         self.seed(seed)
         # set state to seed
-        self._state = self._seed
+        self._state = self._seed.copy()
+
+        # set next state appropriately
+        self._prev_state = np.zeros_like(self._seed)
 
     def __len__(self): return self.size
 
 
     #REGISTER SEED:
     def seed(self, seed):
-        if type(seed) == BitVector:
-            self._seed = seed
+        # For a given seed
         if type(seed) == int:
-            self._seed = BitVector(intVal = seed, size = self.size)
-        #allowing random.random to be used as a seed:
+            self._seed = np.asarray([int(x) for x in format(seed, f'0{self.size}b')[::-1]], dtype='uint8')
+        if type(seed) == list:
+            self._seed = np.asarray(seed, dtype='uint8')
+
+        # Allowing random.random to be used as a seed:
         if type(seed) == float and 0 < seed  and seed < 1:
             closest_int = round(seed * 2**self.size)
             self.seed(closest_int)
         
     def reset(self):
-        self._state = self._seed
-
+        self._state = self._seed.copy()
 
     #TYPE CONVERSIONS / CASTING:
-    def __int__(self): return int(self._state)
-    def __str__(self): return str(self._state)
-    def __list__(self): return list(self._state)[::-1]
+    def __str__(self): return "".join(str(x) for x in self._state[::-1])
+    def __int__(self): return int(str(self),2)
+    def __list__(self): return self._state[:]
 
     #STATE MANIPULATION:
-    def _bit(self, bitIdx): return (self.size-1-bitIdx % self.size)
-    def __getitem__(self, key): return self._state[self._bit(key)]
-    def __setitem__(self, idx, val): self._state[self._bit(idx)] = val
+    def __getitem__(self, key): return self._state[key]
+    def __setitem__(self, key, val): self._state[key] = val
     
     #ITERATION THROUGH REGISTER BITS:
-    def __iter__(self): return reversed(self._state)
-    def __reversed__(self): return iter(self._state)
+    def __iter__(self): return iter(self._state)
+    def __reversed__(self): return reversed(self._state)
 
 
     #CLOCKING AND RUNNING THE REGISTER:
     def clock(self):
-        nextState = BitVector(intVal = 0, size = self.size)
-        
-        for bitIdx in range(self.size):
-            summation = 0
-            for term in self.fn[bitIdx]:
-                if type(term) == bool:
-                    product = int(term)
-                else:
-                    product = 1
-                    for idx in term:
-                        product &= self._state[self._bit(idx)]
-                summation ^=  product
-            nextState[(self._bit(bitIdx))] = summation
-        self._state = nextState
-        
-    #clock the register and XOR input:
-    def input(self,inpt):
-        l = len(inpt)
-        if type(inpt) == list:
-            inpt = BitVector(bitlist = inpt)
-        inpt.pad_from_right(self.size-l)
-        self.clock()
-        self._state ^= inpt
+        # swap pointers to move _state to _prev_state
+        self._state, self._prev_state = self._prev_state, self._state
+
+        # overwrite the new nextstate
+        for i in range(len(self.fn.fn_list)):
+            self._state[i] = self.fn.fn_list[i].eval(self._prev_state)
+
 
     #generate a sequence of states, in order
     def run(self, arg = None):
-        #different input cases:
-
-        #list of inputs
-        if type(arg) == list:
-            for inpt in arg:
-                yield self
-                self.input(inpt)
-
         #number of iterations to run
-        elif type(arg) == int:
+        if type(arg) == int:
             for _ in range(arg):
                 yield self
                 self.clock()
@@ -94,68 +84,146 @@ class FeedbackRegister:
                 yield self
                 self.clock()
 
-
     #DIAGNOSTIC AND EXTRA INFO     
     #return the period of the register:
     def period(self, lim = 2**18):
-        curState = self._state
-        first_state = self._state
+        first_state = self._state.copy()
         self.clock()
         count = 1
-        while self._state != first_state:
+        while not(all(self._state == first_state)):
             self.clock()
             count += 1
             if count > lim:
+                self._state = first_state.copy()
                 return None
-        self._state = curState
+
+        self._state = first_state.copy()
         return count
 
-    #linear complexity profile of the sequence:
-    def linearComplexity(self,bit,lim):
-        #generate a sequence of length lim
-        seq = []
-        curState = self._state
-        for state in self.run(lim):
-            seq.append(state[bit])
-        self._state = curState
+    def period2(self, iter_lim = 2**18, bit_lim = None):
+        self.fn.compile()
+        first_state = self._state.copy()
+        self.clock()
+        count = 1
 
-        Ls = []
-        #berlekamp-massey
-        N = len(seq)
-        #c = current connection polynomial
-        c = [1] + [0 for i in range(N-1)]
-        #b = prev. connection polynomial
-        b = [1] + [0 for i in range(N-1)]
+        for state in self.run_compiled(iter_lim):
+            if all(state._state[bit_lim:] == first_state[bit_lim:]):
+                break
+            count += 1
 
-        #L = len(LFSR frame) = upper bound on deg(C)
-        L = 0
-        #m is index of last change
-        m = -1
+        self._state = first_state.copy()
         
-        #n = bit we are correcting.
-        for n in range(N):
-            #calculate discrepancy from LFSR frame
-            d = 0
-            for i in range(L+1):
-                d ^= (c[i] & seq[n-i])
+        if count > iter_lim:
+            return None
+        else:
+            return count
 
-            #handle discrepancy if needed
-            if d != 0:
+
+    # must have finite limit
+    # WORSE THAN RUN_COMPILED()
+    def runC(self,lim):
+        if not hasattr(self.fn, "_data_store"):
+            print("Compile first!")
+            return 
+
+        process = subprocess.Popen(
+            [self.fn._data_store + "function_iteration.exe", f"{lim}", "".join(str(i) for i in self)],
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.STDOUT,
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+
+        try:
+            while True:
+                line = process.stdout.readline()
+                if not line:
+                    break
+                current = [int(x) for x in line.decode('utf8').strip()]
+                #current = [int(x) for x in reversed(line.decode('utf8').strip())]
+                yield(current)
+
+        finally:
+            process.kill()
+            self._state = np.asarray(current, dtype='uint8')
+            self.clock()
+
+    def clock_compiled(self):
+        if not hasattr(self.fn, "_compiled"):
+            print("Compile first!")
+            return
+        self._state, self._prev_state = self._prev_state, self._state
+        self._state = self.fn._compiled(self._prev_state)
+        
+    def run_compiled(self, arg = None):
+        if not hasattr(self.fn, "_compiled"):
+            print("Compile first!")
+            return
+
+        update_fn = self.fn._compiled
+        # number of iterations to run
+        if type(arg) == int:
+            for _ in range(arg):
+                yield self
+                # swap pointers to move _state to _prev_state
+                self._state, self._prev_state = self._prev_state, self._state
+                # overwrite _state with the new state
+                self._state = update_fn(self._prev_state)
                 
-                #store copy of C
-                temp = c[:]
+        #no limit
+        elif arg == None:
+            while True:
+                yield self
+                # swap pointers to move next_state to curr_state
+                self._state, self._prev_state = self._prev_state, self._state
+                # overwrite the new nextstate
+                self._state = update_fn(self._prev_state)
+        
 
-                #c = c - x^(n-m)b
-                shift = n-m
-                for i in range (shift, N):
-                    c[i] ^= b[i - shift]
 
-                #if 2L <= n, then the polynomial is unique
-                #it's safe to update
-                if 2*L <= n:
-                    L = n + 1 - L
-                    Ls.append((n,L))
-                    b = temp
-                    m = n
-       
-        return Ls
+    def to_JSON(self):
+        # copy class name and non-nested data
+        JSON_object = {
+            'class': type(self).__name__,
+            'data': self.__dict__.copy()
+        }
+
+        # add data:
+        JSON_object['data']['fn'] = self.fn.to_JSON()
+        JSON_object['data']['_seed'] = self._seed.tolist()
+        JSON_object['data']['_state'] = self._state.tolist()
+        JSON_object['data']['_prev_state'] = self._prev_state.tolist()
+        return JSON_object
+    
+    @classmethod
+    def from_JSON(self, JSON_object):
+        # parse object class and data
+        object_data = JSON_object['data']
+        if JSON_object['class'] != 'FeedbackRegister':
+            raise TypeError(f"Expected type \'FeedbackRegister\', but got \'{JSON_object['class']}\'")
+
+        # put data into new object
+        output = object.__new__(self)
+        for key,value in object_data.items():
+            if key == "fn":
+                output.fn = FeedbackFunction.from_JSON(value)
+            elif key == "_seed":
+                output._seed = np.asarray(value,dtype='uint8')
+            elif key == "_state":
+                output._state = np.asarray(value,dtype='uint8')
+            elif key == "_prev_state":
+                output._prev_state = np.asarray(value,dtype='uint8')
+            else:
+                setattr(output,key,value)
+    
+        return output
+
+    # json files only:
+    def to_file(self, filename):
+        with open(filename, 'w') as f:
+            f.write(json.dumps(self.to_JSON(), indent = 2))
+
+    # json files only:
+    @classmethod
+    def from_file(self, filename):
+        with open(filename, 'r') as f:
+            return FeedbackRegister.from_JSON(json.loads(f.read()))

@@ -1,3 +1,4 @@
+from math import ceil
 
 # May be very optimiseable, but nicely leans on pythons integer
 # implementations right now - 
@@ -6,7 +7,7 @@
 # some modifications/ideas taken from https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=1056960
 
 # http://ijns.jalaxy.com.tw/contents/ijns-v21-n1/ijns-2019-v21-n1-p1-6.pdf
-# - 2-adic complexity of T-Functions (we beat them)
+# - 2-adic complexity of T-Functions (we can beat them)
 
 from math import log2
 
@@ -54,7 +55,7 @@ def BM_FCSR(seq):
 
 
 #takes an iterator and returns an iterator
-def BM_FCSR_Iterator(seq, yield_rate):
+def BM_FCSR_iterator(seq, yield_rate):
     seq = enumerate(seq)
 
     k = 0
@@ -100,16 +101,14 @@ def BM_FCSR_Iterator(seq, yield_rate):
                 num_curr = num_curr + d * 2**(i-m) * num_prev
                 den_curr = den_curr + d * 2**(i-m) * den_prev
 
-    #pseudo-return
-    while True:
-        yield (log2(phi(num_curr,den_curr)), num_curr, den_curr)
+    #pseudo-return:
+    yield (log2(phi(num_curr,den_curr)), num_curr, den_curr)
+    raise StopIteration
 
 
 """
 HELPER METHODS
 """
-
-from math import ceil
 
 # Find the appropriate scale factor
 # b1/b2 = g is the one that gets scaled.
@@ -134,23 +133,17 @@ def phi(num,den):
     return max(abs(num),abs(den))
 
 
-"""
-Evaluation methods:
-
-This synthesis process is independent of the other structures in this library
-to deal with this is a provided method to generate a sequence from a fraction?
-"""
-
 # if n is even, n gets divided by 2 unchanged.
 # if n is odd, n subtracts d and gets divided by 2
 # this is like the divisibility test for n??
 
 # can n hit 0 ?? -> if n hits d -> n hits 0 
 # this might actually be desired, for finite sequences.
-def fcsr_eval(n,d):
-	while True:
-	    a = n % 2 
-	    n = (n-d*a) // 2
-	    yield a
 
-
+def fcsr_eval(n,d,lim = None):
+	i = 0
+	while (not lim) or (i < lim):
+		i += 1
+		a = (n % 2)
+		n = (n-d*a) // 2
+		yield a
