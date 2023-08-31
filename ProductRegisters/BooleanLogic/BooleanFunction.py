@@ -35,6 +35,9 @@ class BooleanFunction:
             self.args = tuple(list(self.args) + list(new_args))
         else:
             raise ValueError(f"{type(self)} object supports at most {self.arg_limit} arguments")
+        
+    def remove_arguments(self, *rem_args):
+        self.args = tuple(x for x in self.args if x not in rem_args)
 
 
     def pretty_lines(self):
@@ -98,37 +101,6 @@ class BooleanFunction:
     def _binarize(self):
         raise NotImplementedError
     
-
-    # @cached
-    # def tseytin_clauses_(self, label_map, visited):
-    #     if self in visited:
-    #         return []
-        
-    #     visited.add(self)
-    #     self_label = label_map[self][0]
-    #     arg_labels = [label_map[arg][0] for arg in self.args]
-
-    #     output = []
-    #     for arg in self.args:
-    #         output += arg._tseytin_recursion(label_map,visited)
-        
-    #     output += type(self).tseytin_formula(*arg_labels, self_label)
-    #     return output
-
-    # @cached
-    # def _tseytin_clauses(self, label_map):
-    #     self_label = label_map[self][0]
-    #     arg_labels = [label_map[arg][0] for arg in self.args]
-
-    #     output = []
-    #     for arg in self.args:
-    #         output += arg._tseytin_clauses(label_map)
-        
-    #     output += type(self).tseytin_formula(*arg_labels, self_label)
-    #     return output
-    
-    
-
 
 
     def eval(self, array):
@@ -246,7 +218,6 @@ self._compiled = _compiled
         return sum(arg.num_nodes() for arg in self.args)
 
 
-
 def iterative_recursion(fn):
     def traversal(self, *args, **kwargs):
         visited = set()
@@ -272,8 +243,6 @@ def iterative_recursion(fn):
 
         return getattr(last, f"{fn.__name__}")(*args, **kwargs)
     return traversal
-
-
 
 
 BooleanFunction.binarize = iterative_recursion(BooleanFunction._binarize)

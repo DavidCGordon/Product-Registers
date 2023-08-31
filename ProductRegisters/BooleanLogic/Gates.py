@@ -3,9 +3,6 @@ from ProductRegisters.BooleanLogic.Inputs import VAR
 from functools import reduce, cache, wraps
 from itertools import product
 
-import inspect
-from .iterative import iterative_postorder
-
 # unified interface for inverting bool-like objects:
 def invert(bool_like):
     if type(bool_like) == bool:
@@ -58,8 +55,6 @@ class XOR(BooleanFunction):
             (a,-b,c),
             (-a,b,c)
         ]
-
-
 
 
 class AND(BooleanFunction):

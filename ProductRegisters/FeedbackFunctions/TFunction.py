@@ -1,8 +1,5 @@
-from ProductRegisters.FeedbackFunctions import FeedbackFunction, MPR, CMPR
-from ProductRegisters.BooleanLogic import AND, XOR, CONST, VAR, BooleanFunction
-
-
-from random import randint, sample, shuffle
+from ProductRegisters.FeedbackFunctions import MPR, CMPR
+from ProductRegisters.BooleanLogic import AND, XOR, CONST, VAR
 
 # Single bit MPR
 M1 = MPR(1,[1,1],[0,1])

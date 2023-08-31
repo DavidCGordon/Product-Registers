@@ -95,8 +95,10 @@ class ANF_spec_repr:
         for term in self.terms:
             if type(term) == bool or ((not term) and type(term) != bool):
                 new_arg = CONST(1)
-            elif len(term) == 1:
-                new_arg = VAR(tuple(term)[0])
+            
+            # elif len(term) == 1:
+            #     new_arg = AND(VAR(tuple(term)[0]))
+
             else:
                 new_arg = AND(*(VAR(i) for i in term))
             top_node.add_arguments(new_arg)
