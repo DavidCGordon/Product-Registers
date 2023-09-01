@@ -25,12 +25,22 @@ class CrossJoin(FeedbackFunction):
         # same as fibonacci ANF generation:
         top_fn = [[size-idx] for (idx, t) in enumerate(primitive_poly) if t == 1][::-1][:-1]
         self.fn_list = [[[(i+1)%size]] for i in range(size-1)] + [top_fn]
-        self.fn_list = [BooleanFunction.construct_ANF(bitFn) for bitFn in self.fn_list]
+        self.fn_list = [
+        XOR(
+            BooleanFunction.construct_ANF(bitFn), # Linear Terms
+            XOR()                                 # Nonlinear Terms
+        ) for bitFn in self.fn_list
+        ]
 
         self.size = size
         self.tau = self.size-1
 
         if nonlinear: self.generateNonlinearity(maxAnds, tapDensity)
+
+        for bit in range(self.size):
+            nonlinear_terms = self.fn_list[bit].args[1]
+            if len(nonlinear_terms.args) == 0:
+                self.fn_list[bit].remove_arguments(nonlinear_terms)
 
     def shiftTerms(self, terms, idxA, idxB):
         for term in terms:
@@ -44,17 +54,20 @@ class CrossJoin(FeedbackFunction):
             
             newTerm = AND(*(VAR(var.index - idxA + idxB) for var in term.args))
 
-            self.fn_list[idxA].remove_arguments(term)
-            self.fn_list[idxB].add_arguments(newTerm)
+            self.fn_list[idxA].args[1].remove_arguments(term)
+            self.fn_list[idxB].args[1].add_arguments(newTerm)
 
     def getMinDestination(self, term):
         return max((self.size - 1) - min(value.index for value in term.args), self.tau)
+        #
 
     def getMaxDestination(self, term):
-        return min((self.size + self.tau) - (max(value.index for value in term.args) + 1), self.size - 1)
+        return min((self.size + self.tau) - (max(value.index for value in term.args)+1), self.size - 1)
 
     def addNonLinearTerm(self,maxAnds):
         minDest = maxDest = 0
+
+
         while not (minDest < maxDest):
             numTaps = randint(2,maxAnds)
             newTerm = AND(*(VAR(i) for i in sample(range(1, self.size), numTaps)))
@@ -64,32 +77,34 @@ class CrossJoin(FeedbackFunction):
         idx1,idx2 = sample(range(minDest,maxDest+1),2)
 
         # add first copy
-        self.fn_list[self.size - 1].add_arguments(newTerm)
+        self.fn_list[self.size - 1].args[1].add_arguments(newTerm)
         self.shiftTerms([newTerm], self.size-1, idx1)
 
         # add second copy
-        self.fn_list[self.size - 1].add_arguments(newTerm)
+        self.fn_list[self.size - 1].args[1].add_arguments(newTerm)
         self.shiftTerms([newTerm], self.size-1, idx2)
 
         # fix edge case caused by cancelations
-        if idx1 == self.size-1:
-             self.fn_list[self.size-1].add_arguments(newTerm)
+        # if idx1 == self.size-1:
+        #      self.fn_list[self.size-1].args[1].add_arguments(newTerm)
 
 
     def generateNonlinearity(self, maxAnds, tapDensity):
         self.tau = int(tapDensity * self.size)
 
+        # shift any needed linear terms
         self.shiftTerms(
-            [term for term in self.fn_list[self.size-1].args if term.args[0].index > self.tau],
-             self.size-1, self.tau
+            [term for term in self.fn_list[self.size-1].args[0].args if term.args[0].index > self.tau],
+            self.size-1, self.tau
         )
 
-        # might be slow, but is easier to read.
+        
         tapped = set()
         while len(tapped) < self.tau:
             self.addNonLinearTerm(maxAnds)
             
-            for fn in self.fn_list[:self.tau]:
-                for term in fn.args:
+            # for all nonlinear terms above tau
+            for fn in self.fn_list[self.tau:]:
+                for term in fn.args[1].args:
                     tapped |= {val.index for val in term.args}
         return

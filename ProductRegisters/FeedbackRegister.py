@@ -100,8 +100,11 @@ class FeedbackRegister:
         self._state = first_state.copy()
         return count
 
-    def period2(self, iter_lim = 2**18, bit_lim = None):
-        self.fn.compile()
+    def period_compiled(self, iter_lim = 2**22, bit_lim = None):
+        if not hasattr(self.fn, "_compiled"):
+            print("Compile first!")
+            return
+        
         first_state = self._state.copy()
         self.clock()
         count = 1
