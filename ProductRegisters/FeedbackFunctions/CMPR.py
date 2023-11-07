@@ -51,40 +51,52 @@ class CMPR(FeedbackFunction):
 
     def generateChaining(self,
         template = None,
-        modifier = None,
         **kwargs, 
     ):
 
         """
         parameters:
 
+        max_depth
         block_probabilities
         input_densities
-        input_minimums
-        
-        current_depth
-        max_depth
-        depth_mode
-
         component_distributions
+
+        current_depth
+        input_minimums
+        depth_mode
+        modifier
         """
 
-        # override the template used with any use entered variables.
-        if template:
-            combined_args = template(self)
-            for k,v in kwargs.items():
-                combined_args[k] = v
-            kwargs = combined_args
+        # fill in default values
+        combined_args = {}
+        combined_args['current_depth'] = 0
+        combined_args['input_minimums'] = [0] * self.num_components
+        combined_args['depth_mode'] = 'discrete'
+        combined_args['modifier'] = (lambda c,f,a: (True,f))
+        combined_args['max_mod_attempts'] = 10
 
-        # pull these values out of the argument dictionary (not passed to random_function)
+        # override values using the template:
+        if template:
+            for k,v in template(self).items():
+                combined_args[k] = v
+
+        # override values using the explicit kwargs:
+        for k,v in kwargs.items():
+                combined_args[k] = v
+
+        kwargs = combined_args
+
+        # pull these values out of the argument dictionary (as they are not passed to random_function)
         input_densities = kwargs["input_densities"]
         input_minimums = kwargs["input_minimums"]
+        modifier = kwargs["modifier"]
+        max_mod_attempts = kwargs['max_mod_attempts']
+
         del kwargs["input_densities"]
         del kwargs["input_minimums"]
-
-        if "modifier" in kwargs:
-            modifier = kwargs["modifier"]
-            del kwargs["modifier"]
+        del kwargs["modifier"]
+        del kwargs['max_mod_attempts']
 
         # main loop
         for block_idx in range(1,self.num_components):
@@ -92,6 +104,9 @@ class CMPR(FeedbackFunction):
             dist_used = min(len(combined_args["component_distributions"])-1, block_idx)
             block_component_dist = combined_args["component_distributions"][dist_used]
 
+            # modify the args to pass to random_function:
+            modified_args = {"allowed_blocks": self.blocks[:block_idx], **combined_args}
+            modified_args["component_distributions"] = block_component_dist
 
             # random pass
             for bit in self.blocks[block_idx]:
@@ -99,18 +114,18 @@ class CMPR(FeedbackFunction):
                 if (random.random() <= input_densities[block_idx]):
                     has_chaining.append(bit)
 
-                    # modify the args to add pass to random_function:
-                    modified_args = {"allowed_blocks": self.blocks[:block_idx], **combined_args}
-                    modified_args["component_distributions"] = block_component_dist
-                    chaining_fn = random_function(**modified_args)
-
-                    # allow some post generation deterministic modification
-                    if modifier:
-                        chaining_fn = modifier(chaining_fn, modified_args['allowed_blocks'])
-
+                    valid = False
+                    attempts = 0
+                    while (not valid) and (attempts < max_mod_attempts):
+                        chaining_fn = random_function(**modified_args)
+                        valid, chaining_fn = modifier(self, chaining_fn, modified_args['allowed_blocks'])
+                    
+                    if not valid:
+                        raise ValueError("chaining generation failed modification check too many times")
+                    
                     self.fn_list[bit].add_arguments(chaining_fn)
 
-            # minimum pass  
+            # minimum ensuring pass  
             if len(has_chaining) < input_minimums[block_idx]:
                 inpt_bits = random.sample(
                     [bit for bit in self.blocks[block_idx] if not bit in has_chaining],
@@ -118,11 +133,17 @@ class CMPR(FeedbackFunction):
                 )
 
                 for bit in inpt_bits:
-                    # modify the args to add pass to random_function:
-                    modified_args = {"allowed_blocks": self.blocks[:block_idx], **combined_args}
-                    modified_args["component_distributions"] = block_component_dist
 
-                    self.fn_list[bit].add_arguments(random_function(**modified_args))
+                    valid = False
+                    attempts = 0
+                    while (not valid) and (attempts < max_mod_attempts):
+                        chaining_fn = random_function(**modified_args)
+                        valid, chaining_fn = modifier(self, chaining_fn, modified_args['allowed_blocks'])
+                    
+                    if not valid:
+                        raise ValueError("chaining generation failed modification check too many times")
+                    
+                    self.fn_list[bit].add_arguments(chaining_fn)
 
 
 
