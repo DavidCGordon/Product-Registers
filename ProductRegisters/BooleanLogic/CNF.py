@@ -62,7 +62,6 @@ def tseytin_labels(self):
     next_available_index = 2
     variable_labels = {}
     node_labels = {}
-    
 
     while stack:
         curr_node = stack[-1]

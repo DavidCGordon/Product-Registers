@@ -1,8 +1,6 @@
 from numba import njit
 import numpy as np
 
-
-
 def berlekamp_massey(seq):
     N = len(seq)
     if type(seq) != np.ndarray:
@@ -90,7 +88,7 @@ def _bm_iterator_core(
                 last_update = n
     return arr, curr_guess, prev_guess, linear_complexity, last_update
 
-def berlekamp_massey_iterator2(seq, yield_rate = 1000):
+def berlekamp_massey_iterator(seq, yield_rate = 1000):
     arr_size = 2**10
     arr = np.zeros(arr_size, dtype='uint8')
 

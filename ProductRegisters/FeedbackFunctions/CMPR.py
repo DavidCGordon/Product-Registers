@@ -175,9 +175,10 @@ class CMPR(FeedbackFunction):
     @property
     def resolvent_matrices(self):
         resolvent_matrices = []
+
+        unit = ResolventSolving.RationalPolynomial.unit()
+        delay = ResolventSolving.RationalPolynomial(galois.Poly([1,0]),galois.Poly([1])) 
         for update_matrix in self.update_matrices:
-            unit = ResolventSolving.RationalPolynomial.unit()
-            delay = ResolventSolving.RationalPolynomial(galois.Poly([1,0]),galois.Poly([1])) 
 
             # Convert the update matrix to be over the Rational Polynomial Field
             converted_update_matrix = np.vectorize(ResolventSolving.RationalPolynomial.from_int)(update_matrix)
@@ -371,7 +372,8 @@ class CMPR(FeedbackFunction):
         return key
 
 
-    def reverse_step(self, state):
+
+    def reverse_clock(self, state):
         key = [0] * self.size
         for block_idx in range(self.num_components):
             update_matrix = galois.GF2(self.update_matrices[block_idx])
@@ -388,7 +390,6 @@ class CMPR(FeedbackFunction):
             for bit in self.blocks[block_idx]:
                 key[bit] = int(sol[bit - shift])
         return key
-
 
 
 
