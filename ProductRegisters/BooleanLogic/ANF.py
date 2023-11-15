@@ -105,8 +105,8 @@ class ANF_spec_repr:
         return top_node
 
 # after loading, add ANF_spec_repr based methods to all boolean functions
-def to_ANF(fn): return ANF_spec_repr.from_BooleanFunction(fn).to_BooleanFunction()
-BooleanFunction.to_ANF = to_ANF
+def translate_ANF(fn): return ANF_spec_repr.from_BooleanFunction(fn).to_BooleanFunction()
+BooleanFunction.translate_ANF = translate_ANF
 
 def construct_ANF_spec_repr(cls, iterable): return ANF_spec_repr(iterable).to_BooleanFunction()
 BooleanFunction.construct_ANF = classmethod(construct_ANF_spec_repr)

@@ -2,6 +2,8 @@ from ProductRegisters.BooleanLogic.BooleanFunction import BooleanFunction
 from pysat.formula import CNF
 from pysat.solvers import Solver
 
+# TODO: convert to crypto-minisat
+
 def tseytin(self):
     binary_tree = self.binarize()
     node_labels, variable_labels, = binary_tree.tseytin_labels()
@@ -117,8 +119,28 @@ def satisfiable(self):
         return {k: (assignments[v-1]>0) for k,v in var_map.items()}
     else:
         return None
+    
+def enumerate_models(self):
+    clauses, node_map, var_map = self.tseytin()
+    num_variables = len(node_map)
+    num_clauses = len(clauses)
+    cnf = CNF(from_clauses=clauses)
+
+    print(cnf.nv, len(cnf.clauses))
+    print("Tseytin finished")
+    print(f'Number of variables: {num_variables}')
+    print(f'Number of clauses: {num_clauses}')
+
+    solver = Solver(
+        bootstrap_with=cnf,
+        use_timer=True,
+    )
+
+    for assignment in solver.enum_models():
+        yield {k: (assignment[v-1]>0) for k,v in var_map.items()}
 
 BooleanFunction.tseytin = tseytin
 BooleanFunction.tseytin_labels = tseytin_labels
 BooleanFunction.tseytin_clauses = tseytin_clauses
 BooleanFunction.sat = satisfiable
+BooleanFunction.enum_models = enumerate_models

@@ -19,7 +19,6 @@ class MPR(FeedbackFunction):
             update_poly = [0,1] + [0]*(size-2)
         elif type(update_poly) == int:
             update_poly = [int(x) for x in format(int(primitive_poly,16), f"0>{size}b")]
-            # update_poly = list(BitVector(intVal = update_poly, size = size))[::-1]
 
         # convert update to powers ([1,0,0,1,1] -> [0,3,4])
         self.update_polynomial = update_poly

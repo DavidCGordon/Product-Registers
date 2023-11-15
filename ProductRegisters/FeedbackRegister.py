@@ -52,7 +52,7 @@ class FeedbackRegister:
     def __list__(self): return self._state[:]
 
     #STATE MANIPULATION:
-    def __getitem__(self, key): return self._state[key]
+    def __getitem__(self, key): return self._state[key].copy()
     def __setitem__(self, key, val): self._state[key] = val
     
     #ITERATION THROUGH REGISTER BITS:
@@ -69,20 +69,53 @@ class FeedbackRegister:
         for i in range(len(self.fn.fn_list)):
             self._state[i] = self.fn.fn_list[i].eval(self._prev_state)
 
+    def clock_compiled(self):
+        if not hasattr(self.fn, "_compiled"):
+            print("Compile first!")
+            return
+        self._state, self._prev_state = self._prev_state, self._state
+        self._state = self.fn._compiled(self._prev_state)
 
     #generate a sequence of states, in order
-    def run(self, arg = None):
+    def run(self, limit = None):
         #number of iterations to run
+        if type(limit) == int:
+            for _ in range(limit):
+                yield self
+                self.clock()
+                
+        #no limit
+        elif limit == None:
+            while True:
+                yield self
+                self.clock()
+
+    def run_compiled(self, arg = None):
+        if not hasattr(self.fn, "_compiled"):
+            print("Compile first!")
+            return
+
+        update_fn = self.fn._compiled
+        # number of iterations to run
         if type(arg) == int:
             for _ in range(arg):
                 yield self
-                self.clock()
+                # swap pointers to move _state to _prev_state
+                self._state, self._prev_state = self._prev_state, self._state
+                # overwrite _state with the new state
+                self._state = update_fn(self._prev_state)
                 
         #no limit
         elif arg == None:
             while True:
                 yield self
-                self.clock()
+                # swap pointers to move next_state to curr_state
+                self._state, self._prev_state = self._prev_state, self._state
+                # overwrite the new nextstate
+                self._state = update_fn(self._prev_state)
+
+
+                
 
     #DIAGNOSTIC AND EXTRA INFO     
     #return the period of the register:
@@ -149,38 +182,7 @@ class FeedbackRegister:
             process.kill()
             self._state = np.asarray(current, dtype='uint8')
             self.clock()
-
-    def clock_compiled(self):
-        if not hasattr(self.fn, "_compiled"):
-            print("Compile first!")
-            return
-        self._state, self._prev_state = self._prev_state, self._state
-        self._state = self.fn._compiled(self._prev_state)
-        
-    def run_compiled(self, arg = None):
-        if not hasattr(self.fn, "_compiled"):
-            print("Compile first!")
-            return
-
-        update_fn = self.fn._compiled
-        # number of iterations to run
-        if type(arg) == int:
-            for _ in range(arg):
-                yield self
-                # swap pointers to move _state to _prev_state
-                self._state, self._prev_state = self._prev_state, self._state
-                # overwrite _state with the new state
-                self._state = update_fn(self._prev_state)
-                
-        #no limit
-        elif arg == None:
-            while True:
-                yield self
-                # swap pointers to move next_state to curr_state
-                self._state, self._prev_state = self._prev_state, self._state
-                # overwrite the new nextstate
-                self._state = update_fn(self._prev_state)
-        
+    
 
 
     def to_JSON(self):
