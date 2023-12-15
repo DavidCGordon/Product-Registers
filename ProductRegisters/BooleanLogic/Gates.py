@@ -3,19 +3,17 @@ from ProductRegisters.BooleanLogic.Inputs import VAR
 from functools import reduce, cache, wraps
 from itertools import product
 
-# unified interface for inverting bool-like objects:
+# unified interface for inverting both bool-like objects and custom objects like
+# RootExpressions, functions, monomials, etc. 
 def invert(bool_like):
-    if type(bool_like) == bool:
-        # for bool types, this is already implemented as not
-        return (not bool_like)
-    if type(bool_like) == int:
-        # for int types, ~ gives the twos complement inverse of the whole integer
-        # for this reason inverting like this is easier than trying to use ~
-        return (not bool_like)
+    # if not is already implemented for this type
+    if hasattr(bool_like,'__bool__'):
+        return not bool_like
+    
+    # for custom objects like functions or root expressions
+    # we can overwrite __invert__() in the desired way
     else:
-        # for custom objects, we can override the __invert__() method to signify inversion.
-        return (bool_like.__invert__())
-
+        return bool_like.__invert__()
 
 class XOR(BooleanFunction):
     def __init__(self, *args, arg_limit = None):

@@ -13,7 +13,6 @@ class BooleanFunction:
         self.args = None
         self.arg_limit = None        
 
-    @cached
     def __copy__(self):
         return type(self)(
             *(arg.__copy__() for arg in self.args),
