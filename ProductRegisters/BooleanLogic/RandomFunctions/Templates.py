@@ -61,7 +61,7 @@ def and_or_mixture_template(max_vars = 4, max_terms = 4):
         kwargs["current_depth"] = 0 
 
         n = cmpr.num_components
-        square_sum = sum(len(block)**2 for block in cmpr.blocks)
+        square_sum = sum(len(block) for block in cmpr.blocks)
         kwargs["block_probabilities"] = [len(block)/square_sum for block in cmpr.blocks]
         kwargs["input_densities"] = constant(.5,n)
         kwargs["input_minimums"] = constant(1,n)

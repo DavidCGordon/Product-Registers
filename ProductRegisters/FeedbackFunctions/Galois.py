@@ -1,4 +1,4 @@
-from ProductRegisters.BooleanLogic import ANF_spec_repr, BooleanFunction
+from ProductRegisters.BooleanLogic import ANF_spec_repr, BooleanFunction, CONST
 from ProductRegisters.FeedbackFunctions import FeedbackFunction
 from ProductRegisters.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey
 
@@ -18,13 +18,21 @@ class Galois(FeedbackFunction):
 
     #helper methods for anf construction
     def _fn_from_poly(self, polynomial):
-        #build tap set fn from polynomial
+        # build the shift (towards zero):
         newFn = [[[i+1]] for i in range(self.size-1)] + [[]]
+
+        # build tap set fn from polynomial
+        # this is derived from dubrova's shifting        
         for i in range(self.size):
             if polynomial[i+1]:
                 newFn[i] += [[0]]
+
         self.fn_list = [BooleanFunction.construct_ANF(bitFn) for bitFn in newFn]
     
+        # handle empty top case:
+        if not polynomial[-1]:
+            self.fn_list[-1].add_arguments(CONST(0))
+
     def _inverted_from_poly(self, polynomial):
         newFn = [[]] + [[[i-1]] for i in range(1,self.size)]
         for i in range(self.size):
@@ -44,7 +52,7 @@ class Galois(FeedbackFunction):
         #run berlekamp massey to determine primitive polynomial
         L, c = berlekamp_massey(seq)
 
-        #calculate inital state:
+        # calculate inital state:
         s = []
         for i in range(L):
             s_i = 0
