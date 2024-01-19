@@ -1,6 +1,7 @@
 from ProductRegisters.BooleanLogic import ANF_spec_repr, BooleanFunction
 from ProductRegisters.FeedbackFunctions import FeedbackFunction
 from ProductRegisters.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey
+from ProductRegisters.Tools.RegisterSynthesis.nlfsrSynthesis import BM_NL
 
 class Fibonacci(FeedbackFunction):
 
@@ -43,16 +44,25 @@ class Fibonacci(FeedbackFunction):
             self.is_inverted = False
             
     @classmethod
-    def fromSeq(self,seq):
-        #run berlekamp massey to determine primitive polynomial
-        L, c = berlekamp_massey(seq)
-        
+    def fromSeq(self,seq, nonlinear = False):
+        if not nonlinear:
+            #run berlekamp massey to determine primitive polynomial
+            size, poly = berlekamp_massey(seq)
+            fn = Fibonacci(size, poly[:size+1])
+          
+        else:
+            size, f = BM_NL(seq)
+            fn = Fibonacci(size, [])
+            fn[size-1].add_arguments(f)
+
         #return Fibonacci LFSR parameters
-        init_state = seq[:L]
-        return init_state, Fibonacci(L, c[:L+1])
+        init_state = seq[:size]
+        return init_state, fn
 
     @classmethod 
-    def fromReg(self, F, bit):
-        numIters = 2*F.size + 4
+    def fromReg(self, F, bit = 0, numIters = None, nonlinear = False):
+        if not numIters:
+            numIters = 2*F.size + 4
+
         seq = [state[bit] for state in F.run(numIters)]
-        return Fibonacci.fromSeq(seq)
+        return Fibonacci.fromSeq(seq, nonlinear = nonlinear)

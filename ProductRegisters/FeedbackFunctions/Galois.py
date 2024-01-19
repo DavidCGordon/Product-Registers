@@ -64,8 +64,9 @@ class Galois(FeedbackFunction):
         return s, Galois(L, c[:L+1])
 
     @classmethod 
-    def fromReg(self, F, bit):
-        numIters = 2*F.size + 4
+    def fromReg(self, F, bit = 0, numIters = None):
+        if not numIters:
+            numIters = 2*F.size + 4
         seq = [state[bit] for state in F.run(numIters)]
         return Galois.fromSeq(seq)
 

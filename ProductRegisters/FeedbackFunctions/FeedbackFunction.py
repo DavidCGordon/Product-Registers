@@ -352,9 +352,9 @@ def _compiled(currstate):
              bits = list(range(self.size))
 
         fns = [VAR(b) if b in bits else None for b in range(self.size)]
-        yield
+        yield fns
 
         for i in range(1,n+1):
             
-            fns = [fns[b].compose(self.fn_list).to_ANF() for b in bits]
+            fns = [fns[b].compose(self.fn_list).translate_ANF() for b in bits]
             yield fns
