@@ -15,7 +15,6 @@ def tseytin(self):
 def tseytin_clauses(self, label_map):
     visited = set()
     stack = [self]
-    last = None
 
     clauses = {}
     while stack:
@@ -24,33 +23,25 @@ def tseytin_clauses(self, label_map):
         # if current node has no children, or one child has been visited: 
         # you are moving back up the tree
         if curr_node in visited:
-            last=stack.pop()
+            stack.pop()
 
         elif curr_node.is_leaf():
             visited.add(curr_node)
-            last = stack.pop()
+            stack.pop()
             
-        elif last in curr_node.args:
-            try:
-                curr_label = label_map[curr_node][0]
-                arg_labels = [label_map[arg][0] for arg in curr_node.args]
-            except:
-                for arg in curr_node.args:
-                    print(arg, arg in visited)
-                    raise KeyError
-
+        elif all([arg in visited for arg in curr_node.args]):
+            curr_label = label_map[curr_node][0]
+            arg_labels = [label_map[arg][0] for arg in curr_node.args]
             clauses.update(dict.fromkeys(
                 type(curr_node).tseytin_formula(*arg_labels, curr_label)
             ))
-            #print(clauses)
 
             visited.add(curr_node)
-            last = stack.pop()
+            stack.pop()
 
         else:
             for child in reversed(curr_node.args):
                 stack.append(child)
-    #print(clauses)
     return list(clauses.keys())
     
 
@@ -59,8 +50,6 @@ def tseytin_clauses(self, label_map):
 # and return. This is cleaner and easier to reason about in this case
 def tseytin_labels(self):
     stack = [self]
-    last = None
-
     next_available_index = 2
     variable_labels = {}
     node_labels = {}
@@ -70,23 +59,24 @@ def tseytin_labels(self):
 
         #don't visit nodes twice:
         if curr_node in node_labels:
-            last=stack.pop()
+            stack.pop()
 
         # handle VAR and CONST Nodes
-        # each has it's own implementations
+        # each has it's own implementation in _tseytin_labels
         elif curr_node.is_leaf():
             next_available_index = curr_node._tseytin_labels(
                 node_labels,
                 variable_labels,
                 next_available_index
             )
+            stack.pop()
 
         # handle gate nodes
-        elif last in curr_node.args:
+        elif all([arg in node_labels for arg in curr_node.args]):
             num_self_labels = max(1,len(self.args)-1)
             node_labels[curr_node] = [next_available_index + i for i in range(num_self_labels)]
             next_available_index += 1
-            last = stack.pop()
+            stack.pop()
 
         # place children in the stack to handle later
         else:
