@@ -274,41 +274,6 @@ def _compiled(currstate):
         exec(exec_str)
         return self._compiled
 
-
-    # # returns the nth, but not anything before it
-    # def repeat(self, n, bits=0):
-    #     # input handling
-    #     if not bits:
-    #         bits = list(range(self.size))
-
-    #     # base case 
-    #     if n == 0:
-    #         res = [None for i in range(self.size)]
-    #         for b in bits:
-    #             res[b] = VAR(b)
-    #         return res
-        
-    #     # recursive case
-    #     prev = self.repeat(n-1, *bits)
-    #     res = [None for i in range(self.size)]
-    #     for bit in bits:
-    #         res[bit] = prev[bit].compose(self.fn_list).to_ANF()
-    #     return res
-
-
-
-    # def iterator(self,n):
-    #     # base case 
-    #     if n == 0:
-    #         yield [VAR(b) for b in range(self.size)]
-            
-    #     else:
-    #         # yield all previous answers
-    #         for prev in self.iterator(n-1):
-    #             yield prev
-            
-    #         # build the newest answer using last layer
-    #         yield [self.fn_list[b].compose(prev) for b in range(self.size)]
     def iterator(self, n):
         fns = [VAR(i) for i in range(self.size)]
         yield fns
@@ -317,34 +282,6 @@ def _compiled(currstate):
             fns = [self.fn_list[b].compose(fns) for b in range(self.size)]
             yield fns
 
-    # def anf_iterator(self,n,bits=None):
-    #     """
-    #     The composition order is reversed, because this leads to significantly smaller ANF operations
-    #     because ANF is not deeply nested, we dont care about reference-reuse, so the order of the previous
-    #     iterator makes less sense
-    #     """
-
-    #     # input handling
-    #     if not bits:
-    #         bits = list(range(self.size))
-
-    #     # base case 
-    #     if n == 0:
-    #         res = [None for i in range(self.size)]
-    #         for b in bits:
-    #             res[b] = VAR(b)
-    #         yield res
-
-    #     else:
-    #         # yield all previous answers
-    #         for prev in self.anf_iterator(n-1,bits):
-    #             yield prev
-            
-    #         # build the newest answer using last layer
-    #         res = [None for i in range(self.size)]
-    #         for bit in bits:
-    #             res[bit] = prev[bit].compose(self.fn_list).to_ANF()
-    #         yield res
 
     def anf_iterator(self,n,bits=None):
         #input handling:

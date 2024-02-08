@@ -146,7 +146,6 @@ class CMPR(FeedbackFunction):
                     self.fn_list[bit].add_arguments(chaining_fn)
 
 
-
     @property
     def has_chaining(self):
         return [len(f.args)-1 for f in self.fn_list]
@@ -173,7 +172,7 @@ class CMPR(FeedbackFunction):
             block_list.append(bits)
         return block_list[::-1]
 
-    @property
+    @cached_property
     def update_matrices(self):
         matrices = []
         for b in range(len(self.blocks)):
@@ -193,34 +192,35 @@ class CMPR(FeedbackFunction):
             matrices.append(matrix)
         return matrices
 
-    @property
+    @cached_property
     def resolvent_matrices(self):
         resolvent_matrices = []
-
-        unit = ResolventSolving.RationalPolynomial.unit()
-        delay = ResolventSolving.RationalPolynomial(galois.Poly([1,0]),galois.Poly([1])) 
         for update_matrix in self.update_matrices:
 
             # Convert the update matrix to be over the Rational Polynomial Field
-            converted_update_matrix = np.vectorize(ResolventSolving.RationalPolynomial.from_int)(update_matrix)
-            converted_update_matrix.dtype = ResolventSolving.RationalPolynomial
+            converted_update_matrix = np.vectorize(ResolventSolving.SequenceTransform.from_int)(update_matrix)
+            converted_update_matrix.dtype = ResolventSolving.SequenceTransform
 
-            # Create the matrix to solve: (I xor UD) 
+            # (I xor UD)^{-1}):
+            # meant to be multiplied by (DC(D) xor B[0])
+            unit = ResolventSolving.SequenceTransform.one()
+            delay = ResolventSolving.SequenceTransform.delay()
+            
             field_matrix = np.asarray([delay]) * converted_update_matrix
             field_matrix += np.asarray([unit]) * ResolventSolving.field_eye(
-                field = ResolventSolving.RationalPolynomial,
-                size = update_matrix.shape[0]
+                field = ResolventSolving.SequenceTransform,
+                size = update_matrix.shape[0],
             )
-            
-            # invert the matrix: (I xor UD)^{-1}
+
+            # invert the matrix and append
             resolvent_matrices.append(ResolventSolving.field_invert(
-                field = ResolventSolving.RationalPolynomial,
+                field = ResolventSolving.SequenceTransform,
                 matrix = field_matrix
             ))
 
         return resolvent_matrices
 
-    @property
+    @cached_property
     def propagation_matrices(self):
         propagation_matrices = []
         for resolvent_matrix in self.resolvent_matrices:
