@@ -368,21 +368,21 @@ class CMPR(FeedbackFunction):
             if verbose:
                 print(f'Block {block_id} finished  -  Num Terms: {len(block_table[block_id].terms)}')
                 print(f"ANF Composition Time: {time.time()-start_time}\n\n\n")
-                
+
         return expr_table
     
 
-    def estimate_LC(self, output_bit, locked_list = None, benchmark = False):
+    def estimate_LC(self, output_bit, locked_list = None, verbose = False):
         # locked-list is used to cancel effects of the locked registers.
         # the locked list contains the sizes of the locked MPRs
 
         from time import time_ns
         t1 = time_ns()
-        REs = self.root_expressions(locked_list)
+        REs = self.root_expressions(locked_list,verbose = verbose)
         bitRE = REs[output_bit]
         t2 = time_ns()
 
-        if benchmark:
+        if verbose:
             print(f"Root Expression Generation: {len(bitRE.terms)} terms generated in {t2-t1} ns")
 
         t1 = time_ns()
@@ -396,15 +396,11 @@ class CMPR(FeedbackFunction):
         if locked_list and blockLen in locked_list:
             blockLen = 1
 
-        #add 1 to include the "True" / 1 in GF(2) value we ignore:
         upper = bitRE.upper(locked_list)
-
-        #subtract safety_factor * size to account for some natural degeneracies:
-        # TODO: need a better incorporation of the safety factor.
-
         lower = max(blockLen,bitRE.lower(locked_list))
+
         t2 = time_ns()
-        if benchmark:
+        if verbose:
             print(f"Terms evaluated in {t2-t1} ns")
 
         return (lower,upper)

@@ -54,6 +54,8 @@ class RootExpression:
             inputs = new_term_sets
         )
 
+        return RootExpression(new_anf)
+
     @classmethod
     def logical_one(self): return RootExpression([JordanSet({}, 1)])
 
