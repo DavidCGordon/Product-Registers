@@ -35,13 +35,16 @@ class FeedbackRegister:
         # For a given seed
         if type(seed) == int:
             self._seed = np.asarray([int(x) for x in format(seed, f'0{self.size}b')[::-1]], dtype='uint8')
-        if type(seed) == list:
+        elif type(seed) == list:
             self._seed = np.asarray(seed, dtype='uint8')
-
+        elif type(seed) == np.ndarray:
+            self._seed = seed
         # Allowing random.random to be used as a seed:
-        if type(seed) == float and 0 < seed  and seed < 1:
+        elif type(seed) == float and 0 < seed  and seed < 1:
             closest_int = round(seed * 2**self.size)
             self.seed(closest_int)
+        else:
+            raise ValueError(f'Unexpected seed type {type(seed)}')
         
     def reset(self):
         self._state = self._seed.copy()

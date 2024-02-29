@@ -19,6 +19,7 @@ def maximalElements(leq_ordering, inputs):
                 maximal_set.add(element)
     return maximal_set
 
+
 # In general:
 # Exact => Same multiplicities
 # Subset => All non-full bases have count_a < count_b

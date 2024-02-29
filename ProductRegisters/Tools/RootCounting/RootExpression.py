@@ -8,6 +8,7 @@ from ProductRegisters.Tools.RootCounting.PartialOrders import \
 from ProductRegisters.BooleanLogic import CONST, VAR
 
 from itertools import product
+import time
 
 class RootExpression:
     # wrapper for JordanSets, with extra functionality:
@@ -27,19 +28,30 @@ class RootExpression:
 
     def __str__(self):
         return " + ".join(str(term) for term in self.terms)
+    
+    def __copy__(self):
+        return RootExpression([jordanset.__copy__() for jordanset in self.terms])
+
 
     def __xor__(self, other): return self.__add__(other)
     def __add__(self, other):
+        print(f'Addition Started: {len(self.terms)} x {len(other.terms)} Terms')
+        start_time = time.time()
+
         #clean out redundant subsets and merge.
         new_anf = maximalElements(
             leq_ordering=isExactSubset, 
             inputs=[self.terms, other.terms]
         )
 
+        print(f'Multiplication Finished: {len(new_anf)} Terms - Time: {time.time()-start_time}')
         return RootExpression(new_anf)
 
     def __and__(self, other): return self.__mul__(other)
     def __mul__(self, other):
+        print(f'Multiplication Started: {len(self.terms)} Terms x {len(other.terms)}')
+        start_time = time.time()
+
         new_term_sets = []
         for a, b in product(self.terms, other.terms):
             new_term_sets.append(a * b)
@@ -50,6 +62,7 @@ class RootExpression:
             inputs = new_term_sets
         )
 
+        print(f'Multiplication Finished: {len(new_anf)} Terms - Time: {time.time()-start_time}')
         return RootExpression(new_anf)
 
     @classmethod

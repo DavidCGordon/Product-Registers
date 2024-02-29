@@ -112,8 +112,8 @@ class OR(BooleanFunction):
         )
     def eval_ANF(self, array):
         return invert(reduce(
-            lambda a, b: invert(a) & invert(b),
-            (arg.eval_ANF(array) for arg in self.args)
+            lambda a, b: a & b,
+            (invert(arg.eval_ANF(array)) for arg in self.args)
         ))
     
     def generate_c(self):
@@ -244,8 +244,8 @@ class NOR(BooleanFunction):
         ))
     def eval_ANF(self, array):
         return reduce(
-            lambda a, b: invert(a) & invert(b),
-            (arg.eval_ANF(array) for arg in self.args)
+            lambda a, b: a & b,
+            (invert(arg.eval_ANF(array)) for arg in self.args)
         )
     
     def generate_c(self):

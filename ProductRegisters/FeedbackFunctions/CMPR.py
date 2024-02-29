@@ -6,7 +6,8 @@ from ProductRegisters.FeedbackFunctions import MPR
 # Chaining Generation/Handling:
 from ProductRegisters.BooleanLogic.RandomFunctions import random_function
 
-# Linear Complexity estimation
+# Linear Complexity and Monomial estimation
+from ProductRegisters.Tools.RootCounting.MonomialProfile import TermSet,MonomialProfile
 from ProductRegisters.Tools.RootCounting.JordanSet import JordanSet
 from ProductRegisters.Tools.RootCounting.RootExpression import RootExpression
 
@@ -18,6 +19,7 @@ from ProductRegisters.Tools.MersenneTools import expected_period, expected_perio
 import random
 import numpy as np
 import galois
+import time
 
 from functools import cached_property
 
@@ -292,42 +294,83 @@ class CMPR(FeedbackFunction):
         return period
 
 
-
-
-
-
-
-
-
-
-    def root_expressions(self, locked_list = None):
-        expr_table = [RootExpression() for i in range(self.size)] # map: bit -> expression
+    def monomial_profiles(self):
+        prof_table = [MonomialProfile() for i in range(self.size)] # map: bit -> expression
+        block_table = [MonomialProfile() for i in range(len(self.blocks))]
         
         #fill in the following blocks:
-        for block_idx in range(len(self.blocks)):
-            block_RE = RootExpression()
+        for block_id in range(len(self.blocks)):
+            monomial_profile = MonomialProfile.from_merged(
+                fn_list = [self.fn_list[i] for i in self.blocks[block_id]],
+                blocks = self.blocks
+            )
 
-            # map each bit to its corresponding block.
-            for bit in self.blocks[block_idx]:
+            block_fn = monomial_profile.to_BooleanFunction().remap_constants({
+                0: MonomialProfile.logical_zero(),
+                1: MonomialProfile.logical_one()
+            })
                 
-                modified_fn = self.fn_list[bit].remap_constants({
-                    0: RootExpression.logical_zero(),
-                    1: RootExpression.logical_one()
-                })
-                
-                block_RE += modified_fn.eval_ANF(expr_table)
+            block_table[block_id] = block_fn.eval_ANF(block_table)
 
-            #if this one isn't locked, extend it. 
-            if (not locked_list) or (not locked_list[block_idx]):
-                block_RE = block_RE.extend(JordanSet({len(self.blocks[block_idx]):1}, 1))
+            # if this one isn't locked, extend it. 
+            block_table[block_id] += MonomialProfile([TermSet(
+                {block_id: len(self.blocks[block_id])},
+                {block_id: 1}
+            )])
             
             #fill in table entries
-            for bit in self.blocks[block_idx]:
-                    expr_table[bit] = block_RE
+            for bit in self.blocks[block_id]:
+                prof_table[bit] = block_table[block_id].__copy__()
+        return prof_table
+
+
+    def root_expressions(self, locked_list = None, verbose = False):
+        expr_table = [RootExpression() for i in range(self.size)] # map: bit -> expression
+        block_table = [RootExpression() for i in range(len(self.blocks))]
+        
+        #fill in the following blocks:
+        for block_id in range(len(self.blocks)):
+            start_time = time.time()
+            
+            if verbose: print("Starting Monomial Profiling")
+
+            monomial_profile = MonomialProfile.from_merged(
+                fn_list = [self.fn_list[i] for i in self.blocks[block_id]],
+                blocks = self.blocks
+            )
+
+            block_fn = monomial_profile.to_BooleanFunction().remap_constants({
+                0: RootExpression.logical_zero(),
+                1: RootExpression.logical_one()
+            })
+
+            if verbose:
+                print(f"Monomial Profiled: {block_fn.dense_str()}")
+                print(f"Monomial Profiling Time: {time.time()-start_time}\n")
+
+            start_time = time.time()
+
+            if verbose:
+                print("Starting ANF Composition")    
+
+            block_table[block_id] = block_fn.eval_ANF(block_table)
+
+            # if this one isn't locked, extend it. 
+            if (not locked_list) or (not locked_list[block_id]):
+                block_table[block_id] = block_table[block_id].extend(
+                    JordanSet({len(self.blocks[block_id]):1}, 1)
+                )
+
+            #fill in table entries
+            for bit in self.blocks[block_id]:
+                expr_table[bit] = block_table[block_id].__copy__()
+            
+            if verbose:
+                print(f'Block {block_id} finished  -  Num Terms: {len(block_table[block_id].terms)}')
+                print(f"ANF Composition Time: {time.time()-start_time}\n\n\n")
+                
         return expr_table
-
-
-
+    
 
     def estimate_LC(self, output_bit, locked_list = None, benchmark = False):
         # locked-list is used to cancel effects of the locked registers.
@@ -365,6 +408,11 @@ class CMPR(FeedbackFunction):
             print(f"Terms evaluated in {t2-t1} ns")
 
         return (lower,upper)
+
+
+
+
+
 
 
 

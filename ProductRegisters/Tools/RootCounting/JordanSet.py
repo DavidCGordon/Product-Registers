@@ -36,4 +36,6 @@ class JordanSet:
     
     def __str__(self):
         return  "<" +  ", ".join(f"{k}:{v}" for k,v in self.roots.items()) + f" ({self.m})>"
-
+    
+    def __copy__(self):
+        return JordanSet({k:v for k,v, in self.roots.items()}, self.m)

@@ -204,9 +204,6 @@ int main(int argc, char *argv[]) {{
         del self._data_store
 
 
-
-
-
     #writes a VHDL file
     #Credit: Anna Hemingway
     def write_VHDL(self, filename):
@@ -295,3 +292,4 @@ def _compiled(currstate):
             
             fns = [fns[b].compose(self.fn_list).translate_ANF() for b in bits]
             yield fns
+            
