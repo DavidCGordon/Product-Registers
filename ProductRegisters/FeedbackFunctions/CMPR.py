@@ -3,9 +3,6 @@ from ProductRegisters.BooleanLogic import ANF_spec_repr, XOR, AND, CONST, VAR
 from ProductRegisters.FeedbackFunctions import FeedbackFunction
 from ProductRegisters.FeedbackFunctions import MPR
 
-# Chaining Generation/Handling:
-from ProductRegisters.BooleanLogic.RandomFunctions import random_function
-
 # Linear Complexity and Monomial estimation
 from ProductRegisters.Tools.RootCounting.MonomialProfile import TermSet,MonomialProfile
 from ProductRegisters.Tools.RootCounting.JordanSet import JordanSet
@@ -51,101 +48,11 @@ class CMPR(FeedbackFunction):
 
 
 
-    def generateChaining(self,
-        template = None,
-        **kwargs, 
-    ):
+    def generateChaining(self,template):
+        chaining_logic = template(self)
 
-        """
-        parameters:
-
-        max_depth
-        block_probabilities
-        input_densities
-        component_distributions
-
-        current_depth
-        input_minimums
-        depth_mode
-        modifier
-        """
-
-        # fill in default values
-        combined_args = {}
-        combined_args['current_depth'] = 0
-        combined_args['input_minimums'] = [0] * self.num_components
-        combined_args['depth_mode'] = 'discrete'
-        combined_args['modifier'] = (lambda c,f,a: (True,f))
-        combined_args['max_mod_attempts'] = 10
-
-        # override values using the template:
-        if template:
-            for k,v in template(self).items():
-                combined_args[k] = v
-
-        # override values using the explicit kwargs:
-        for k,v in kwargs.items():
-                combined_args[k] = v
-
-        kwargs = combined_args
-
-        # pull these values out of the argument dictionary (as they are not passed to random_function)
-        input_densities = kwargs["input_densities"]
-        input_minimums = kwargs["input_minimums"]
-        modifier = kwargs["modifier"]
-        max_mod_attempts = kwargs['max_mod_attempts']
-
-        del kwargs["input_densities"]
-        del kwargs["input_minimums"]
-        del kwargs["modifier"]
-        del kwargs['max_mod_attempts']
-
-        # main loop
-        for block_idx in range(1,self.num_components):
-            has_chaining = []
-            dist_used = min(len(combined_args["component_distributions"])-1, block_idx)
-            block_component_dist = combined_args["component_distributions"][dist_used]
-
-            # modify the args to pass to random_function:
-            modified_args = {"allowed_blocks": self.blocks[:block_idx], **combined_args}
-            modified_args["component_distributions"] = block_component_dist
-
-            # random pass
-            for bit in self.blocks[block_idx]:
-                # flip a coin to see if this bit is going to have input:
-                if (random.random() <= input_densities[block_idx]):
-                    has_chaining.append(bit)
-
-                    valid = False
-                    attempts = 0
-                    while (not valid) and (attempts < max_mod_attempts):
-                        chaining_fn = random_function(**modified_args)
-                        valid, chaining_fn = modifier(self, chaining_fn, modified_args['allowed_blocks'])
-                    
-                    if not valid:
-                        raise ValueError("chaining generation failed modification check too many times")
-                    
-                    self.fn_list[bit].add_arguments(chaining_fn)
-
-            # minimum ensuring pass  
-            if len(has_chaining) < input_minimums[block_idx]:
-                inpt_bits = random.sample(
-                    [bit for bit in self.blocks[block_idx] if not bit in has_chaining],
-                    input_minimums[block_idx] - len(has_chaining)
-                )
-
-                for bit in inpt_bits:
-
-                    valid = False
-                    attempts = 0
-                    while (not valid) and (attempts < max_mod_attempts):
-                        chaining_fn = random_function(**modified_args)
-                        valid, chaining_fn = modifier(self, chaining_fn, modified_args['allowed_blocks'])
-                    
-                    if not valid:
-                        raise ValueError("chaining generation failed modification check too many times")
-                    
-                    self.fn_list[bit].add_arguments(chaining_fn)
+        for bit, fn in chaining_logic.items():
+            self.fn_list[bit].add_arguments(fn)
 
 
     @property
@@ -161,7 +68,7 @@ class CMPR(FeedbackFunction):
         output = []
         for f in self.fn_list:
             if len(f.args) > 1:
-                output.append(f.args[1])
+                output.append(XOR(*f.args[1:]))
             else:
                 output.append(CONST(0))
         return output

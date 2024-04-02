@@ -19,6 +19,9 @@ class BooleanFunction:
             arg_limit = self.arg_limit
         )
         
+    def functionally_equivalent(self,other):
+        raise NotImplementedError # defined in CNF.py
+
     def is_leaf(self):
         return False
     
@@ -215,6 +218,16 @@ self._compiled = _compiled
     @cached
     def num_nodes(self):
         return sum(arg.num_nodes() for arg in self.args)
+    
+    def sample_template(self):
+        collected_outputs = []
+
+        for source in self.args:
+            for output in source.sample_template():
+                if output != None:
+                    collected_outputs.append(output)
+        
+        yield type(self)(*collected_outputs)
 
 
 def iterative_recursion(fn):

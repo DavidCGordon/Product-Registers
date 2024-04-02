@@ -1,8 +1,10 @@
-from ProductRegisters.BooleanLogic.BooleanFunction import BooleanFunction
+from ProductRegisters.BooleanLogic import BooleanFunction, XOR
 from pysat.formula import CNF
 from pysat.solvers import Solver
-
-# TODO: convert to crypto-minisat
+import pysat
+import pycryptosat
+import gc
+import time
 
 def tseytin(self):
     binary_tree = self.binarize()
@@ -85,52 +87,59 @@ def tseytin_labels(self):
 
     return node_labels,variable_labels
 
-def satisfiable(self):
+
+def satisfiable(self, verbose = False, solver_name = "cadical195", time_limit = None):
     clauses, node_map, var_map = self.tseytin()
     num_variables = len(node_map)
     num_clauses = len(clauses)
+    
+    if verbose:
+        print(cnf.nv, len(cnf.clauses))
+        print("Tseytin finished")
+        print(f'Number of variables: {num_variables}')
+        print(f'Number of clauses: {num_clauses}')
+
     cnf = CNF(from_clauses=clauses)
+    with Solver(name = solver_name, bootstrap_with=cnf, use_timer=True) as solver:
+        satisfiable = solver.solve()
+        assignments = solver.get_model()
 
-    print(cnf.nv, len(cnf.clauses))
-    print("Tseytin finished")
-    print(f'Number of variables: {num_variables}')
-    print(f'Number of clauses: {num_clauses}')
+    if verbose:
+        print(solver.time())
 
-    solver = Solver(
-        bootstrap_with=cnf,
-        use_timer=True,
-    )
-
-    solvable = solver.solve()
-    assignments = solver.get_model()
-
-    print(solver.time())
-    if solvable:
+    if satisfiable:
         return {k: (assignments[v-1]>0) for k,v in var_map.items()}
     else:
         return None
+
     
-def enumerate_models(self):
+def enumerate_models(self, solver_name = 'cadical195', verbose = False):
     clauses, node_map, var_map = self.tseytin()
     num_variables = len(node_map)
     num_clauses = len(clauses)
     cnf = CNF(from_clauses=clauses)
 
-    print(cnf.nv, len(cnf.clauses))
-    print("Tseytin finished")
-    print(f'Number of variables: {num_variables}')
-    print(f'Number of clauses: {num_clauses}')
+    if verbose:
+        print(cnf.nv, len(cnf.clauses))
+        print("Tseytin finished")
+        print(f'Number of variables: {num_variables}')
+        print(f'Number of clauses: {num_clauses}')
 
-    solver = Solver(
-        bootstrap_with=cnf,
-        use_timer=True,
-    )
+    with Solver(name = solver_name, bootstrap_with=cnf, use_timer=True) as solver:
+        for assignment in solver.enum_models():
+            yield {k: (assignment[v-1]>0) for k,v in var_map.items()}
 
-    for assignment in solver.enum_models():
-        yield {k: (assignment[v-1]>0) for k,v in var_map.items()}
 
 BooleanFunction.tseytin = tseytin
 BooleanFunction.tseytin_labels = tseytin_labels
 BooleanFunction.tseytin_clauses = tseytin_clauses
 BooleanFunction.sat = satisfiable
 BooleanFunction.enum_models = enumerate_models
+
+def functionally_equivalent(self,other):
+    if (XOR(self,other).sat()) == None: 
+        return True
+    else:
+        return False
+
+BooleanFunction.functionally_equivalent = functionally_equivalent

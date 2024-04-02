@@ -88,7 +88,6 @@ class CONST(BooleanFunction):
 
 
 
-
 class VAR(BooleanFunction):
     def __init__(self, index):
         self.index = index
@@ -109,7 +108,7 @@ class VAR(BooleanFunction):
     def generate_c(self):
         return f"(*currstate)[{self.index}]"
     def generate_VHDL(self):
-        return f"currstate[{self.index}]"
+        return f"currstate({self.index})"
     def generate_python(self):
         return f"currstate[{self.index}]"
     def generate_JSON(self):

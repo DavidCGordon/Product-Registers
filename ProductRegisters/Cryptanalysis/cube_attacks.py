@@ -159,31 +159,40 @@ def cmpr_cube_attack_offline(cmpr_fn, sim_fn, tweakable_vars, time_limit = None,
 
         # check to see if the block is saturated:
         block_already_saturated = all([(bit in cube_map) for bit in cmpr_fn.blocks[target_block]])
-        if block_already_saturated:
-            if verbose: print(' - Cube skipped (target block already saturated)')
-            continue
 
         # create the iterators and calculate some statistics:
         tweakable_cube_count = 1
         variable_iterators = []
 
-        loop_nums = []
-        for block_id in range(len(cmpr_fn.blocks)-1,-1,-1):
-            if block_id in cube_profile.counts:
-                variable_iterators.append(combinations(tweakable_blocks[block_id],cube_profile.counts[block_id]))
+        # only compute tweakable bits for blocks which are not saturated
+        if not block_already_saturated:
+            loop_nums = []
+            for block_id in range(len(cmpr_fn.blocks)-1,-1,-1):
+                if block_id in cube_profile.counts:
+                    variable_iterators.append(combinations(tweakable_blocks[block_id],cube_profile.counts[block_id]))
 
-                num_loops = 1
-                for i in range(cube_profile.counts[block_id]):
-                    num_loops *= (
-                        (len(tweakable_blocks[block_id])-i)/
-                        (cube_profile.counts[block_id]-i)
-                    )
-                loop_nums.append(num_loops)
-                tweakable_cube_count *= num_loops
+                    num_loops = 1
+                    for i in range(cube_profile.counts[block_id]):
+                        num_loops *= (
+                            (len(tweakable_blocks[block_id])-i)/
+                            (cube_profile.counts[block_id]-i)
+                        )
+                    loop_nums.append(num_loops)
+                    tweakable_cube_count *= num_loops
 
         # round float to get integer approximation for number of actual cubes
         tweakable_cube_count = round(tweakable_cube_count)
         variable_iterators= [x[1] for x in sorted(zip(loop_nums,variable_iterators), key = lambda x:x[0])]
+
+        # output message for empty cube profiles:
+        if tweakable_cube_count == 0:
+            if verbose: print(' - Cube skipped (not possible with current tweakable bits)')
+            continue
+        
+        # output message for cube profiles we won't use but could:
+        if block_already_saturated:
+            if verbose: print(' - Cube skipped (target block already saturated)')
+            continue
 
         already_printed = False
         # test the cubes:
@@ -242,10 +251,6 @@ def cmpr_cube_attack_offline(cmpr_fn, sim_fn, tweakable_vars, time_limit = None,
         # second time check to avoid printing everything
         if time_limit and time.time() - start_time > time_limit:
                 break 
-    
-    # output message for empty cube profiles:
-    if not already_printed:
-        if verbose: print(' - Cube skipped (not possible with current tweakable bits)')
         
     num_queries = 0
     for cube in cube_map.values():
@@ -299,7 +304,7 @@ def lu_solve(L,U,b):
 
 
 
-def cube_attack_online(access_fn,test_fn,state_size,known_bits,cube_data, verbose = False):
+def cube_attack_online(access_fn, test_fn, state_size, known_bits, cube_data, verbose = False):
     cube_map = cube_data['cubes']
     total_matrix = cube_data['equation matrix']
     consts = cube_data ['constant vector']
