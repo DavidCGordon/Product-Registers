@@ -111,7 +111,6 @@ def three_majority_template(correlation_immunity = 3, algebraic_degree = 4, requ
       )
 
       for bit in cmpr.blocks[block_idx+1][::-1]:
-        print(bit)
         fn = template.sample()[0]
         fns[bit] = fn
 
