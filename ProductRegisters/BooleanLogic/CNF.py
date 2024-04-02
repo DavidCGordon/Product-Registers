@@ -1,10 +1,6 @@
 from ProductRegisters.BooleanLogic import BooleanFunction, XOR
 from pysat.formula import CNF
 from pysat.solvers import Solver
-import pysat
-import pycryptosat
-import gc
-import time
 
 def tseytin(self):
     binary_tree = self.binarize()
