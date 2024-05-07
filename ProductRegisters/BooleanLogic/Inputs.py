@@ -158,7 +158,7 @@ class VAR(BooleanFunction):
 
     def _binarize(self):
         return self
-
+    
     def _tseytin_labels(self, node_labels, variable_labels, next_idx):
         if self.index in variable_labels:
             node_labels[self] = [variable_labels[self.index]]

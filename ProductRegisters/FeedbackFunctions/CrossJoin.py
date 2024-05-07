@@ -1,5 +1,9 @@
 from ProductRegisters.FeedbackFunctions import FeedbackFunction
-from ProductRegisters.BooleanLogic import BooleanFunction, ANF_spec_repr, AND, XOR, VAR
+from ProductRegisters.BooleanLogic import BooleanFunction, ANF_spec_repr, AND, XOR, VAR, CONST
+
+from ProductRegisters.Tools.RootCounting.MonomialProfile import TermSet,MonomialProfile
+from ProductRegisters.Tools.RootCounting.JordanSet import JordanSet
+from ProductRegisters.Tools.RootCounting.RootExpression import RootExpression
 
 from random import randint, sample
 
@@ -11,12 +15,25 @@ from random import randint, sample
 
 # For Now: ONLY SUPPORTS ANF TERMS:
 class CrossJoin(FeedbackFunction):
-    def __init__(self, size, primitive_poly):
-                 
+    def __init__(self,
+        size: int, 
+        primitive_poly: (str | list[int]),
+    ) -> None:
+        """
+        Constructor for the CrossJoin family of function families.
+
+        Args:
+          size: 
+            the number of bits in the feedback register
+          primitive_poly:
+            the primitive polynomial of the base LFSR. This can be either in koopman string format,
+            or given as a list with 0/1 entries, where p[i] is the coeffient of x^i in the primitive polynomial.
+        Returns:
+            None
+        """
         # convert koopman string into polynomial:
         if type(primitive_poly) == str:
             primitive_poly = [int(x) for x in format(int(primitive_poly,16), f"0>{size}b")] + [1]
-            # primitive_poly = list(BitVector(intVal = int(primitive_poly, 16), size = size)) + [1]
             
         self.primitive_polynomial = primitive_poly
 
@@ -24,9 +41,8 @@ class CrossJoin(FeedbackFunction):
         top_fn = [[size-idx] for (idx, t) in enumerate(primitive_poly) if t == 1][::-1][:-1]
         self.fn_list = [[[(i+1)%size]] for i in range(size-1)] + [top_fn]
         self.fn_list = [
-        XOR(
-            BooleanFunction.construct_ANF(bitFn),
-        ) for bitFn in self.fn_list
+            XOR(BooleanFunction.construct_ANF(bitFn),)
+            for bitFn in self.fn_list
         ]
 
         self.size = size
@@ -53,9 +69,9 @@ class CrossJoin(FeedbackFunction):
     def getMaxDestination(self, term):
         return min((self.size + self.tau) - (max(value.index for value in term.args)+1), self.size - 1)
 
+
     def addNonLinearTerm(self,maxAnds):
         minDest = maxDest = 0
-
 
         while not (minDest < maxDest):
             numTaps = randint(2,maxAnds)
@@ -104,3 +120,50 @@ class CrossJoin(FeedbackFunction):
                 self.fn_list[bit].remove_arguments(nonlinear_terms)
 
         return
+
+    @property
+    def linear_feedback(self):
+        return [f.args[0] for f in self.fn_list]
+
+    @property
+    def monomial_feedback(self):
+        output = []
+        for f in self.fn_list:
+            if len(f.args) > 1:
+                output.append(XOR(*f.args[1:]))
+            else:
+                output.append(CONST(0))
+        return output
+    
+    def compensation_list(self):
+        comp_list = []
+        curr_fn = CONST(0)
+        for fn in self.monomial_feedback[::-1]:
+            curr_fn = curr_fn.shift_indices(-1)
+
+            # moving in/out of ANF_spec_repr to get nicer cancellation
+            # slightly inefficient, but this is still relatively fast
+            # and is much cleaner to read/write
+            curr_fn = ANF_spec_repr.from_BooleanFunction(curr_fn)
+            curr_fn ^= ANF_spec_repr.from_BooleanFunction(fn)
+            curr_fn = curr_fn.to_BooleanFunction()
+
+            comp_list.append(curr_fn)
+        
+        # list is buit in reverse, so reverse when returning:
+        return comp_list[::-1]
+        
+
+    def root_expressions(self):
+        REs = []
+        compensation_list = self.compensation_list()
+        
+        for bit in range(self.size):
+            term_lengths = [len(term.args) for term in compensation_list[bit].args if type(term) != CONST]
+            count = max(term_lengths, default = 1)
+            count = min(count,self.size)
+            REs.append(RootExpression([JordanSet({self.size:count},1)]))
+        return REs
+
+    def filter_generator(self):
+        pass

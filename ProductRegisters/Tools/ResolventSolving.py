@@ -68,7 +68,7 @@ class SequenceTransform:
     def __pow__(self,power):
         if type(power) != int:
             raise ValueError(f"power must be int, not {type(power)}")
-        acc = SequenceTransform.unit()
+        acc = SequenceTransform.one()
         for _ in range(power):
             acc *= self
         return acc

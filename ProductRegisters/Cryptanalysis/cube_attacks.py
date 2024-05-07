@@ -220,7 +220,6 @@ def cmpr_cube_attack_offline(cmpr_fn, sim_fn, tweakable_vars, time_limit = None,
 
             # calculate coefficients
             coef_vector, const =  determine_equation(sim_fn,maxterm,coef_state,target_set=cmpr_fn.blocks[target_block])
-            #print("INTITIAL: ", coef_vector)
 
             # calculate lower and upper entries
             linearly_independent = False
@@ -294,8 +293,6 @@ def lu_solve(L,U,b):
             c[j] ^= U[j,i] * c[i]
 
     return c
-
-
 
 
 

@@ -8,6 +8,12 @@ import inspect
 from functools import cache, wraps
 
 
+# TODO: recursion on a dense DAG causes a lot of blow up.
+# this is fixed in some cases (JSON storage/reconstruction, CNF construction)
+# but still causes issues when calling some functions like eval/print
+# might need to change the API to restrict to trees / make the DAG structure
+# more explicit. 
+
 class BooleanFunction:
     def __init__(self):
         self.args = None
@@ -162,9 +168,17 @@ self._compiled = _compiled
         return self._compiled
 
 
-
-    #TODO: JSON methods break DAG into trees
     def to_JSON(self):
+        node_ids = self.generate_ids()
+        num_nodes = max(node_ids.values())+1
+        json_node_list = [None for i in range(num_nodes)]
+
+        for node,id in node_ids.items():
+            json_node_list[id] = node._JSON_entry(node_ids)
+        
+        return json_node_list
+
+    def _JSON_entry(self,node_ids):
         # copy class name and non-nested data
         JSON_object = {
             'class': type(self).__name__,
@@ -173,7 +187,7 @@ self._compiled = _compiled
 
         # recurse on any children/nested data:
         if 'args' in JSON_object['data']:
-            JSON_object['data']['args'] = [arg.to_JSON() for arg in self.args]
+            JSON_object['data']['args'] = [node_ids[arg] for arg in self.args]
 
         # ignore the compiled version (not serializable)
         if '_compiled' in JSON_object['data']:
@@ -182,28 +196,46 @@ self._compiled = _compiled
         return JSON_object
     
     @classmethod
-    def from_JSON(self, JSON_object):
+    def from_JSON(self, json_node_list):
         # parse object class and data
-        object_data = JSON_object['data']
-        object_class = None
-        for subcls in self.__subclasses__():
-            if subcls.__name__ == JSON_object['class']:
-                object_class = subcls
+        num_nodes = len(json_node_list)
+        parsed_functions = [None for i in range(num_nodes)]
+        for node_id in range(num_nodes):
+            node_data = json_node_list[node_id]
+            
+            # create information for the python object for this node
+            object_class = None
+            object_data = node_data['data']
+
+            # self is the BooleanFunction type
+            # this finds the appropriate subclass of BooleanFunction for the node
+            for subcls in self.__subclasses__():
+                if subcls.__name__ == node_data['class']:
+                    object_class = subcls
+
+            # throw a better error if no class found
+            if object_class == None:
+                raise TypeError(f"Type \'{node_data['class']}\' is not a valid BooleanFunction")
+
+            # put data into new object and add it to the parsed functions
+            new_node = object.__new__(object_class)
+            for key,value in object_data.items():
+                if key == 'args':
+                    new_node.args = [parsed_functions[child_id] for child_id in value]
+                else:
+                    setattr(new_node,key,value)
+            parsed_functions[node_id] = new_node
+        
+        # the root node is the last one in the list:
+        return parsed_functions[-1]
+        
+        
 
         # throw a better error if no class found
         if object_class == None:
             raise TypeError(f"Type \'{JSON_object['class']}\' is not a valid BooleanFunction")
 
-        # put data into new object
-        output = object.__new__(object_class)
-        for key,value in object_data.items():
-            if key == 'args':
-                output.args = [BooleanFunction.from_JSON(child) for child in value]
-            else:
-                setattr(output,key,value)
-            
-        return output
-
+        
     # json files only:
     def to_file(self, filename):
         with open(filename, 'w') as f:
@@ -229,7 +261,35 @@ self._compiled = _compiled
         
         yield type(self)(*collected_outputs)
 
+    # generate a unique ID for every node in the tree:
+    def generate_ids(self):
+        stack = [self]
+        next_available_index = 0
+        node_labels = {}
 
+        while stack:
+            curr_node = stack[-1]
+
+            # don't visit nodes twice:
+            if curr_node in node_labels:
+                stack.pop()
+
+            # add this node when all children have been added (moving up tree)
+            elif curr_node.is_leaf() or all([arg in node_labels for arg in curr_node.args]):
+                node_labels[curr_node] = next_available_index
+                next_available_index += 1
+                stack.pop()
+
+            # otherwise place children in the stack to handle later
+            else:
+                for child in reversed(curr_node.args):
+                    stack.append(child)
+
+        return node_labels
+
+
+
+# TODO: make this fit in better with the rest of the library, rather than being a 1-off
 def iterative_recursion(fn):
     def traversal(self, *args, **kwargs):
         visited = set()

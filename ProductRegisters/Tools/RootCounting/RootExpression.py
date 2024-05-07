@@ -35,7 +35,7 @@ class RootExpression:
 
     def __xor__(self, other): return self.__add__(other)
     def __add__(self, other):
-        #clean out redundant subsets and merge.
+        # clean out redundant subsets and merge.
         new_anf = maximalElements(
             leq_ordering=isExactSubset, 
             inputs=[self.terms, other.terms]
@@ -48,7 +48,7 @@ class RootExpression:
         for a, b in product(self.terms, other.terms):
             new_term_sets.append(a * b)
 
-        #clean out redundant subsets.
+        # clean out redundant subsets.
         new_anf = maximalElements(
             leq_ordering = isExactSubset,
             inputs = new_term_sets
@@ -106,7 +106,7 @@ class RootExpression:
 
 
     #calculate lower bound (ignoring bases in locked list)
-    def lower(self, locked_list = None, safety_factor = None):
+    def lower(self, locked_list = None,):
         # initalize values:
         linear_complexity = 0        
         basis_table = {}

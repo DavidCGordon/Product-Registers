@@ -3,7 +3,7 @@ from math import comb
 # note this should be symmetric.
 
 # counts multiplicity of the prime instead of computing the combinations
-# this is slower at small scales, but scales better and is more accurate
+# this is slower at small scales, but scales better and is more accurate/stable
 def Dp(i,s,t,p):
     if i >= s: return False
 

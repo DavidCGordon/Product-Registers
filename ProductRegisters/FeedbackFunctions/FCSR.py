@@ -66,11 +66,10 @@ class FCSR(FeedbackFunction):
 
     @classmethod
     def state_from_frac(self,num,den):
-        # function is not simplified in order to
+        # fraction is not simplified in order to
         # create valid states for larger FCSRs
-        #print(num,den)
 
-        # handle 0/1 and 1/1 edge case
+        # handle 0/1 and 1/1 edge case (undefined log)
         if den == 1 and num in (0,1):
             return (1,[num])
 

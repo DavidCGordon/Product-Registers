@@ -1,3 +1,6 @@
+# Documentation:
+from typing import Iterable
+
 # Simulation Boilerplate
 from ProductRegisters.BooleanLogic import ANF_spec_repr, XOR, AND, CONST, VAR
 from ProductRegisters.FeedbackFunctions import FeedbackFunction
@@ -15,21 +18,33 @@ from ProductRegisters.Tools.MersenneTools import expected_period, expected_perio
 # Other libs
 import random
 import numpy as np
-import galois
+import galois as gl
 import time
 
 from functools import cached_property
 
 class CMPR(FeedbackFunction):
-    def __init__(self, config):
-        #list of [0..sizes.. size]
-        self.num_components = len(config)
+    def __init__(self, 
+        components: Iterable[MPR]
+    ):
+        """
+        Constructor for the CMPR family of Feedbacl Functions
+
+        Args:
+          components: 
+            An iterable of MPR objects to be used as the components of the CMPR. No error will be raised
+            if feedback functions which are not MPRs are used, and this can sometimes be a useful hack.
+            however not all methods are guaranteed to work if non-MPR components are used
+        Returns:
+            None
+        """
+        self.num_components = len(components)
         self.divisions = [] 
 
         shift_amount = 0
         self.fn_list = []
 
-        for component in config[::-1]:
+        for component in components[::-1]:
             # merge any CMPRs inside
             if isinstance(component,CMPR):
                 self.divisions += [d + shift_amount for d in component.divisions[:-1]]
@@ -201,6 +216,14 @@ class CMPR(FeedbackFunction):
         return period
 
 
+
+
+
+
+
+
+
+
     def monomial_profiles(self):
         prof_table = [MonomialProfile() for i in range(self.size)] # map: bit -> expression
         block_table = [MonomialProfile() for i in range(len(self.blocks))]
@@ -322,46 +345,47 @@ class CMPR(FeedbackFunction):
 
     @property
     def fixpoint(self):
-        key = [0] * self.size
+        fixed_state = [0] * self.size
         for block_idx in range(self.num_components):
-            # setup variables
+            # compute the matrix (U-I)
             matrix_size = len(self.blocks[block_idx])
-            update_matrix = self.update_matrices[block_idx]
-            identity_matrix = np.eye(matrix_size, dtype = int)
+            update_matrix = gl.GF2(self.update_matrices[block_idx])
+            identity_matrix = gl.GF2(np.eye(matrix_size, dtype = int))
+            difference_matrix = update_matrix - identity_matrix
 
-            # Compute the chaining from known bits
-            vector = [self.fn_list[i].eval(key) for i in self.blocks[block_idx]]
+            # compute the target chaining vector from known bits
+            chaining_vector = gl.GF2([self.fn_list[i].eval(fixed_state) for i in self.blocks[block_idx]])
 
-            # create matrices and invert
-            galois_mat = galois.GF2(update_matrix) - galois.GF2(identity_matrix)
-            galois_vect = galois.GF2(vector)
-            sol = np.linalg.solve(galois_mat, galois_vect)
+            # solve the system (U-I)x = C.
+            # expanding gives: Ux + x = C.
+            # swapping terms:  Ux + C = x
+            sol = np.linalg.solve(difference_matrix, chaining_vector)
 
-            # plug answer back into the key
+            # write answer back into the fixed state vector
             shift = self.blocks[block_idx][0]
             for bit in self.blocks[block_idx]:
-                key[bit] = int(sol[bit - shift])
-        return key
-
+                fixed_state[bit] = int(sol[bit - shift])
+        return fixed_state
 
 
     def reverse_clock(self, state):
-        key = [0] * self.size
+        prev_state = [0] * self.size
         for block_idx in range(self.num_components):
-            update_matrix = galois.GF2(self.update_matrices[block_idx])
+            update_matrix = gl.GF2(self.update_matrices[block_idx])
 
             # Compute the chaining from known bits
-            chaining_vector = galois.GF2([self.fn_list[i].eval(key) for i in self.blocks[block_idx]])
-            target_vector = galois.GF2([state[i] for i in self.blocks[block_idx]])
+            chaining_vector = gl.GF2([self.fn_list[i].eval(prev_state) for i in self.blocks[block_idx]])
+            target_vector = gl.GF2([state[i] for i in self.blocks[block_idx]])
 
-            # solve the system
+            # solve the system Ux = T - C
+            # rearranging:     Ux + C = T 
             sol = np.linalg.solve(update_matrix, target_vector - chaining_vector)
 
             # plug answer back into the key
             shift = self.blocks[block_idx][0]
             for bit in self.blocks[block_idx]:
-                key[bit] = int(sol[bit - shift])
-        return key
+                prev_state[bit] = int(sol[bit - shift])
+        return prev_state
 
 
 
