@@ -47,9 +47,11 @@ def isExactSubset(a,b):
 # If the roots in A are a subset of those in B, with same or lower multiplicity
 # We can finally remove these at evaluation to avoid double counting.
 def isSubset(a,b):
-    if a.m > b.m:
+    
+    # this is subset check using >
+    if (a.mults > b.mults):
         return False
-
+    
     if a.roots.keys() != b.roots.keys():
         return False
 

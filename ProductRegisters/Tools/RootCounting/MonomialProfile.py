@@ -1,8 +1,8 @@
-from ProductRegisters.Tools.RootCounting.Combinatorics import choose
+from ProductRegisters.Tools.RootCounting.Combinatorics import choose, binsum
+from ProductRegisters.Tools.RootCounting.OverlappingRectangle import rectangle_solve
 from ProductRegisters.Tools.RootCounting.PartialOrders import maximalElements
 from ProductRegisters.BooleanLogic import AND, XOR, CONST, VAR
 from itertools import product
-
 
 
 
@@ -48,13 +48,16 @@ class TermSet:
 
 
 def isSubset(a,b):
+    # Don't exclude the empty termset, using it as a marker
+    # for constants is useful for a lot of other tasks.
+    if a.totals == {} or b.totals == {}:
+        return False
+    
     # all counts in A must be < B to be a subset.
     for block_id in a.totals:
         compare_value = b.counts[block_id] if block_id in b.counts else 0
         if a.counts[block_id] > compare_value:
             return False
-
-    # if all conditions pass, return true
     return True
 
 
@@ -84,6 +87,21 @@ class MonomialProfile:
         })
 
         return total_fn.eval_ANF(bitmap)
+    
+    def to_BooleanFunction(self):
+        output = XOR()
+        for term in self.terms:
+            if len(term.counts) == 0:
+                output.add_arguments(CONST(1))
+                continue
+
+            term_fn = AND()    
+            for block,count in term.counts.items():
+                term_fn.add_arguments(*([VAR(block)] * count))
+            output.add_arguments(term_fn)
+        return output
+    
+
     
 
     def __str__(self):
@@ -124,7 +142,7 @@ class MonomialProfile:
         return MonomialProfile(new_terms)
 
     # When multiplying by Logical One, you should leave the result untouched
-    # When adding with Logical Zero, you should add an indicator term 
+    # When adding with Logical One, you should add an indicator term 
     # These effects are accomplished by the MonomialProfile with an Empty TermSet
     @classmethod
     def logical_one(self): return MonomialProfile([TermSet({},{})])
@@ -138,6 +156,26 @@ class MonomialProfile:
     # The Monomial Profile of an inverted function is the same
     def __invert__(self): return self ^ MonomialProfile.logical_one()
 
+
+    def upper(self, locked_list = None):
+        # initialize
+        linear_complexity = 0
+        basis_table = {}
+
+        # build basis table
+        for termset in self.terms:
+            basis = tuple(sorted((termset.totals.keys())))
+            values = tuple([binsum(termset.totals[id],termset.counts[id]) for id in basis])
+            
+            if basis in basis_table:
+                basis_table[basis].append(values)
+            else:
+                basis_table[basis] = [values]
+
+        # evaluate the basis table using hyperrec algorithm
+        for x in basis_table.values():
+            linear_complexity += rectangle_solve(x)
+        return linear_complexity
 
     def get_cube_candidates(self):
         candidates =  []
@@ -166,6 +204,9 @@ class MonomialProfile:
                             modified_set.counts[i]
                         )
 
+                    # for every bit which is in the block, but not in the term we are testing
+                    # there is a coin flip on whether its full monomial (i.e. test monomial * bit)
+                    # appears. This is the chance that all of those monomials fail to appear.
                     cube_success_rate = 2**(-(
                         term_set.totals[block_id]-term_set.counts[block_id]
                     ))
@@ -178,20 +219,6 @@ class MonomialProfile:
                     ))
                         
         return candidates
-
-    def to_BooleanFunction(self):
-        output = XOR()
-        for term in self.terms:
-            if len(term.counts) == 0:
-                output.add_arguments(CONST(1))
-                continue
-
-            term_fn = AND()    
-            for block,count in term.counts.items():
-                term_fn.add_arguments(*([VAR(block)] * count))
-            output.add_arguments(term_fn)
-        return output
-
 
 
     

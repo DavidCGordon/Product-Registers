@@ -1,9 +1,12 @@
-from math import comb
+from numba import njit
+from memoization import cached
 # What a crazy algorithm: https://arxiv.org/pdf/math/0612437.pdf
 # note this should be symmetric.
 
 # counts multiplicity of the prime instead of computing the combinations
 # this is slower at small scales, but scales better and is more accurate/stable
+
+@njit
 def Dp(i,s,t,p):
     if i >= s: return False
 
@@ -24,6 +27,7 @@ def Dp(i,s,t,p):
     return (count > 0)
 
 # used to iterate through the Dp Array, as specified in paper.
+@njit
 def update(i,s,t,p):
     f = 0
     while (Dp(i + f,s,t,p) and (i + f) < s):
@@ -36,6 +40,7 @@ def update(i,s,t,p):
     return length, degree, next_idx
 
 # final method
+@cached
 def JP_solve(s,t,p):
     s,t = sorted([s,t])
     out = []

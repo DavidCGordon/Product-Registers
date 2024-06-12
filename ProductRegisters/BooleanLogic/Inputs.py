@@ -97,7 +97,7 @@ class VAR(BooleanFunction):
     def max_idx(self): 
         return self.index
     def idxs_used(self): 
-        return set(self.index)
+        return set([self.index])
 
 
     def eval(self, array):

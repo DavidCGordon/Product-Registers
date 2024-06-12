@@ -1,5 +1,7 @@
 from itertools import chain, combinations
+from numba import njit
 
+# can't njit because we need bigInts here
 def choose(n,k):
     prod = 1
     for i in range(k):

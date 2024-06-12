@@ -33,7 +33,7 @@ def arman_function(reference_block, max_and):
         ]
       ),
       tb.UNIQUE(
-        parameters = {"group_id": 0, "disable_on_failure": True},
+        parameters = {"group_id": 0, "attempt_limit":50, "disable_on_failure": True},
         source = (
           tb.GATE(
             parameters = {"gate_class": AND},

@@ -1,11 +1,11 @@
 from ProductRegisters.Tools.RootCounting.JordanPartition import JP_solve
 
 class JordanSet:
-    def __init__(self,roots,m):
+    def __init__(self,roots, mults):
         self.roots = roots # Dictionary 
-        self.m = m         # Integer
+        self.mults = mults # set
 
-    # Jordan set x Jordan set = Set of JordanSets
+    # Jordan set x Jordan set = Jordan set
     def __mul__(self,other):
         new_roots = {}
         for basis,count in self.roots.items():
@@ -23,10 +23,13 @@ class JordanSet:
         # reduce the counts in each multiplication, so that they dont get big.
         for basis in new_roots:
             new_roots[basis] = min(basis,new_roots[basis])
-        new_roots
         
-        multiplicities = JP_solve(self.m,other.m,2)
-        return set([JordanSet(new_roots, m[0]) for m in multiplicities])
+        multiplicities = set()
+        for m1 in self.mults:
+            for m2 in other.mults:
+                multiplicities |= set([mult for mult,count in JP_solve(m1,m2,2)])
+
+        return JordanSet(new_roots, multiplicities)
 
     def isFull(self):
         for b in self.roots:
@@ -35,7 +38,11 @@ class JordanSet:
         return True
     
     def __str__(self):
-        return  "<" +  ", ".join(f"{k}:{v}" for k,v in self.roots.items()) + f" ({self.m})>"
-    
+        return  (
+            "<" + ", ".join(f"{k}:{v}" for k,v in self.roots.items()) + 
+            " (" + ",".join(str(m) for m in self.mults) +
+            ")>"
+        )
+        
     def __copy__(self):
-        return JordanSet({k:v for k,v, in self.roots.items()}, self.m)
+        return JordanSet({k:v for k,v, in self.roots.items()}, set(m for m in self.mults))

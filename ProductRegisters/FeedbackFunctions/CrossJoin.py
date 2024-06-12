@@ -15,10 +15,7 @@ from random import randint, sample
 
 # For Now: ONLY SUPPORTS ANF TERMS:
 class CrossJoin(FeedbackFunction):
-    def __init__(self,
-        size: int, 
-        primitive_poly: (str | list[int]),
-    ) -> None:
+    def __init__(self, size, primitive_poly):
         """
         Constructor for the CrossJoin family of function families.
 
