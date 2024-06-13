@@ -201,12 +201,10 @@ class CMPR(FeedbackFunction):
     def max_period(self):
         period = 1
         already_seen = set()
-        sizes = [self.divisions[i+1] - self.divisions[i]
-                 for i in range(self.num_components)
-                ]
+        sizes = [len(block) for block in self.blocks]
         
         for s in sizes:
-            if s in already_seen:
+            if s == 1 or s in already_seen:
                 period *= 2
             else:
                 already_seen.add(s)

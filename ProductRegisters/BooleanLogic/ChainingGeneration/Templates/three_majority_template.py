@@ -103,6 +103,13 @@ def three_majority_template(correlation_immunity = 3, algebraic_degree = 4, requ
     # actually making the functions:
     fns = {}
     for block_idx in range(cmpr.num_components-1):
+      # better integration for T-function like segments
+      if len(cmpr.blocks[block_idx-1]) == 1 and len(cmpr.blocks[block_idx]) == 1:
+        continue
+      elif len(cmpr.blocks[block_idx-1]) == 1:
+        fns[cmpr.blocks[block_idx][-1]] = VAR(cmpr.blocks[block_idx][-1] + 1)
+
+
       template = maj_function(
         reference_block=cmpr.blocks[block_idx],
         algebraic_degree=algebraic_degree[block_idx], 

@@ -78,7 +78,14 @@ def old_ANF_template(max_and = 4, max_xor = 4):
   def template_fn(cmpr):
     fns = {}
     for i in range(1,cmpr.num_components):
-      #template = arman_template(reference_block=C.blocks[i-1])
+      # better integration for T-function like segments:
+      if len(cmpr.blocks[i-1]) == 1 and len(cmpr.blocks[i]) == 1:
+        continue
+      elif len(cmpr.blocks[i-1]) == 1:
+        fns[cmpr.blocks[i][-1]] = VAR(cmpr.blocks[i][-1] + 1)
+        continue
+
+
       template = old_ANF_function(
         reference_block=cmpr.blocks[i-1],
         max_and=max_and, 
