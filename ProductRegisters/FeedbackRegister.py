@@ -1,13 +1,10 @@
 from ProductRegisters.FeedbackFunctions import FeedbackFunction
 
-
 import numpy as np
-
 import subprocess
-
-from numba import jit
-
+from numba import jit, njit
 import json
+
 #import system
 
 

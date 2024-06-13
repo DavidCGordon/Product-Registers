@@ -68,6 +68,7 @@ class FCSR(FeedbackFunction):
     def state_from_frac(self,num,den):
         # fraction is not simplified in order to
         # create valid states for larger FCSRs
+        # but this does assume no negative denominators
 
         # handle 0/1 and 1/1 edge case (undefined log)
         if den == 1 and num in (0,1):
@@ -75,8 +76,8 @@ class FCSR(FeedbackFunction):
 
         if  num > 0:
             size = 1 + ceil(log2(max(den,abs(num))))
-            a = 2**size - num
-            c = 0
+            values = 2**size - num
+            carries = 0
 
         else:
             size = max(
@@ -84,20 +85,20 @@ class FCSR(FeedbackFunction):
                 ceil(log2(den))
             )
             
-            a = c = floor(abs(num) / 3)
+            values = carries = floor(abs(num) / 3)
             if floor(abs(num)) % 3 == 1:
-                a += 1
+                values += 1
             elif floor(abs(num)) % 3 == 2:
-                c += 1
+                carries += 1
             else:
                 pass
 
         # convert a,c into a state.
         out_state = [0 for i in range(2*size-1)]
-        for i,b in enumerate([int(x) for x in bin(a)[2:][::-1]]):
-            out_state[2*i] = b
-        for i,b in enumerate([int(x) for x in bin(c)[2:][::-1]]):
-            out_state[2*i+1] = b
+        for i,bit in enumerate([int(x) for x in bin(values)[2:][::-1]]):
+            out_state[2*i] = bit
+        for i,bit in enumerate([int(x) for x in bin(carries)[2:][::-1]]):
+            out_state[2*i+1] = bit
 
         return size, out_state
 

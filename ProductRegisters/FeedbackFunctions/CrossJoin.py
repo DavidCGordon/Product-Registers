@@ -1,4 +1,5 @@
-from ProductRegisters.FeedbackFunctions import FeedbackFunction
+from ProductRegisters import FeedbackRegister
+from ProductRegisters.FeedbackFunctions import FeedbackFunction, Fibonacci, CMPR
 from ProductRegisters.BooleanLogic import BooleanFunction, ANF_spec_repr, AND, XOR, VAR, CONST
 
 from ProductRegisters.Tools.RootCounting.MonomialProfile import TermSet,MonomialProfile
@@ -12,6 +13,9 @@ from random import randint, sample
 # (https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=5290281) 
 # to create a scalable sequence generator
 
+
+# implementation detail: tau is the last bit of the nonlinearity:
+# i.e. tau may not recieve any nonlinear effects. but may not be read from
 
 # For Now: ONLY SUPPORTS ANF TERMS:
 class CrossJoin(FeedbackFunction):
@@ -94,18 +98,19 @@ class CrossJoin(FeedbackFunction):
         for bit in range(self.size):
             self.fn_list[bit].add_arguments(XOR())
 
-        # shift any needed linear terms
+        # shift any needed linear terms to tau (always valid)
         for term in self.fn_list[self.size-1].args[0].args:
             if term.args[0].index >= self.tau:
-                self.fn_list[self.size-1].args[0].remove_arguments(term)
-                self.fn_list[self.tau].args[0].add_arguments(term.shift_indices(self.tau-self.size+1))
+                self.fn_list[self.size-1].args[1].add_arguments(term)
+                self.fn_list[self.tau].args[1].add_arguments(term.shift_indices(self.tau-self.size+1))
                 
         # main loop:
         tapped = set()
         while len(tapped) < self.tau:
             self.addNonLinearTerm(maxAnds)
             
-            # for all nonlinear terms above tau
+            # for all nonlinear terms (tau & up)
+            # determine which bits are tapped:
             for fn in self.fn_list[self.tau:]:
                 for term in fn.args[-1].args:
                     tapped |= {val.index for val in term.args}
@@ -132,10 +137,14 @@ class CrossJoin(FeedbackFunction):
                 output.append(CONST(0))
         return output
     
+
+    # produces a set of filters which produce the same output
+    # when applied to the base LFSR used to build the crossjoin
     def compensation_list(self):
         comp_list = []
         curr_fn = CONST(0)
         for fn in self.monomial_feedback[::-1]:
+            # needs to be a boolean fn here to use shift_indicies
             curr_fn = curr_fn.shift_indices(-1)
 
             # moving in/out of ANF_spec_repr to get nicer cancellation
@@ -145,12 +154,11 @@ class CrossJoin(FeedbackFunction):
             curr_fn ^= ANF_spec_repr.from_BooleanFunction(fn)
             curr_fn = curr_fn.to_BooleanFunction()
 
-            comp_list.append(curr_fn)
+            comp_list.append(curr_fn.shift_indices(-1))
         
         # list is buit in reverse, so reverse when returning:
         return comp_list[::-1]
         
-
     def root_expressions(self):
         REs = []
         compensation_list = self.compensation_list()
@@ -162,5 +170,12 @@ class CrossJoin(FeedbackFunction):
             REs.append(RootExpression([JordanSet({self.size:count},1)]))
         return REs
 
-    def filter_generator(self):
-        pass
+    def filter_generator(self, initial_state):
+        feedback_fn = Fibonacci(self.size, self.primitive_polynomial)
+        comp_list = self.compensation_list()
+        new_state = [initial_state[bit] ^ comp_list[bit].eval(initial_state) for bit in range(self.size)]
+        filter_fn = [XOR(VAR(bit),comp_list[bit]) for bit in range(self.size)]
+
+        # due to module load order reasons, you have to use the FeedbackRegister module here instead of the class
+        # this is an annoyance, but I couldn't refactor everything to fix this one line.
+        return (FeedbackRegister.FeedbackRegister(new_state,feedback_fn),filter_fn)

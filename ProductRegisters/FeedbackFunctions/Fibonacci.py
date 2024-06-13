@@ -44,7 +44,7 @@ class Fibonacci(FeedbackFunction):
             self.is_inverted = False
             
     @classmethod
-    def fromSeq(self,seq, nonlinear = False):
+    def fromSeq(self, seq, nonlinear = False):
         if not nonlinear:
             #run berlekamp massey to determine primitive polynomial
             size, poly = berlekamp_massey(seq)

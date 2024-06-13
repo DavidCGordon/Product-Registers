@@ -62,8 +62,8 @@ def isSubset(a,b):
 
 
 class MonomialProfile:
-    # wrapper for JordanSets, with extra functionality:
-    # self.terms is a set of JordanSets.
+    # wrapper for TermSets, with extra functionality:
+    # self.terms is a set of TermSets.
     def __init__(self,term_list = None):
         if term_list is None:
             self.terms = set()
