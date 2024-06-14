@@ -167,6 +167,11 @@ class MonomialProfile:
             basis = tuple(sorted((termset.totals.keys())))
             values = tuple([binsum(termset.totals[id],termset.counts[id]) for id in basis])
             
+            # handle empty monomial profile:
+            if basis == ():
+                basis_table[basis] = [(1,)]
+                continue
+
             if basis in basis_table:
                 basis_table[basis].append(values)
             else:
