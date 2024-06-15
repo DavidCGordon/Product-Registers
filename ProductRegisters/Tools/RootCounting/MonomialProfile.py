@@ -47,10 +47,20 @@ class TermSet:
 
 
 
-def isSubset(a,b):
-    # Don't exclude the empty termset, using it as a marker
-    # for constants is useful for a lot of other tasks.
-    if a.totals == {} or b.totals == {}:
+
+
+
+
+
+
+
+def isMonomialSubset(a,b):
+    # used in MonomialProfile.__mul__
+    # Don't exclude terms with smaller bases:
+    # Because a termset represents terms with at least 1 variable (1 up to count)
+    # but not zero, you can't have a term with a larger basis consume the smaller
+    # ones without losing track of those monomials.
+    if a.totals.keys() != b.totals.keys():
         return False
     
     # all counts in A must be < B to be a subset.
@@ -59,6 +69,7 @@ def isSubset(a,b):
         if a.counts[block_id] > compare_value:
             return False
     return True
+
 
 
 class MonomialProfile:
@@ -122,7 +133,7 @@ class MonomialProfile:
     def __add__(self, other):
         #clean out redundant subsets and merge.
         new_terms = maximalElements(
-            leq_ordering=isSubset, 
+            leq_ordering=isMonomialSubset, 
             inputs=[self.terms, other.terms]
         )
 
@@ -135,7 +146,7 @@ class MonomialProfile:
 
         #clean out redundant subsets.
         new_terms = maximalElements(
-            leq_ordering = isSubset,
+            leq_ordering = isMonomialSubset,
             inputs = [new_terms]
         )
 
@@ -157,9 +168,9 @@ class MonomialProfile:
     def __invert__(self): return self ^ MonomialProfile.logical_one()
 
 
-    def upper(self, locked_list = None):
+    def upper(self):
         # initialize
-        linear_complexity = 0
+        num_monomials = 0
         basis_table = {}
 
         # build basis table
@@ -178,10 +189,13 @@ class MonomialProfile:
                 basis_table[basis] = [values]
 
         # evaluate the basis table using hyperrec algorithm
-        for x in basis_table.values():
-            linear_complexity += rectangle_solve(x)
-        return linear_complexity
+        for rectangle_list in basis_table.values():
+            num_monomials += rectangle_solve(rectangle_list)
+        return num_monomials
 
+
+
+    # for cube attacks
     def get_cube_candidates(self):
         candidates =  []
         for term_set in self.terms:
@@ -197,7 +211,7 @@ class MonomialProfile:
                     if other == term_set:
                         continue
 
-                    if isSubset(modified_set,other):
+                    if isMonomialSubset(modified_set,other):
                         useful = False
                         break
 

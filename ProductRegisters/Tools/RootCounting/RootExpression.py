@@ -182,7 +182,7 @@ class RootExpression:
     Evaluation
     """
 
-    def upper(self, locked_list = None):
+    def upper(self):
         # initialize values
         linear_complexity = 0
         basis_table = {}
@@ -220,7 +220,7 @@ class RootExpression:
 
 
     #calculate lower bound (ignoring bases in locked list)
-    def lower(self, locked_list = None,):
+    def lower(self):
         # initalize values:
         linear_complexity = 0        
         basis_table = {}
@@ -248,7 +248,7 @@ class RootExpression:
                     basis_table[basis] = [counts]
                 
         #solve basis table using hyperrec algorithm:
-        for k, rectangle_list in basis_table.items():
+        for rectangle_list in basis_table.items():
             linear_complexity += rectangle_solve(rectangle_list)
         return linear_complexity
 
