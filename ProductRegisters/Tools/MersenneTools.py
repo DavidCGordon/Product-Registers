@@ -93,7 +93,7 @@ def _table_analysis(nums, sort):
         if sort:
              sols_and_epr = sorted(sols_and_epr, key = lambda x: x[1])
 
-        out.append((n,sols_and_eprs))
+        out.append((n,sols_and_epr))
     return out
 
 def list_possible(nums):
@@ -144,7 +144,17 @@ def mersenne_combinations(targets, build_table = True, sort = True):
         return _brute_force_analysis(targets, sort)
 
 
-
+# used to print the output of the find_solutions methods
+def pretty_print_constructions(constructions):
+    for num in constructions:
+        print(f"{num[0]}:\n")
+        for sol in num[1]:
+            power_10 = log(sol[1],10) + num[0]*log(2,10)
+            coef = 10**(power_10 % 1)
+            exponent = int(power_10 // 1)
+            print(f"\t{sol[0]}:")
+            print(f"\t\tApprox. Expected Length: {coef} x 10^{exponent}")
+            print(f"\t\tRatio to Full Period: {sol[1]}")
 
 
 
@@ -202,18 +212,3 @@ def expected_period_ratio(sizes):
     denominator = 1
     for s in sizes: denominator *= (2**(2*s))
     return numerator/denominator
-
-
-
-
-# used to print the output of the find_solutions methods
-def pretty_print_constructions(constructions):
-    for num in constructions:
-        print(f"{num[0]}:\n")
-        for sol in num[1]:
-            power_10 = log(sol[1],10) + num[0]*log(2,10)
-            coef = 10**(power_10 % 1)
-            exponent = int(power_10 // 1)
-            print(f"\t{sol[0]}:")
-            print(f"\t\tApprox. Expected Length: {coef} x 10^{exponent}")
-            print(f"\t\tRatio to Full Period: {sol[1]}")
