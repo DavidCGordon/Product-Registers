@@ -88,7 +88,7 @@ def _table_analysis(nums, sort):
     for n in nums:
         tree = table[n][num_exponents]
         solutions = unwrap(tree)
-        sols_and_eprs = [(s, expected_period_ratio(s)) for s in solutions]
+        sols_and_epr = [(s, expected_period_ratio(s)) for s in solutions]
 
         if sort:
              sols_and_epr = sorted(sols_and_epr, key = lambda x: x[1])
@@ -165,7 +165,7 @@ def pretty_print_constructions(constructions):
 
 
 
-#EPR using direct caluclation, as a check:
+#EPR using direct calculation, as a check:
 def powerset(iterable):
     s = list(iterable)
     return chain.from_iterable(combinations(s, r) for r in range(len(s)+1))
