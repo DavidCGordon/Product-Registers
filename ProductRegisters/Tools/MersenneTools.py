@@ -77,8 +77,8 @@ def build_solution_table(lim):
 
     return table
 
-#O(mlogm + n^2)
-def find_solutions(nums):
+# O(mlogm + n^2)
+def _table_analysis(nums, sort):
     out = []
     num_exponents = 0
     while (num_exponents < len(MerExp) and max(nums) >= MerExp[num_exponents]):
@@ -88,17 +88,70 @@ def find_solutions(nums):
     for n in nums:
         tree = table[n][num_exponents]
         solutions = unwrap(tree)
-        solution_eprs = [(s, expected_period_ratio(s)) for s in solutions]
-        out.append((n,solution_eprs))
+        sols_and_eprs = [(s, expected_period_ratio(s)) for s in solutions]
+
+        if sort:
+             sols_and_epr = sorted(sols_and_epr, key = lambda x: x[1])
+
+        out.append((n,sols_and_eprs))
     return out
 
-def listPossible(nums):
+def list_possible(nums):
     # O(nlogn) call dominates this function
     table = build_solution_table(max(nums)) 
 
     # Scan through the last column to find nums with any solutions.
     row_length = len(table[0])
     return [n for n in nums if table[n][row_length-1].count > 0]
+
+
+
+# single number brute force check:
+def _single_brute_force(target):
+    #select only necessary mersenne exponents
+    i = 0
+    while (i<len(MerExp) and target >= MerExp[i]): 
+        i += 1
+    MerTable = MerExp[:i]
+
+    out = []
+
+    for sset in powerset(MerTable):
+        if sum(sset) == target:
+            out.append(sset)
+    return out
+
+# more performant for small numbers, but scales worse.
+# O(n^2) - idk which is better?
+def _brute_force_analysis(ns, sort):
+    out = []
+    for n in ns:
+        sols = _single_brute_force(n)
+        sols_and_epr = [(s, expected_period_ratio(s)) for s in sols]
+
+        #if sorted by EPR:
+        if sort:
+             sols_and_epr = sorted(sols_and_epr, key = lambda x: x[1])
+
+        out.append((n,sols_and_epr))
+    return out
+
+# choose between methods:
+def mersenne_combinations(targets, build_table = True, sort = True):
+    if build_table:
+        return _table_analysis(targets, sort)
+    else: 
+        return _brute_force_analysis(targets, sort)
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -117,7 +170,7 @@ def cycle_sizes(sizes):
 		out.append(prod)
 	return out
 
-def direct_epr(sizes):
+def epr_brute_force(sizes):
 	cycles = cycle_sizes(sizes)
 	tot = sum(cycles)
 	expected_val = 0
@@ -125,7 +178,7 @@ def direct_epr(sizes):
 		expected_val += (c/tot)**2
 	return expected_val
 
-def direct_expected_period(sizes):
+def expected_period_brute_force(sizes):
     cycles = cycle_sizes(sizes)
     tot = sum(cycles)
     expected_val = 0
@@ -133,7 +186,9 @@ def direct_expected_period(sizes):
         expected_val += (c**2)/tot
     return expected_val
 
-# faster calulcation proved in the paper:
+
+
+# faster calculation proved in the paper:
 def expected_period(sizes):
     numerator = 1
     for s in sizes: numerator *= (((2**s)-1)**2 + 1)
@@ -148,9 +203,12 @@ def expected_period_ratio(sizes):
     for s in sizes: denominator *= (2**(2*s))
     return numerator/denominator
 
-def pretty_print(ns):
-    output = find_solutions(ns)
-    for num in output:
+
+
+
+# used to print the output of the find_solutions methods
+def pretty_print_constructions(constructions):
+    for num in constructions:
         print(f"{num[0]}:\n")
         for sol in num[1]:
             power_10 = log(sol[1],10) + num[0]*log(2,10)
@@ -159,36 +217,3 @@ def pretty_print(ns):
             print(f"\t{sol[0]}:")
             print(f"\t\tApprox. Expected Length: {coef} x 10^{exponent}")
             print(f"\t\tRatio to Full Period: {sol[1]}")
-
-
-#single number brute force check:
-def analyze_only(target):
-    #select only necessary mersenne exponents
-    i = 0
-    while (i<len(MerExp) and target >= MerExp[i]): 
-        i += 1
-    MerTable = MerExp[:i]
-
-    out = []
-
-    for sset in powerset(MerTable):
-        if sum(sset) == target:
-            out.append(sset)
-    return out
-
-# more performant for small numbers, but scales worse.
-# O(n^2) - idk which is better?
-def analyze_(ns, sort = False):
-    out = []
-    for n in ns:
-        sols = analyze_only(n)
-        sols_and_epr = [(s, expected_period_ratio(s)) for s in sols]
-
-        #if sorted by EPR:
-        if sort:
-             sols_and_epr = sorted(sols_and_epr, key = lambda x: x[1])
-
-        out.append((n,sols_and_epr))
-    return out
-
-#TODO: Maybe add a mixing heuristic for the two solutions?
