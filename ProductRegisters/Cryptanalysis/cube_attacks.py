@@ -96,11 +96,13 @@ def cmpr_cube_summary(cmpr_fn,tweakable_vars):
         tweakable_cube_count = round(tweakable_cube_count)
         if tweakable_cube_count > 0:
             print('Cube Profile: ', cube_profile)
-            print('Target Block: ', target_block, 'Target Block Size:', len(cmpr_fn.blocks[target_block]))
+            print('Target Block: ', target_block, '- Target Block Size:', len(cmpr_fn.blocks[target_block]))
             print('Number of Cube Candidates (before restriction): ', num_cubes)
             print('Number of Cube Candidates (restricted to tweakable bits): ', tweakable_cube_count)
             print('Cube Failure Probability: ', cube_failure_prob)
             print('\n')
+        else:
+            print('Cube Profile: ', cube_profile, "- Not possible with current tweakable set.")
 
     print("Summary Finished!")
 

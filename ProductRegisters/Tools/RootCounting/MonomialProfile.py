@@ -195,6 +195,11 @@ class MonomialProfile:
 
 
 
+
+
+
+
+
     # for cube attacks
     def get_cube_candidates(self):
         candidates =  []
@@ -211,7 +216,15 @@ class MonomialProfile:
                     if other == term_set:
                         continue
 
-                    if isMonomialSubset(modified_set,other):
+                    # all counts in A must be <= B to be a subset.
+                    is_subset = True
+                    for t in modified_set.totals:
+                        compare_value = other.counts[t] if t in other.counts else 0
+                        if modified_set.counts[t] > compare_value:
+                            is_subset = False
+                            break
+
+                    if is_subset:
                         useful = False
                         break
 

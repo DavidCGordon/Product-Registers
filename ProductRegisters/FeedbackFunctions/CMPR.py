@@ -426,8 +426,8 @@ class CMPR(FeedbackFunction):
         if locked_list and blockLen in locked_list:
             blockLen = 1
                   
-        upper = bitRE.upper(locked_list)
-        lower = max(blockLen,bitRE.lower(locked_list))
+        upper = bitRE.upper()
+        lower = max(blockLen,bitRE.lower())
 
         t2 = time.time()
         if verbose:
