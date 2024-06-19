@@ -418,7 +418,7 @@ def cube_attack_online(access_fn, test_fn, state_size, known_bits, cube_data, ve
     if found:
         return state_candidate
     else:
-        return None,
+        return None
 
 
 

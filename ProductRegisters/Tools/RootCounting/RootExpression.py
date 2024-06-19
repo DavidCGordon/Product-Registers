@@ -248,7 +248,7 @@ class RootExpression:
                     basis_table[basis] = [counts]
                 
         #solve basis table using hyperrec algorithm:
-        for rectangle_list in basis_table.items():
+        for rectangle_list in basis_table.values():
             linear_complexity += rectangle_solve(rectangle_list)
         return linear_complexity
 
