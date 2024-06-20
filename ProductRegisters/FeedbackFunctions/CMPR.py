@@ -177,7 +177,7 @@ class CMPR(FeedbackFunction):
     @cached_property
     def cycle_lengths(self):
         sizes = [len(block) for block in self.blocks]
-        return max_period(sizes)
+        return cycle_lengths(sizes)
 
 
 
