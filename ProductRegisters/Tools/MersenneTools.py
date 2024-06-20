@@ -91,7 +91,7 @@ def _table_analysis(nums, sort):
         sols_and_epr = [(s, expected_period_ratio(s)) for s in solutions]
 
         if sort:
-             sols_and_epr = sorted(sols_and_epr, key = lambda x: x[1])
+            sols_and_epr = sorted(sols_and_epr, key = lambda x: x[1], reverse=True)
 
         out.append((n,sols_and_epr))
     return out
@@ -131,7 +131,7 @@ def _brute_force_analysis(ns, sort):
 
         #if sorted by EPR:
         if sort:
-             sols_and_epr = sorted(sols_and_epr, key = lambda x: x[1])
+             sols_and_epr = sorted(sols_and_epr, key = lambda x: x[1], reverse=True)
 
         out.append((n,sols_and_epr))
     return out
@@ -163,6 +163,17 @@ def pretty_print_constructions(constructions):
 
 
 
+# Helper methods:
+def max_period(sizes):
+    already_seen = set()
+    for s in sizes:
+        if s == 1 or s in already_seen:
+            period *= 2
+        else:
+            already_seen.add(s)
+            period *= (2**s-1)
+    
+    return period
 
 
 #EPR using direct calculation, as a check:
@@ -212,3 +223,4 @@ def expected_period_ratio(sizes):
     denominator = 1
     for s in sizes: denominator *= (2**(2*s))
     return numerator/denominator
+

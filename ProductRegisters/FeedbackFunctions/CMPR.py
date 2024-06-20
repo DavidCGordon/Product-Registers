@@ -14,7 +14,7 @@ import ProductRegisters.Tools.RootCounting.MeshOptimization as mesh_optimization
 
 # Other analysis
 import ProductRegisters.Tools.ResolventSolving as ResolventSolving
-from ProductRegisters.Tools.MersenneTools import expected_period, expected_period_ratio
+from ProductRegisters.Tools.MersenneTools import expected_period, expected_period_ratio, max_period
 
 # Other libs
 import random
@@ -161,56 +161,32 @@ class CMPR(FeedbackFunction):
 
     @cached_property
     def expected_period_ratio(self):
-        numerator = 1
-        denominator = 1
+        sizes = [len(block) for block in self.blocks]
+
         already_seen = set()
-        sizes = [self.divisions[i+1] - self.divisions[i]
-                 for i in range(self.num_components)
-                ]
-
         for s in sizes:
-            denominator *= (2**(2*s))
-            if s in already_seen: # this is wrong :/
-                numerator *= (2**(s+1)-1)
-            else:
-                numerator *= (((2**s)-1)**2 + 1)
-                already_seen.add(s)
-
-        return numerator/denominator
+            if s in already_seen:
+                raise ValueError("Expected period not well defined for repeated MPRs")
+            already_seen.add(s)
+            
+        return expected_period_ratio(sizes)
 
     @cached_property
     def expected_period(self):
-        numerator = 1
-        denominator = 1
+        sizes = [len(block) for block in self.blocks]
+        
         already_seen = set()
-        sizes = [self.divisions[i+1] - self.divisions[i]
-                 for i in range(self.num_components)
-                ]
-
         for s in sizes:
-            denominator *= (2**s)
-            if s in already_seen: # this is wrong :/
-                numerator *= (2**(s+1)-1) 
-            else:
-                numerator *= (((2**s)-1)**2 + 1)
-                already_seen.add(s)
+            if s in already_seen:
+                raise ValueError("Expected period not well defined for repeated MPRs")
+            already_seen.add(s)
 
-        return numerator/denominator
+        return expected_period(sizes)
 
     @cached_property
     def max_period(self):
-        period = 1
-        already_seen = set()
         sizes = [len(block) for block in self.blocks]
-        
-        for s in sizes:
-            if s == 1 or s in already_seen:
-                period *= 2
-            else:
-                already_seen.add(s)
-                period *= (2**s-1) 
-        
-        return period
+        return max_period(sizes)
 
 
 
