@@ -14,7 +14,7 @@ import ProductRegisters.Tools.RootCounting.MeshOptimization as mesh_optimization
 
 # Other analysis
 import ProductRegisters.Tools.ResolventSolving as ResolventSolving
-from ProductRegisters.Tools.MersenneTools import expected_period, expected_period_ratio, max_period
+from ProductRegisters.Tools.MersenneTools import expected_period, expected_period_ratio, max_period, cycle_lengths
 
 # Other libs
 import random
