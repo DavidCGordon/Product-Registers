@@ -164,7 +164,15 @@ def pretty_print_constructions(constructions):
 
 
 # Helper methods:
+def assert_no_repeats(sizes):
+    already_seen = set()
+    for s in sizes:
+        if s in already_seen:
+            raise ValueError("Configuration-based properties cannot be determined with repeated sizes")
+        already_seen.add(s)
+
 def max_period(sizes):
+    period = 1
     already_seen = set()
     for s in sizes:
         if s == 1 or s in already_seen:
@@ -182,24 +190,27 @@ def powerset(iterable):
     return chain.from_iterable(combinations(s, r) for r in range(len(s)+1))
 
 def cycle_sizes(sizes):
-	primes = [2**a-1 for a in sizes]
-	out = []
-	for combo in powerset(primes):
-		prod = 1
-		for c in combo:
-			prod *= c
-		out.append(prod)
-	return out
+    assert_no_repeats(sizes)
+    primes = [2**a-1 for a in sizes]
+    out = []
+    for combo in powerset(primes):
+        prod = 1
+        for c in combo:
+            prod *= c
+        out.append(prod)
+    return out
 
 def epr_brute_force(sizes):
-	cycles = cycle_sizes(sizes)
-	tot = sum(cycles)
-	expected_val = 0
-	for c in cycles:
-		expected_val += (c/tot)**2
-	return expected_val
+    assert_no_repeats(sizes)
+    cycles = cycle_sizes(sizes)
+    tot = sum(cycles)
+    expected_val = 0
+    for c in cycles:
+        expected_val += (c/tot)**2
+    return expected_val
 
 def expected_period_brute_force(sizes):
+    assert_no_repeats(sizes)
     cycles = cycle_sizes(sizes)
     tot = sum(cycles)
     expected_val = 0
@@ -211,6 +222,7 @@ def expected_period_brute_force(sizes):
 
 # faster calculation proved in the paper:
 def expected_period(sizes):
+    assert_no_repeats(sizes)
     numerator = 1
     for s in sizes: numerator *= (((2**s)-1)**2 + 1)
     denominator = 1
@@ -218,9 +230,9 @@ def expected_period(sizes):
     return numerator/denominator
 
 def expected_period_ratio(sizes):
+    assert_no_repeats(sizes)
     numerator = 1
     for s in sizes: numerator *= (((2**s)-1)**2 + 1)
     denominator = 1
     for s in sizes: denominator *= (2**(2*s))
     return numerator/denominator
-
