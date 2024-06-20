@@ -1,15 +1,18 @@
 from ProductRegisters.Tools.RootCounting.Combinatorics import binsum
 
 def optimistic_evaluation(b,c):
+    b,c = int(b), int(c)
     return binsum(b,c)
 
 def pessimistic_evaluation(b,c):
+    b,c = int(b), int(c)
     if b == c: 
         return binsum(b,c-1)
     else:
         return binsum(b,c)
 
 def pessimistic_expected_value(b,c):
+    b,c = int(b), int(c)
     if b == c: 
         return (binsum(b,c-1) * (2**b-1)**2) / (2**(2*b))
     else:
