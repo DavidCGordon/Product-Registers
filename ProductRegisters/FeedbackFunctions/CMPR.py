@@ -162,25 +162,11 @@ class CMPR(FeedbackFunction):
     @cached_property
     def expected_period_ratio(self):
         sizes = [len(block) for block in self.blocks]
-
-        already_seen = set()
-        for s in sizes:
-            if s in already_seen:
-                raise ValueError("Expected period not well defined for repeated MPRs")
-            already_seen.add(s)
-            
         return expected_period_ratio(sizes)
 
     @cached_property
     def expected_period(self):
         sizes = [len(block) for block in self.blocks]
-        
-        already_seen = set()
-        for s in sizes:
-            if s in already_seen:
-                raise ValueError("Expected period not well defined for repeated MPRs")
-            already_seen.add(s)
-
         return expected_period(sizes)
 
     @cached_property
@@ -188,6 +174,10 @@ class CMPR(FeedbackFunction):
         sizes = [len(block) for block in self.blocks]
         return max_period(sizes)
 
+    @cached_property
+    def cycle_lengths(self):
+        sizes = [len(block) for block in self.blocks]
+        return max_period(sizes)
 
 
 

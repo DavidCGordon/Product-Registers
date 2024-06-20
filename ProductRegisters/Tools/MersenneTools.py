@@ -189,7 +189,7 @@ def powerset(iterable):
     s = list(iterable)
     return chain.from_iterable(combinations(s, r) for r in range(len(s)+1))
 
-def cycle_sizes(sizes):
+def cycle_lengths(sizes):
     assert_no_repeats(sizes)
     primes = [2**a-1 for a in sizes]
     out = []
@@ -202,7 +202,7 @@ def cycle_sizes(sizes):
 
 def epr_brute_force(sizes):
     assert_no_repeats(sizes)
-    cycles = cycle_sizes(sizes)
+    cycles = cycle_lengths(sizes)
     tot = sum(cycles)
     expected_val = 0
     for c in cycles:
@@ -211,7 +211,7 @@ def epr_brute_force(sizes):
 
 def expected_period_brute_force(sizes):
     assert_no_repeats(sizes)
-    cycles = cycle_sizes(sizes)
+    cycles = cycle_lengths(sizes)
     tot = sum(cycles)
     expected_val = 0
     for c in cycles:
