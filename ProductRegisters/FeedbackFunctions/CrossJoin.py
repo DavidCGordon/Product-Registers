@@ -170,12 +170,18 @@ class CrossJoin(FeedbackFunction):
             REs.append(RootExpression([JordanSet({self.size:count},1)]))
         return REs
 
-    def filter_generator(self, initial_state):
+    def filter_generator(self):
         feedback_fn = Fibonacci(self.size, self.primitive_polynomial)
         comp_list = self.compensation_list()
-        new_state = [initial_state[bit] ^ comp_list[bit].eval(initial_state) for bit in range(self.size)]
         filter_fn = [XOR(VAR(bit),comp_list[bit]) for bit in range(self.size)]
 
         # due to module load order reasons, you have to use the FeedbackRegister module here instead of the class
         # this is an annoyance, but I couldn't refactor everything to fix this one line.
-        return (FeedbackRegister.FeedbackRegister(new_state,feedback_fn),filter_fn)
+        return (feedback_fn,filter_fn)
+    
+    def convert_state(self, state):
+        comp_list = self.compensation_list()
+        return [
+            (state[bit] ^ comp_list[bit].eval(state))
+            for bit in range(self.size)
+        ]
