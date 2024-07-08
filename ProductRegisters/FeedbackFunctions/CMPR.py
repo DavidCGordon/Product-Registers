@@ -185,36 +185,155 @@ class CMPR(FeedbackFunction):
 
 
 
+    def monomial_profiles(self, verbose = False, force_default = False):
+        block_sizes = set()
+        use_mesh_optimization = True
+
+        for block_id in range(len(self.blocks)):
+            # check if optimization not valid due to 1 bit MPR:
+            if len(self.blocks[block_id]) == 1:
+                use_mesh_optimization = False
+                if verbose: print("Found 1-bit MPR")
+                break
+
+            # check if optimization not valid due to repeated sizes
+            if len(self.blocks[block_id]) in block_sizes:
+                use_mesh_optimization = False
+                if verbose: print("Found duplicate size")
+                break
+            block_sizes.add(len(self.blocks[block_id]))
+            
+            # check if optimization not valid due to complex chaining
+            allowed_bits = set(self.blocks[block_id]) | set(self.blocks[block_id-1])
+            used_bits = set().union(*(
+                self.fn_list[bit].idxs_used() for bit in self.blocks[block_id]
+            ))
+            
+            if not (used_bits <= allowed_bits):
+                use_mesh_optimization = False
+                if verbose: print("Found non-simple chaining function")
+                break
+
+        if use_mesh_optimization and not force_default:
+            return self._mp_mesh_optimization(verbose)
+        else:
+            return self._mp_default(verbose)
 
 
-    def monomial_profiles(self):
+
+
+    def _mp_default(self, verbose = False):
+        if verbose: print("Running default monomial profile algorithm")
         prof_table = [MonomialProfile() for i in range(self.size)] # map: bit -> expression
         block_table = [MonomialProfile() for i in range(len(self.blocks))]
         
         #fill in the following blocks:
         for block_id in range(len(self.blocks)):
-            monomial_profile = MonomialProfile.from_merged(
+            start_time = time.time()
+            if verbose: print("Profiling Chaining")
+
+            chaining_profile = MonomialProfile.from_merged(
                 fn_list = [self.fn_list[i] for i in self.blocks[block_id]],
                 blocks = self.blocks
-            )
+            ).to_BooleanFunction()
 
-            block_fn = monomial_profile.to_BooleanFunction().remap_constants({
+            if verbose:
+                print(f"Chaining Profile: {chaining_profile.dense_str()}")
+                print(f"Profiling Time: {time.time()-start_time}\n")
+
+            # combine function
+            block_fn = chaining_profile.remap_constants({
                 0: MonomialProfile.logical_zero(),
                 1: MonomialProfile.logical_one()
             })
-                
-            block_table[block_id] = block_fn.eval_ANF(block_table)
 
-            # if this one isn't locked, extend it. 
+            start_time = time.time()
+            if verbose:
+                print("Starting ANF Composition")    
+            
+            # compose MPs into the block table:
+            block_table[block_id] = block_fn.eval_ANF(block_table) 
             block_table[block_id] += MonomialProfile([TermSet(
                 {block_id: len(self.blocks[block_id])},
                 {block_id: 1}
             )])
             
-            #fill in table entries
+            # fill in table entries
             for bit in self.blocks[block_id]:
                 prof_table[bit] = block_table[block_id].__copy__()
+
+            if verbose:
+                num_terms = len(block_table[block_id].terms)
+                print(f'Block {block_id} finished  -  Num Terms: {num_terms}')
+                print(f"ANF Composition Time: {time.time()-start_time}\n\n\n")
+
         return prof_table
+
+    def _mp_mesh_optimization(self, verbose = False):
+        if verbose: print("Running monomial profile algorithm with the mesh optimization")
+                
+        expr_table = [None for i in range(self.size)]
+
+        # compute degree list used for the pass:
+        degrees = []
+        sizes = [len(block) for block in self.blocks]
+        constants_possible = [False for block in self.blocks]
+        for block_id in range(len(self.blocks)):
+            chaining_profile = MonomialProfile.from_merged(
+                fn_list = [self.fn_list[i] for i in self.blocks[block_id]],
+                blocks = self.blocks
+            ).to_BooleanFunction()
+
+            degree = 0
+            for term in chaining_profile.args:
+                if hasattr(term,'args'):
+                    degree = max(degree,len(term.args))
+                elif type(term) == CONST and term.value == 1:
+                    constants_possible[block_id] = True
+            degrees.append(degree)
+        
+
+        # write the first block directly:
+        size = len(self.blocks[0])
+        for bit in self.blocks[0]:
+            expr_table[bit] = MonomialProfile([TermSet({0:size},{0:1})])
+
+        # calculate the RE for each subsequent block:
+        for block_id in range(1,len(self.blocks)):
+            start_time = time.time()
+
+            if verbose:
+                print(f"Iterating over mesh for block {block_id} (degree {degrees[block_id]})")
+
+            monomial_profile = mesh_optimization.mp_compute_single_mesh(
+                sizes[:block_id+1],
+                degrees[:block_id+1],
+            )
+
+            if constants_possible[block_id]:
+                monomial_profile += MonomialProfile.logical_one()
+
+            end_time = time.time()
+
+            # write to table
+            for bit in self.blocks[block_id]:
+                expr_table[bit] = monomial_profile.__copy__()
+
+            if verbose:
+                num_terms = len(monomial_profile.terms)
+                print(f'Block {block_id} finished  -  Num Terms: {num_terms}')
+                print(f"ANF Composition Time: {end_time-start_time}")
+                print(f"Copying Time: {time.time()-end_time}\n\n\n")
+
+        return expr_table
+
+
+
+
+
+
+
+
 
     def root_expressions(self, locked_list = None, verbose = False, force_default = False):
         block_sizes = set()
@@ -260,7 +379,7 @@ class CMPR(FeedbackFunction):
         for block_id in range(len(self.blocks)):
             start_time = time.time()
             
-            if verbose: print("Starting Monomial Profiling")
+            if verbose: print("Profiling Chaining")
 
             monomial_profile = MonomialProfile.from_merged(
                 fn_list = [self.fn_list[i] for i in self.blocks[block_id]],
@@ -268,8 +387,8 @@ class CMPR(FeedbackFunction):
             ).to_BooleanFunction()
 
             if verbose:
-                print(f"Monomial Profiled: {monomial_profile.dense_str()}")
-                print(f"Monomial Profiling Time: {time.time()-start_time}\n")
+                print(f"Chaining Profile: {monomial_profile.dense_str()}")
+                print(f"Profiling Time: {time.time()-start_time}\n")
 
             block_fn = monomial_profile.remap_constants({
                 0: RootExpression.logical_zero(),
@@ -317,17 +436,20 @@ class CMPR(FeedbackFunction):
         # compute lists used for the pass:
         degrees = []
         sizes = [len(block) for block in self.blocks]
+        constants_possible = [False for block in self.blocks]
         for block_id in range(len(self.blocks)):
-            monomial_profile = MonomialProfile.from_merged(
+            chaining_profile = MonomialProfile.from_merged(
                 fn_list = [self.fn_list[i] for i in self.blocks[block_id]],
                 blocks = self.blocks
-            )
+            ).to_BooleanFunction()
 
-            block_fn = monomial_profile.to_BooleanFunction()
+            block_fn = chaining_profile
             degree = 0
             for term in block_fn.args:
                 if hasattr(term,'args'):
                     degree = max(degree,len(term.args))
+                elif type(term) == CONST and term.value == 1:
+                    constants_possible[block_id] = True
             degrees.append(degree)
         
         # if no locked list is passed, default to all registers unlocked:
@@ -347,11 +469,14 @@ class CMPR(FeedbackFunction):
             if verbose:
                 print(f"Iterating over mesh for block {block_id} (degree {degrees[block_id]})")
 
-            root_expression = mesh_optimization.compute_single_mesh(
+            root_expression = mesh_optimization.re_compute_single_mesh(
                 sizes[:block_id+1],
                 degrees[:block_id+1],
                 locked_list[:block_id+1]
             )
+
+            if constants_possible[block_id]:
+                root_expression += RootExpression.logical_one()
 
             end_time = time.time()
 

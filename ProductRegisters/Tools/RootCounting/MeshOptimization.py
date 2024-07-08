@@ -9,7 +9,7 @@ from numba import njit
 from numba.types import int32 as i32
 
 # use the iterator and convert output to a RE
-def compute_single_mesh(sizes,degrees,locked_list=None):
+def re_compute_single_mesh(sizes,degrees,locked_list=None):
     deg_arr = np.array(degrees, dtype='int32')
     size_arr = np.array(sizes, dtype='int32')
     if not locked_list:
@@ -38,6 +38,27 @@ def compute_single_mesh(sizes,degrees,locked_list=None):
             root_table[field_tuple] = set([js])
 
     return RootExpression(root_table)
+
+
+# use the iterator and convert output to a MP
+def mp_compute_single_mesh(sizes,degrees):
+    deg_arr = np.array(degrees, dtype='int32')
+    size_arr = np.array(sizes, dtype='int32')
+    locked_arr = np.ones_like(size_arr)
+
+    ts_set = set()
+    for output in _re_mesh_iterator(size_arr,deg_arr,locked_arr):
+        # convert tuple to termset
+        totals = {}
+        counts = {}
+        for block_id, (size, count) in enumerate(zip(size_arr,output)):
+            if count != 0:
+                totals[block_id] = size
+                counts[block_id] = min(size,count)
+        ts_set.add(TermSet(totals,counts))
+
+    return MonomialProfile(ts_set)
+
 
 
 
