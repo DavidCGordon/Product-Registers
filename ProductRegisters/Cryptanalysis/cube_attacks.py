@@ -95,8 +95,7 @@ def cmpr_cube_summary(cmpr_fn, output_fn,tweakable_vars, analyze_sources = False
 
     print('Computing Monomial Profile')
     output_anf = output_fn.translate_ANF()
-    monomial_profiles = cmpr_fn.monomial_profiles(verbose=True)
-    print("\n\n\n")
+    monomial_profiles = cmpr_fn.monomial_profiles()
     output_profile = output_anf.remap_constants({
         0: MonomialProfile.logical_zero(),
         1: MonomialProfile.logical_one()
@@ -164,7 +163,7 @@ def cmpr_cube_summary(cmpr_fn, output_fn,tweakable_vars, analyze_sources = False
                         var_str = var_str[:80]
                         var_str += f'... ({len(monomial_profiles[var.index].terms)} terms)'
                     print(f"   - {var.index}: {var_str}")
-            print('\n')
+        print('\n')
         
     print("Summary Finished!")
 

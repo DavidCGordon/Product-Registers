@@ -123,7 +123,6 @@ def alg_attack_offline(feedback_fn, output_fn, time_limit, verbose = False):
     if verbose:
         print(f"Final number of variables: {num_vars}")
         print(f"Final number of equations: {len(var_map)}")
-        print(len(not_solved))
         print(f"Keystream Required: {max(var_map.values()) + 1} bits")
 
     
