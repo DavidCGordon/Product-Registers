@@ -8,8 +8,6 @@ from ProductRegisters import FeedbackRegister
 from ProductRegisters.BooleanLogic import BooleanFunction
 from ProductRegisters.Tools.RootCounting.MonomialProfile import MonomialProfile, TermSet
 
-#TODO: Memory reuse optimizations to prevent loads of unecessary copying/writing
-#TODO: Accept more general functions / implement a general cube attack.
 def access_fns(register, output_fn, tweakable_bits, init_rounds=100, keystream_len=None):
     # default keystream len:
     if keystream_len == None:
@@ -81,6 +79,165 @@ def access_fns(register, output_fn, tweakable_bits, init_rounds=100, keystream_l
         return test_keystream == keystream
 
     return access_fn,sim_fn,test_fn
+
+
+
+
+
+
+
+
+
+
+
+
+
+def insert_equation(
+    lower_matrix,upper_matrix, const_vec, cube_map, # structures we modify
+    maxterm, time, equation, const                  # data we update with
+    ):
+
+    linearly_independent = False
+    modification_vector  = np.zeros_like(equation)
+    for bit in range(len(equation)):
+        if equation[bit] == 1:
+            modification_vector[bit] = 1
+            if bit in cube_map:
+                equation ^= upper_matrix[bit]
+            else:
+                linearly_independent = True
+                cube_map[bit] = (maxterm, time)
+                const_vec[bit] = const
+                lower_matrix[bit] = modification_vector
+                upper_matrix[bit] = equation
+                break
+    return linearly_independent
+
+
+
+
+def cube_attack_offline(
+    feedback_fn, sim_fn, tweakable_vars, 
+    time_limit = None, num_tests = 20, verbose = False
+    ):
+
+    tweakable_vars = set(tweakable_vars)
+    start_time = time.time()
+    
+    cube_map = {}
+    lower_matrix = np.eye(feedback_fn.size,dtype=np.uint8)
+    upper_matrix = np.eye(feedback_fn.size,dtype=np.uint8)
+    const_vec = np.zeros([feedback_fn.size,1],dtype=np.uint8)
+
+    failure_count = 0
+    already_seen = set()
+    cube_variables = set([list(tweakable_vars)[0]])
+    while True:
+        # check to make sure cubes are only checked once
+        cube = tuple(sorted(list(cube_variables)))
+        if cube in already_seen:
+            failure_count += 1
+            added_element = np.random.choice(list(tweakable_vars - cube_variables))
+            removed_element = np.random.choice(cube)
+            cube_variables.add(added_element)
+            cube_variables.remove(removed_element)
+
+            if failure_count > 100:
+                if verbose:
+                    print("too many repeated cubes in random walk!")
+                break
+            continue
+
+        failure_count = 0
+        already_seen.add(cube)
+        print("Cube Candidate: ", cube)
+
+        # get cube information:
+        equations, constants = determine_equations(sim_fn,cube,feedback_fn.size)
+        nonlinear_mask = get_nonlinear_mask(sim_fn,cube,feedback_fn.size,num_tests)
+        constant_mask = get_constant_mask(sim_fn,cube,feedback_fn.size,num_tests)
+
+        # counts for bookkeeping/printing:
+        useful_count = 0
+        constant_count = 0
+        nonlinear_count = 0
+        dependent_count = 0
+
+        for t in range(len(nonlinear_mask)):
+            # filter constant / nonlinear superpoly's
+            if constant_mask[t]:
+                constant_count += 1
+                continue
+            elif nonlinear_mask[t]:
+                nonlinear_count += 1
+                continue
+
+            # attempt to insert equation, and determ
+            linearly_independent = insert_equation(
+                lower_matrix, upper_matrix, const_vec, cube_map,
+                cube, t, equations[t], constants[t]
+            )
+
+            # determine whether the insert was successful
+            if linearly_independent:
+                useful_count += 1
+            if not linearly_independent:
+                dependent_count += 1
+            
+        # add or remove elements randomly as needed:
+        #  - move up when there are any nonlinear terms
+        #  - move down when there are all constant terms
+        #  - otherwise just swap a random element
+        added_element = np.random.choice(list(tweakable_vars - cube_variables))
+        removed_element = np.random.choice(cube)
+        #print(added_element,removed_element, not np.all(constant_mask), not np.any(nonlinear_mask))
+        if not np.all(constant_mask):
+            cube_variables.add(added_element)
+        if not np.any(nonlinear_mask):
+            cube_variables.remove(removed_element)
+        #print("New: ", cube_variables)
+        # print to keep information up to date:
+        if verbose: 
+            print(
+                f" - Useful: {useful_count} -- " +
+                f"Constant: {constant_count} -- " +
+                f"Nonlinear: {nonlinear_count} -- " +
+                f"Dependent: {dependent_count}",
+            )
+
+                
+        # this breaks out of the loop indexing the keystream by time
+        # the check at the top of this section breaks the individual cube loop
+        if all([(bit in cube_map) for bit in range(feedback_fn.size)]):
+            if verbose: print("all variables solved!")
+            break
+        if time_limit and time.time() - start_time > time_limit:
+            if verbose: print("time limit reached!")
+            break 
+    
+    num_queries = 0
+    distinct_cubes = set()
+    for (cube, t) in cube_map.values():
+        if cube not in distinct_cubes:
+            num_queries += 2**len(cube)
+            distinct_cubes.add(cube)
+
+    if verbose:  
+        print("Number of cubes tested: ", len(already_seen))
+        print("Number of cubes found: ", len(cube_map))
+        print("Num Queries: ", num_queries)
+
+    output = {}
+    output['cubes'] = cube_map
+    output['lower matrix'] = lower_matrix
+    output['upper matrix'] = upper_matrix
+    output['constant vector'] = const_vec
+    return output
+
+
+
+
+
 
 
 
@@ -170,64 +327,6 @@ def cmpr_cube_summary(cmpr_fn, output_fn,tweakable_vars, analyze_sources = False
 
 
 
-
-# def cmpr_cube_summary(cmpr_fn, output_fn,tweakable_vars):
-#     print('Beginning Summary:')
-
-#     tweakable_set = set(tweakable_vars)
-#     tweakable_counts = [len(set(block) & tweakable_set) for block in cmpr_fn.blocks]
-
-#     print('Computing Monomial Profile')
-#     monomial_profile = output_fn.translate_ANF().remap_constants({
-#         0: MonomialProfile.logical_zero(),
-#         1: MonomialProfile.logical_one()
-#     }).eval_ANF(cmpr_fn.monomial_profiles())
-
-#     cube_candidates = sorted(
-#         monomial_profile.get_cube_candidates(),
-#         key = (lambda x: sum(x[0].counts.values()))
-#     )
-
-#     print('Verifying Cube Candidates:')
-#     for cube_profile, target_block, num_cubes, cube_failure_prob in cube_candidates:
-#         # calculate actual number of tweakable cubes:
-#         tweakable_cube_count = 1
-
-#         for block_id in range(len(cmpr_fn.blocks)-1,-1,-1):
-#             if block_id in cube_profile.counts:
-#                 # this is just product(choose(tweakable_count, cube_count))
-#                 for i in range(cube_profile.counts[block_id]):
-#                     tweakable_cube_count *= (
-#                         (tweakable_counts[block_id] - i) /
-#                         (cube_profile.counts[block_id] - i)
-#                     )
-                
-#         # round float to get integer approximation for number of actual cubes
-#         # rounding errors should not be too significant here, as only general size is needed.
-#         tweakable_cube_count = round(tweakable_cube_count)
-#         if tweakable_cube_count > 0:
-#             print('Cube Profile: ', cube_profile)
-#             print('Target Block: ', target_block, '- Target Block Size:', len(cmpr_fn.blocks[target_block]))
-#             print('Number of Cube Candidates (before restriction): ', num_cubes)
-#             print('Number of Cube Candidates (restricted to tweakable bits): ', tweakable_cube_count)
-#             print('Cube Failure Probability: ', cube_failure_prob)
-#             print('\n')
-#         else:
-#             print('Cube Profile: ', cube_profile, "- Not possible with current tweakable set.")
-
-#     print("Summary Finished!")
-
-
-
-
-
-
-
-
-
-
-
-
 # lazy product implementation for faster skipping of unusable sets :)
 # attribution: https://discuss.python.org/t/a-product-function-which-supports-large-infinite-iterables/5753
 def iproduct(*iterables, repeat=1):
@@ -248,26 +347,8 @@ def iproduct(*iterables, repeat=1):
                 return
     yield ()  # There are no iterables.
 
-def insert_equation(
-    lower_matrix,upper_matrix, const_vec, cube_map, # structures we modify
-    maxterm, time, equation, const                  # data we update with
-    ):
 
-    linearly_independent = False
-    modification_vector  = np.zeros_like(equation)
-    for bit in range(len(equation)):
-        if equation[bit] == 1:
-            modification_vector[bit] = 1
-            if bit in cube_map:
-                equation ^= upper_matrix[bit]
-            else:
-                linearly_independent = True
-                cube_map[bit] = (maxterm, time)
-                const_vec[bit] = const
-                lower_matrix[bit] = modification_vector
-                upper_matrix[bit] = equation
-                break
-    return linearly_independent
+
 
 def cmpr_cube_attack_offline(
     cmpr_fn, output_fn, sim_fn, tweakable_vars, 
@@ -418,10 +499,14 @@ def cmpr_cube_attack_offline(
         # no block saturated check because those are profile-specific
         if time_limit and time.time() - start_time > time_limit:
             break  
-        
+
+
     num_queries = 0
-    for cube in cube_map.values():
-        num_queries += 2**len(cube)
+    distinct_cubes = set()
+    for (cube, t) in cube_map.values():
+        if cube not in distinct_cubes:
+            num_queries += 2**len(cube)
+            distinct_cubes.add(cube)
 
     if verbose:  
         print("Number of cubes tested: ", maxterm_count)
@@ -492,9 +577,6 @@ def cube_attack_online(access_fn, test_fn, state_size, known_bits, cube_data, ve
     reduced_consts = np.zeros_like(consts,dtype=np.uint8)
     reduced_upper_matrix = np.eye(total_matrix.shape[0],dtype=np.uint8)
     reduced_lower_matrix = np.eye(total_matrix.shape[0],dtype=np.uint8)
-
-    coef_vector = np.zeros(state_size,dtype=np.uint8)
-    modification_vector  = np.zeros_like(coef_vector)   
 
     # Re-insert each equation and upper matrix to get new system:
     for eq_idx in range(len(total_matrix)):
@@ -580,7 +662,6 @@ def cube_attack_online(access_fn, test_fn, state_size, known_bits, cube_data, ve
         return state_candidate
     else:
         return None
-
 
 
 
