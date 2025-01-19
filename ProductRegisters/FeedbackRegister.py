@@ -95,7 +95,7 @@ class FeedbackRegister:
             print("Compile first!")
             return
 
-        update_fn = self.fn._compiled
+        update_fn = self.fn._compiled_inplace
         # number of iterations to run
         if type(arg) == int:
             for _ in range(arg):
@@ -103,7 +103,7 @@ class FeedbackRegister:
                 # swap pointers to move _state to _prev_state
                 self._state, self._prev_state = self._prev_state, self._state
                 # overwrite _state with the new state
-                self._state = update_fn(self._prev_state)
+                update_fn(self._prev_state,self._state)
                 
         #no limit
         elif arg == None:
@@ -112,7 +112,8 @@ class FeedbackRegister:
                 # swap pointers to move next_state to curr_state
                 self._state, self._prev_state = self._prev_state, self._state
                 # overwrite the new nextstate
-                self._state = update_fn(self._prev_state)
+                update_fn(self._prev_state,self._state)
+
 
 
                 

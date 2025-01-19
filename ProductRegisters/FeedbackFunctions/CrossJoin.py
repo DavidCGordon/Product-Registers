@@ -167,7 +167,11 @@ class CrossJoin(FeedbackFunction):
             term_lengths = [len(term.args) for term in compensation_list[bit].args if type(term) != CONST]
             count = max(term_lengths, default = 1)
             count = min(count,self.size)
-            REs.append(RootExpression([JordanSet({self.size:count},1)]))
+            REs.append(
+                RootExpression({
+                    (self.size,): set([JordanSet({self.size: count}, {1})])
+                })
+            )
         return REs
 
     def filter_generator(self):

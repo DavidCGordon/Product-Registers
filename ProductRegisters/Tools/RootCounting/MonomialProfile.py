@@ -2,9 +2,9 @@ from ProductRegisters.Tools.RootCounting.Combinatorics import choose, binsum
 from ProductRegisters.Tools.RootCounting.OverlappingRectangle import rectangle_solve
 from ProductRegisters.Tools.RootCounting.PartialOrders import maximalElements
 from ProductRegisters.BooleanLogic import AND, XOR, CONST, VAR
-from itertools import product
+from itertools import product, combinations, tee, cycle
 
-
+from math import comb
 
 # A list of Blocks, and the corresponding weight
 # Completely ignores constants (I hope that works)
@@ -189,7 +189,7 @@ class MonomialProfile:
                 basis_table[basis] = [values]
 
         # evaluate the basis table using hyperrec algorithm
-        for rectangle_list in basis_table.values():
+        for basis, rectangle_list in basis_table.items():
             num_monomials += rectangle_solve(rectangle_list)
         return num_monomials
 
@@ -253,7 +253,194 @@ class MonomialProfile:
         return candidates
 
 
-    
-                
 
-    
+
+
+
+
+
+
+    def get_monomials(self,complete_subsets=False):
+        if complete_subsets:
+            return self._get_monomials_complete()
+        else:
+            return self._get_monomials_exact()
+
+    def _get_monomials_exact(self):
+        # construct most general totals matrix:
+        total_dim = 0
+        for term in self.terms:
+            total_dim = max([total_dim, *term.totals.keys()])
+        total_dim += 1
+        
+        totals = [0 for i in range(total_dim)]
+
+        for term in self.terms:
+            for k,v in term.totals.items():
+                totals[k] = v
+
+        # build basis table
+        basis_table = {}
+        for termset in self.terms:
+            basis = tuple(sorted((termset.totals.keys())))
+            values = tuple([termset.counts[id] for id in basis])
+            
+            # handle empty monomial profile:
+            if basis == ():
+                continue
+
+            if basis in basis_table:
+                basis_table[basis].append(values)
+            else:
+                basis_table[basis] = [values]
+
+        # perform rollover for each basis:
+        for basis, rects in basis_table.items():
+            curr_vec = [1 for i in range(len(basis))]
+            curr_vec[0] = 0
+
+            # sort rectangles into correct order for iteration
+            rects = sorted(rects, key = lambda x: x[0], reverse=True)
+            for d in range(1,len(basis)):
+                rects = sorted(rects, key = lambda x: x[d])
+
+            rect_idx = 0
+            while rect_idx < len(rects):
+                # increment degree
+                curr_vec[0] += 1
+
+
+                # rollover loop:
+                rollover_idx = 0
+                rollover_copy = [x for x in curr_vec]
+                # loop until indices are not too large:
+                while any((
+                    (rollover_copy[i] > rects[rect_idx][i])
+                    for i in range(len(rects[rect_idx]))
+                )):
+                    # normal rollover for everything but last place:
+                    if rollover_idx < len(basis)-1:
+                        rollover_copy[rollover_idx] = 1
+                        rollover_copy[rollover_idx + 1] += 1
+                        rollover_idx += 1
+
+                    # if necessary swap to next rect & reset rollover attempt:
+                    elif rollover_idx == len(basis)-1:
+                        rollover_copy = [x for x in curr_vec]
+                        rollover_idx = 0
+                        rect_idx += 1
+
+                        if rect_idx == len(rects):
+                            break
+
+                # copy rollover back into curr_vec and begin the combinatorics:
+                curr_vec = rollover_copy
+                if rect_idx < len(rects):
+                    # set up basic combinations objects
+                    comb_iters = [combinations(range(totals[i]), 0) for i in range(total_dim)]
+
+                    # insert the unique ones for this degree combination
+                    for i in range(len(basis)):
+                        comb_iters[basis[i]] = combinations(range(totals[basis[i]]), curr_vec[i]) 
+                    
+                    # combine into a product iterator and yield
+                    total_iter = iproduct(*comb_iters)
+                    for item in total_iter:
+                        yield item
+
+    def _get_monomials_complete(self):
+        # convert counts to rectangle list
+        rects = [rect(term) for term in self.terms]
+        
+        # construct most general totals matrix:
+        dim = max([0] + [len(r) for r in rects])
+        totals = [0 for i in range(dim)]
+        for term in self.terms:
+            for k,v in term.totals.items():
+                totals[k] = v
+
+        # rounds of stable sorting to get rectangles in correct order
+        rects = sorted(rects, key = safe_get(0), reverse=True)
+        for d in range(1,dim):
+            rects = sorted(rects, key = safe_get(d))
+
+        # single rollover loop
+        rect_idx = 0
+        curr_vec = [0 for i in range(dim)]
+        while rect_idx < len(rects):
+
+            # increment degree
+            curr_vec[0] += 1
+
+            
+            # rollover loop:
+            rollover_idx = 0
+            rollover_copy = [x for x in curr_vec]
+
+            # as long as any index is too large:
+            while any((
+                (rollover_copy[i] > rects[rect_idx][i])
+                for i in range(len(rects[rect_idx]))
+            )):
+                # normal rollover for everything but last place:
+                if rollover_idx < len(rects[rect_idx])-1:
+                    rollover_copy[rollover_idx] = 0
+                    rollover_copy[rollover_idx + 1] += 1
+                    rollover_idx += 1
+
+                # if necessary swap to next rect & reset rollover attempt:
+                elif rollover_idx == len(rects[rect_idx])-1:
+                    rollover_copy = [x for x in curr_vec]
+                    rollover_idx = 0
+                    rect_idx += 1
+
+                    if rect_idx == len(rects):
+                        break
+
+            # copy rollover back into curr_vec
+            curr_vec = rollover_copy
+
+            if rect_idx < len(rects):
+                comb_iters = [combinations(range(totals[i]), curr_vec[i]) for i in range(dim)]
+                total_iter = iproduct(*comb_iters)
+
+                for item in total_iter:
+                    yield item
+
+# lazy product implementation for faster skipping of unusable sets :)
+# attribution: https://discuss.python.org/t/a-product-function-which-supports-large-infinite-iterables/5753
+def iproduct(*iterables, repeat=1):
+    iterables = [item for row in zip(*(tee(iterable, repeat) for iterable in iterables)) for item in row]
+    N = len(iterables)
+    saved = [[] for _ in range(N)]  # All the items that we have seen of each iterable.
+    exhausted = set()               # The set of indices of iterables that have been exhausted.
+    for i in cycle(range(N)):
+        if i in exhausted:  # Just to avoid repeatedly hitting that exception.
+            continue
+        try:
+            item = next(iterables[i])
+            yield from product(*saved[:i], [item], *saved[i+1:])  # Finite product.
+            saved[i].append(item)
+        except StopIteration:
+            exhausted.add(i)
+            if not saved[i] or len(exhausted) == N:  # Product is empty or all iterables exhausted.
+                return
+    yield ()  # There are no iterables.
+
+def safe_get(d):
+    def f(x):
+        if d < len(x):
+            return x[d]
+        else:
+            return 0
+    return f
+
+def rect(term):
+    out = [0 for i in range(1+max(
+        # add 0 to handle empty terms
+        list(term.totals.keys()) + [0]
+    ))]
+
+    for k,c, in term.counts.items():
+        out[k] = c
+    return tuple(out)

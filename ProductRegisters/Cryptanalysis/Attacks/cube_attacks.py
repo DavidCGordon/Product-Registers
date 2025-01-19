@@ -8,6 +8,11 @@ from ProductRegisters import FeedbackRegister
 from ProductRegisters.BooleanLogic import BooleanFunction
 from ProductRegisters.Tools.RootCounting.MonomialProfile import MonomialProfile, TermSet
 
+
+# Cube attacks need to tweak/query the actual register:
+# because of this, we need pass functions to the attack
+# which allow it to interface with the target system
+# 
 def access_fns(register, output_fn, tweakable_bits, init_rounds=100, keystream_len=None):
     # default keystream len:
     if keystream_len == None:
@@ -75,7 +80,6 @@ def access_fns(register, output_fn, tweakable_bits, init_rounds=100, keystream_l
         ]
 
         register.reset()
-
         return test_keystream == keystream
 
     return access_fn,sim_fn,test_fn
@@ -116,123 +120,123 @@ def insert_equation(
 
 
 
-def cube_attack_offline(
-    feedback_fn, sim_fn, tweakable_vars, 
-    time_limit = None, num_tests = 20, verbose = False
-    ):
+# def cube_attack_offline(
+#     feedback_fn, sim_fn, tweakable_vars, 
+#     time_limit = None, num_tests = 20, verbose = False
+#     ):
 
-    tweakable_vars = set(tweakable_vars)
-    start_time = time.time()
+#     tweakable_vars = set(tweakable_vars)
+#     start_time = time.time()
     
-    cube_map = {}
-    lower_matrix = np.eye(feedback_fn.size,dtype=np.uint8)
-    upper_matrix = np.eye(feedback_fn.size,dtype=np.uint8)
-    const_vec = np.zeros([feedback_fn.size,1],dtype=np.uint8)
+#     cube_map = {}
+#     lower_matrix = np.eye(feedback_fn.size,dtype=np.uint8)
+#     upper_matrix = np.eye(feedback_fn.size,dtype=np.uint8)
+#     const_vec = np.zeros([feedback_fn.size,1],dtype=np.uint8)
 
-    failure_count = 0
-    already_seen = set()
-    cube_variables = set([list(tweakable_vars)[0]])
-    while True:
-        # check to make sure cubes are only checked once
-        cube = tuple(sorted(list(cube_variables)))
-        if cube in already_seen:
-            failure_count += 1
-            added_element = np.random.choice(list(tweakable_vars - cube_variables))
-            removed_element = np.random.choice(cube)
-            cube_variables.add(added_element)
-            cube_variables.remove(removed_element)
+#     failure_count = 0
+#     already_seen = set()
+#     cube_variables = set([list(tweakable_vars)[0]])
+#     while True:
+#         # check to make sure cubes are only checked once
+#         cube = tuple(sorted(list(cube_variables)))
+#         if cube in already_seen:
+#             failure_count += 1
+#             added_element = np.random.choice(list(tweakable_vars - cube_variables))
+#             removed_element = np.random.choice(cube)
+#             cube_variables.add(added_element)
+#             cube_variables.remove(removed_element)
 
-            if failure_count > 100:
-                if verbose:
-                    print("too many repeated cubes in random walk!")
-                break
-            continue
+#             if failure_count > 100:
+#                 if verbose:
+#                     print("too many repeated cubes in random walk!")
+#                 break
+#             continue
 
-        failure_count = 0
-        already_seen.add(cube)
-        print("Cube Candidate: ", cube)
+#         failure_count = 0
+#         already_seen.add(cube)
+#         print("Cube Candidate: ", cube)
 
-        # get cube information:
-        equations, constants = determine_equations(sim_fn,cube,feedback_fn.size)
-        nonlinear_mask = get_nonlinear_mask(sim_fn,cube,feedback_fn.size,num_tests)
-        constant_mask = get_constant_mask(sim_fn,cube,feedback_fn.size,num_tests)
+#         # get cube information:
+#         equations, constants = determine_equations(sim_fn,cube,feedback_fn.size)
+#         nonlinear_mask = get_nonlinear_mask(sim_fn,cube,feedback_fn.size,num_tests)
+#         constant_mask = get_constant_mask(sim_fn,cube,feedback_fn.size,num_tests)
 
-        # counts for bookkeeping/printing:
-        useful_count = 0
-        constant_count = 0
-        nonlinear_count = 0
-        dependent_count = 0
+#         # counts for bookkeeping/printing:
+#         useful_count = 0
+#         constant_count = 0
+#         nonlinear_count = 0
+#         dependent_count = 0
 
-        for t in range(len(nonlinear_mask)):
-            # filter constant / nonlinear superpoly's
-            if constant_mask[t]:
-                constant_count += 1
-                continue
-            elif nonlinear_mask[t]:
-                nonlinear_count += 1
-                continue
+#         for t in range(len(nonlinear_mask)):
+#             # filter constant / nonlinear superpoly's
+#             if constant_mask[t]:
+#                 constant_count += 1
+#                 continue
+#             elif nonlinear_mask[t]:
+#                 nonlinear_count += 1
+#                 continue
 
-            # attempt to insert equation, and determ
-            linearly_independent = insert_equation(
-                lower_matrix, upper_matrix, const_vec, cube_map,
-                cube, t, equations[t], constants[t]
-            )
+#             # attempt to insert equation, and determ
+#             linearly_independent = insert_equation(
+#                 lower_matrix, upper_matrix, const_vec, cube_map,
+#                 cube, t, equations[t], constants[t]
+#             )
 
-            # determine whether the insert was successful
-            if linearly_independent:
-                useful_count += 1
-            if not linearly_independent:
-                dependent_count += 1
+#             # determine whether the insert was successful
+#             if linearly_independent:
+#                 useful_count += 1
+#             if not linearly_independent:
+#                 dependent_count += 1
             
-        # add or remove elements randomly as needed:
-        #  - move up when there are any nonlinear terms
-        #  - move down when there are all constant terms
-        #  - otherwise just swap a random element
-        added_element = np.random.choice(list(tweakable_vars - cube_variables))
-        removed_element = np.random.choice(cube)
-        #print(added_element,removed_element, not np.all(constant_mask), not np.any(nonlinear_mask))
-        if not np.all(constant_mask):
-            cube_variables.add(added_element)
-        if not np.any(nonlinear_mask):
-            cube_variables.remove(removed_element)
-        #print("New: ", cube_variables)
-        # print to keep information up to date:
-        if verbose: 
-            print(
-                f" - Useful: {useful_count} -- " +
-                f"Constant: {constant_count} -- " +
-                f"Nonlinear: {nonlinear_count} -- " +
-                f"Dependent: {dependent_count}",
-            )
+#         # add or remove elements randomly as needed:
+#         #  - move up when there are any nonlinear terms
+#         #  - move down when there are all constant terms
+#         #  - otherwise just swap a random element
+#         added_element = np.random.choice(list(tweakable_vars - cube_variables))
+#         removed_element = np.random.choice(cube)
+#         #print(added_element,removed_element, not np.all(constant_mask), not np.any(nonlinear_mask))
+#         if not np.all(constant_mask):
+#             cube_variables.add(added_element)
+#         if not np.any(nonlinear_mask):
+#             cube_variables.remove(removed_element)
+#         #print("New: ", cube_variables)
+#         # print to keep information up to date:
+#         if verbose: 
+#             print(
+#                 f" - Useful: {useful_count} -- " +
+#                 f"Constant: {constant_count} -- " +
+#                 f"Nonlinear: {nonlinear_count} -- " +
+#                 f"Dependent: {dependent_count}",
+#             )
 
                 
-        # this breaks out of the loop indexing the keystream by time
-        # the check at the top of this section breaks the individual cube loop
-        if all([(bit in cube_map) for bit in range(feedback_fn.size)]):
-            if verbose: print("all variables solved!")
-            break
-        if time_limit and time.time() - start_time > time_limit:
-            if verbose: print("time limit reached!")
-            break 
+#         # this breaks out of the loop indexing the keystream by time
+#         # the check at the top of this section breaks the individual cube loop
+#         if all([(bit in cube_map) for bit in range(feedback_fn.size)]):
+#             if verbose: print("all variables solved!")
+#             break
+#         if time_limit and time.time() - start_time > time_limit:
+#             if verbose: print("time limit reached!")
+#             break 
     
-    num_queries = 0
-    distinct_cubes = set()
-    for (cube, t) in cube_map.values():
-        if cube not in distinct_cubes:
-            num_queries += 2**len(cube)
-            distinct_cubes.add(cube)
+#     num_queries = 0
+#     distinct_cubes = set()
+#     for (cube, t) in cube_map.values():
+#         if cube not in distinct_cubes:
+#             num_queries += 2**len(cube)
+#             distinct_cubes.add(cube)
 
-    if verbose:  
-        print("Number of cubes tested: ", len(already_seen))
-        print("Number of cubes found: ", len(cube_map))
-        print("Num Queries: ", num_queries)
+#     if verbose:  
+#         print("Number of cubes tested: ", len(already_seen))
+#         print("Number of cubes found: ", len(cube_map))
+#         print("Num Queries: ", num_queries)
 
-    output = {}
-    output['cubes'] = cube_map
-    output['lower matrix'] = lower_matrix
-    output['upper matrix'] = upper_matrix
-    output['constant vector'] = const_vec
-    return output
+#     output = {}
+#     output['cubes'] = cube_map
+#     output['lower matrix'] = lower_matrix
+#     output['upper matrix'] = upper_matrix
+#     output['constant vector'] = const_vec
+#     return output
 
 
 

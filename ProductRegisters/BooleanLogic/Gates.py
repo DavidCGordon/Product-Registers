@@ -53,6 +53,29 @@ class XOR(BooleanFunction):
             (a,-b,c),
             (-a,b,c)
         ]
+    
+    @classmethod
+    def tseytin_unroll(self,gate_labels,arg_labels):
+        if len(arg_labels) == 0: # empty gate (e.g. XOR() ) => assert unsat using this gate
+            return [(gate_labels[0]),(-gate_labels[0])]
+        
+        elif len(arg_labels) == 1: # 1-arg => assert arg and output var are equal
+            return [(-gate_labels[0],arg_labels[0]),(gate_labels[0],-arg_labels[0])]
+        
+        else:
+            # initial node uses 2 args
+            clauses = self.tseytin_formula(arg_labels[0],arg_labels[1],gate_labels[0])
+
+            # afterward each node uses the previous + the next arg
+            for i in range(1,len(gate_labels)):
+                clauses += self.tseytin_formula(
+                    gate_labels[i-1], arg_labels[i+1], gate_labels[i]
+                )
+            return clauses
+
+
+
+
 
 
 class AND(BooleanFunction):
@@ -94,6 +117,24 @@ class AND(BooleanFunction):
             (b,-c)
         ]
    
+    @classmethod
+    def tseytin_unroll(self,gate_labels,arg_labels):
+        if len(arg_labels) == 0: # empty gate (e.g. AND() ) => assert unsat using this gate
+            return [(gate_labels[0]),(-gate_labels[0])]
+        
+        elif len(arg_labels) == 1: # 1-arg => assert arg and output var are equal
+            return [(-gate_labels[0],arg_labels[0]),(gate_labels[0],-arg_labels[0])]
+        
+        else:
+            # initial node uses 2 args
+            clauses = self.tseytin_formula(arg_labels[0],arg_labels[1],gate_labels[0])
+
+            # afterward each node uses the previous + the next arg
+            for i in range(1,len(gate_labels)):
+                clauses += self.tseytin_formula(
+                    gate_labels[i-1], arg_labels[i+1], gate_labels[i]
+                )
+            return clauses
     
     
 
@@ -138,6 +179,24 @@ class OR(BooleanFunction):
             (-b,c)
         ]
 
+    @classmethod
+    def tseytin_unroll(self,gate_labels,arg_labels):
+        if len(arg_labels) == 0: # empty gate (e.g. AND() ) => assert unsat using this gate
+            return [(gate_labels[0]),(-gate_labels[0])]
+        
+        elif len(arg_labels) == 1: # 1-arg => assert arg and output var are equal
+            return [(-gate_labels[0],arg_labels[0]),(gate_labels[0],-arg_labels[0])]
+        
+        else:
+            # initial node uses 2 args
+            clauses = self.tseytin_formula(arg_labels[0],arg_labels[1],gate_labels[0])
+
+            # afterward each node uses the previous + the next arg
+            for i in range(1,len(gate_labels)):
+                clauses += self.tseytin_formula(
+                    gate_labels[i-1], arg_labels[i+1], gate_labels[i]
+                )
+            return clauses
 
 
 
@@ -184,6 +243,35 @@ class XNOR(BooleanFunction):
             (a,-b,-c)
         ]
     
+    @classmethod
+    def tseytin_unroll(self,gate_labels,arg_labels):
+        if len(arg_labels) == 0: # empty gate (e.g. XOR() ) => assert unsat using this gate
+            return [(gate_labels[0]),(-gate_labels[0])]
+        
+        elif len(arg_labels) == 1: # 1-arg => assert arg and output var are equal
+            return [(-gate_labels[0],arg_labels[0]),(gate_labels[0],-arg_labels[0])]
+        
+        elif len(arg_labels) == 2: # 2-arg => just use formula
+            return self.tseytin_formula(arg_labels[0],arg_labels[1],gate_labels[0])
+        
+        else:
+            # initial node uses 2 args
+            clauses = self.tseytin_formula(arg_labels[0],arg_labels[1],gate_labels[0])
+
+            # afterward each node uses the previous + the next arg
+            # using the associative operation and negating
+            for i in range(1,len(gate_labels)-1):
+                clauses += XOR.tseytin_formula(
+                    gate_labels[i-1], arg_labels[i+1], gate_labels[i]
+                )
+
+            # use negation for the final output
+            idx = len(gate_labels)-1
+            clauses += self.tseytin_formula(
+                gate_labels[idx-1], arg_labels[idx+1], gate_labels[idx]
+            )
+            
+            return clauses
 
 
 
@@ -228,6 +316,35 @@ class NAND(BooleanFunction):
             (b,c)
         ]
 
+    @classmethod
+    def tseytin_unroll(self,gate_labels,arg_labels):
+        if len(arg_labels) == 0: # empty gate (e.g. AND() ) => assert unsat using this gate
+            return [(gate_labels[0]),(-gate_labels[0])]
+        
+        elif len(arg_labels) == 1: # 1-arg => assert arg and output var are equal
+            return [(-gate_labels[0],arg_labels[0]),(gate_labels[0],-arg_labels[0])]
+        
+        elif len(arg_labels) == 2: # 2-arg => just use formula
+            return self.tseytin_formula(arg_labels[0],arg_labels[1],gate_labels[0])
+        
+        else:
+            # initial node uses 2 args
+            clauses = self.tseytin_formula(arg_labels[0],arg_labels[1],gate_labels[0])
+
+            # afterward each node uses the previous + the next arg
+            # using the associative operation and negating
+            for i in range(1,len(gate_labels)-1):
+                clauses += AND.tseytin_formula(
+                    gate_labels[i-1], arg_labels[i+1], gate_labels[i]
+                )
+
+            # use negation for the final output
+            idx = len(gate_labels)-1
+            clauses += self.tseytin_formula(
+                gate_labels[idx-1], arg_labels[idx+1], gate_labels[idx]
+            )
+
+            return clauses
 
 
 
@@ -274,7 +391,35 @@ class NOR(BooleanFunction):
             (-b,-c)
         ]
 
+    @classmethod
+    def tseytin_unroll(self,gate_labels,arg_labels):
+        if len(arg_labels) == 0: # empty gate (e.g. AND() ) => assert unsat using this gate
+            return [(gate_labels[0]),(-gate_labels[0])]
+        
+        elif len(arg_labels) == 1: # 1-arg => assert arg and output var are equal
+            return [(-gate_labels[0],arg_labels[0]),(gate_labels[0],-arg_labels[0])]
+        
+        elif len(arg_labels) == 2: # 2-arg => just use formula
+            return self.tseytin_formula(arg_labels[0],arg_labels[1],gate_labels[0])
+        
+        else:
+            # initial node uses 2 args
+            clauses = self.tseytin_formula(arg_labels[0],arg_labels[1],gate_labels[0])
 
+            # afterward each node uses the previous + the next arg
+            # using the associative operation and negating
+            for i in range(1,len(gate_labels)-1):
+                clauses += OR.tseytin_formula(
+                    gate_labels[i-1], arg_labels[i+1], gate_labels[i]
+                )
+
+            # use negation for the final output
+            idx = len(gate_labels)-1
+            clauses += self.tseytin_formula(
+                gate_labels[idx-1], arg_labels[idx+1], gate_labels[idx]
+            )
+            
+            return clauses
 
 
 
@@ -309,8 +454,13 @@ class NOT(BooleanFunction):
             (a,c)
         ]
 
-            
+    @classmethod
+    def tseytin_unroll(self,gate_labels,arg_labels):
+        if len(arg_labels) == 1: # 1-arg => assert arg and output var are opposite
+            return [(-gate_labels[0],-arg_labels[0]),(gate_labels[0],arg_labels[0])]
 
+        if len(arg_labels) == 0: # should never happen, assert unsat
+            return [(gate_labels[0]),(-gate_labels[0])]
 
     
     

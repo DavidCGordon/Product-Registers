@@ -257,7 +257,9 @@ end run;
     # compile and run in python
     def compile(self):
         self._compiled = None
+        self._compiled_inplace = None
 
+        # return a new answer
         exec_str = """
 @njit(parallel=True)
 def _compiled(currstate):
@@ -269,7 +271,23 @@ def _compiled(currstate):
 
         exec_str += "self._compiled = _compiled"
         exec(exec_str)
+
+        # write to an existing buffer
+        exec_str = """
+@njit(parallel=True)
+def _compiled_inplace(currstate,output_buffer):
+"""
+        for i in range(self.size - 1, -1 , -1):
+                exec_str += f"    output_buffer[{str(i)}] = {self.fn_list[i].generate_python()}\n"
+        exec_str += "    return\n\n"
+
+        exec_str += "self._compiled_inplace = _compiled_inplace"
+        exec(exec_str)
+
+
         return self._compiled
+
+
 
     def iterator(self, n):
         fns = [VAR(i) for i in range(self.size)]

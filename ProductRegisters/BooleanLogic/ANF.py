@@ -83,7 +83,7 @@ class ANF_spec_repr:
 
     @classmethod
     def from_BooleanFunction(self,fn):
-        var_list = [ANF_spec_repr([[i]]) for i in range(fn.max_idx() + 1)]
+        var_list = {i: ANF_spec_repr([[i]]) for i in fn.idxs_used()}
         new_fn = fn.remap_constants({
             0: ANF_spec_repr([0]),
             1: ANF_spec_repr([1])
@@ -130,7 +130,8 @@ def degree(self, convert = True):
     if convert:
         return len(max(
             ANF_spec_repr.from_BooleanFunction(self),
-            key = lambda x: len(x)
+            key = lambda x: len(x),
+            default = tuple()
         ))
     
     degree = 0
