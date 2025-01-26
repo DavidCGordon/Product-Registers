@@ -159,14 +159,19 @@ def combine_vecs(
     subcomb_bounds # start/stop indices to interpret the above arrays properly
     ):
 
-
-    # Note that for any sets of evaluationsd, we have a variant of the principle of inclusion-exclusion: 
+    # Note that for any sets of evaluations, we have a variant of the principle of inclusion-exclusion: 
     #   (Sum over Set A) + (Sum over Set B) = (Sum over A union B) + (Sum over A intersect B)
 
-    # Consider for some set of variables, S, the sets with each variable missing: (V - s) for each s in S
+    # Consider for some set of variables, S, consider the cubes with each variable missing: 
+    #   -  i.e. the cube over (V - s) for each s in S
+    #
     # the union of all of these sets is every evaluation except those which contain all of S
+    # the intersection of any two cubes (e.g. over V_1 = V - S_1, V2 = V - S_2, with S_i being
+    # arbitrary subsets of S) is the cube over V_1 intersect V_2 = V - (S_1 union S_2). All of
+    # these intersections are cubes which we have already computed, and can be used directly.
+    #
     # one branch of the split is the P.I.E sum over every intersection,
-    # the other is the last set of evaluation (having all of S)
+    # the other is the remaining set of evaluations (having all of S)
 
     for term_idx in range(eq_vec.shape[1]):
         for fn_idx in range(eq_vec.shape[0]):

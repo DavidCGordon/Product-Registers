@@ -280,7 +280,7 @@ class FIXED(TEMPLATE):
         if self.source == None:
             raise ValueError("No Source Defined")
 
-    def _sample_template(self, allow_empty_return=False):
+    def _sample(self, allow_empty_return=False):
         if self.returned:
             return self.returned
 

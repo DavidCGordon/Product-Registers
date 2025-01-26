@@ -20,29 +20,58 @@ class XOR(BooleanFunction):
         self.arg_limit = arg_limit
         self.args = args
 
-    def eval(self, array):
+    def _eval(self, array, cache):
         return reduce(
             lambda a, b: a ^ b,
-            (arg.eval(array) for arg in self.args)
+            (cache[arg] for arg in self.args)
         )
-    def eval_ANF(self, array):
+    def _eval_ANF(self, array, cache):
         return reduce(
             lambda a, b: a ^ b,
-            (arg.eval_ANF(array) for arg in self.args)
+            (cache[arg] for arg in self.args)
         )
         
     def generate_c(self):
         return "(" + " ^ ".join(arg.generate_c() for arg in self.args) + ")"
     def generate_VHDL(self):
         return "(" + " XOR ".join(arg.generate_VHDL() for arg in self.args) + ")"
-    def generate_python(self):
-        return "(" + " ^ ".join(arg.generate_python() for arg in self.args) + ")"
+    def _generate_python(self, cache, array_name):
+        return "(" + " ^ ".join(cache[arg] for arg in self.args) + ")"
+    def generate_tex(self):
+        return " \\oplus \\,".join(arg.generate_tex() for arg in self.args)
 
-    @cache
-    def _binarize(self):
+
+    def _merge_redundant(self, cache, in_place = False, p = False):
+        if len(self.args) == 1:
+            return cache[self.args[0]]
+        
+        # merge nested args:
+        new_args = {} # Dicts maintain order
+        for arg in self.args:
+            if type(cache[arg]) == XOR:
+                for nested_arg in cache[arg].args:
+                    if nested_arg in new_args:
+                        new_args[nested_arg] += 1
+                    else:
+                        new_args[nested_arg] = 1
+
+            elif cache[arg] in new_args:
+                new_args[cache[arg]] += 1
+            else:
+                new_args[cache[arg]] = 1
+        new_args = [arg for arg, count in new_args.items() if (count%2)]
+
+        if in_place:
+            self.args = list(new_args)
+            return self
+        else:
+            return XOR(*new_args, arg_limit = self.arg_limit)
+
+
+    def _binarize(self,new_nodes):
         return reduce(
             lambda a, b: XOR(a,b),
-            (arg._binarize() for arg in self.args)
+            (new_nodes[arg] for arg in self.args)
         )
  
     @classmethod
@@ -83,15 +112,15 @@ class AND(BooleanFunction):
         self.arg_limit = arg_limit
         self.args = args
 
-    def eval(self, array):
+    def _eval(self, array, cache):
         return reduce(
             lambda a, b: a & b,
-            (arg.eval(array) for arg in self.args)
+            (cache[arg] for arg in self.args)
         )
-    def eval_ANF(self, array):
+    def _eval_ANF(self, array, cache):
         return reduce(
             lambda a, b: a & b,
-            (arg.eval_ANF(array) for arg in self.args)
+            (cache[arg] for arg in self.args)
         )
         
     
@@ -99,14 +128,40 @@ class AND(BooleanFunction):
         return "(" + " & ".join(arg.generate_c() for arg in self.args) + ")"
     def generate_VHDL(self):
         return "(" + " AND ".join(arg.generate_VHDL() for arg in self.args) + ")"
-    def generate_python(self):
-        return "(" + " & ".join(arg.generate_python() for arg in self.args) + ")"
+    def generate_tex(self):
+        return "".join(arg.generate_tex() for arg in self.args)
+    def _generate_python(self, cache, array_name):
+        return "(" + " & ".join(cache[arg] for arg in self.args) + ")"
 
-    @cache
-    def _binarize(self):
+
+    def _merge_redundant(self, cache, in_place = False, p = False):
+        if len(self.args) == 1:
+            return cache[self.args[0]]
+        
+        seen = set()
+        new_args = []
+        for arg in self.args:
+            if type(cache[arg]) == AND:
+                for nested_arg in cache[arg].args:
+                    if nested_arg not in seen:
+                        seen.add(nested_arg)
+                        new_args.append(nested_arg)
+                
+            elif cache[arg] not in seen:
+                seen.add(cache[arg])
+                new_args.append(cache[arg])
+
+        if in_place:
+            self.args = list(new_args)
+            return self
+        else:
+            return AND(*new_args, arg_limit = self.arg_limit)
+
+
+    def _binarize(self, new_nodes):
         return reduce(
             lambda a, b: AND(a,b),
-            (arg._binarize() for arg in self.args)
+            (new_nodes[arg] for arg in self.args)
         )
     
     @classmethod
@@ -146,29 +201,55 @@ class OR(BooleanFunction):
         self.arg_limit = arg_limit
         self.args = args
         
-    def eval(self, array):
+    def _eval(self, array, cache):
         return reduce(
             lambda a, b: a | b,
-            (arg.eval(array) for arg in self.args)
+            (cache[arg] for arg in self.args)
         )
-    def eval_ANF(self, array):
+    def _eval_ANF(self, array, cache):
         return invert(reduce(
             lambda a, b: a & b,
-            (invert(arg.eval_ANF(array)) for arg in self.args)
+            (invert(cache[arg]) for arg in self.args)
         ))
     
     def generate_c(self):
         return "(" + " | ".join(arg.generate_c() for arg in self.args) + ")"
     def generate_VHDL(self):
         return "(" + " OR ".join(arg.generate_VHDL() for arg in self.args) + ")"
-    def generate_python(self):
-        return "(" + " | ".join(arg.generate_python() for arg in self.args) + ")"
+    def generate_tex(self):
+        return " \\vee ".join(arg.generate_tex() for arg in self.args)
+    def _generate_python(self, cache, array_name):
+        return "(" + " | ".join(cache[arg] for arg in self.args) + ")"
 
-    @cache
-    def _binarize(self):
+
+    def _merge_redundant(self, cache, in_place = False, p = False):
+        if len(self.args) == 1:
+            return cache[self.args[0]]
+        
+        seen = set()
+        new_args = []
+        for arg in self.args:
+            if type(cache[arg]) == OR:
+                for nested_arg in cache[arg].args:
+                    if nested_arg not in seen:
+                        seen.add(nested_arg)
+                        new_args.append(nested_arg)
+                
+            elif cache[arg] not in seen:
+                seen.add(cache[arg])
+                new_args.append(cache[arg])
+
+        if in_place:
+            self.args = list(new_args)
+            return self
+        else:
+            return OR(*new_args, arg_limit = self.arg_limit)
+
+
+    def _binarize(self, new_nodes):
         return reduce(
             lambda a, b: OR(a,b),
-            (arg._binarize() for arg in self.args)
+            (new_nodes[arg] for arg in self.args)
         )
     
     @classmethod
@@ -206,32 +287,32 @@ class XNOR(BooleanFunction):
         self.arg_limit = arg_limit
         self.args = args
 
-    def eval(self, array):
+    def _eval(self, array, cache):
         return invert(reduce(
             lambda a, b: a ^ b,
-            (arg.eval(array) for arg in self.args)
+            (cache[arg] for arg in self.args)
         ))
-    def eval_ANF(self, array):
+    def _eval_ANF(self, array, cache):
         return invert(reduce(
             lambda a, b: a ^ b,
-            (arg.eval_ANF(array) for arg in self.args)
+            (cache[arg] for arg in self.args)
         ))
         
     def generate_c(self):
         return "(!(" + " ^ ".join(arg.generate_c() for arg in self.args) + "))"
     def generate_VHDL(self):
         return "(" + " XNOR ".join(arg.generate_VHDL() for arg in self.args) + ")"
-    def generate_python(self):
-        return "(1-(" + " ^ ".join(arg.generate_python() for arg in self.args) + "))"
+    def _generate_python(self, cache, array_name):
+        return "(1-(" + " ^ ".join(cache[arg] for arg in self.args) + "))"
 
-    @cache
-    def _binarize(self):
+
+    def _binarize(self, new_nodes):
         return XNOR(
             reduce(
                 lambda a, b: XOR(a,b),
-                (arg._binarize() for arg in self.args[:-1])
+                (new_nodes[arg] for arg in self.args[:-1])
             ), 
-            self.args[-1]._binarize()
+            new_nodes[self.args[-1]]
         )
  
     @classmethod
@@ -256,7 +337,7 @@ class XNOR(BooleanFunction):
         
         else:
             # initial node uses 2 args
-            clauses = self.tseytin_formula(arg_labels[0],arg_labels[1],gate_labels[0])
+            clauses = XOR.tseytin_formula(arg_labels[0],arg_labels[1],gate_labels[0])
 
             # afterward each node uses the previous + the next arg
             # using the associative operation and negating
@@ -280,32 +361,32 @@ class NAND(BooleanFunction):
         self.arg_limit = arg_limit
         self.args = args
 
-    def eval(self, array):
+    def _eval(self, array, cache):
         return invert(reduce(
             lambda a, b: a & b,
-            (arg.eval(array) for arg in self.args)
+            (cache[arg] for arg in self.args)
         ))
-    def eval_ANF(self, array):
+    def _eval_ANF(self, array, cache):
         return invert(reduce(
             lambda a, b: a & b,
-            (arg.eval_ANF(array) for arg in self.args)
+            (cache[arg] for arg in self.args)
         ))
     
     def generate_c(self):
         return "(!(" + " & ".join(arg.generate_c() for arg in self.args) + "))"
     def generate_VHDL(self):
         return "(" + " NAND ".join(arg.generate_VHDL() for arg in self.args) + ")"
-    def generate_python(self):
-        return "(1-(" + " & ".join(arg.generate_python() for arg in self.args) + "))"
+    def _generate_python(self, cache, array_name):
+        return "(1-(" + " & ".join(cache[arg] for arg in self.args) + "))"
 
-    @cache
-    def _binarize(self):
+
+    def _binarize(self, new_nodes):
         return NAND(
             reduce(
                 lambda a, b: AND(a,b),
-                (arg._binarize() for arg in self.args[:-1])
+                (new_nodes[arg] for arg in self.args[:-1])
             ), 
-            self.args[-1]._binarize()
+            new_nodes[self.args[-1]]
         )
     
     @classmethod
@@ -329,7 +410,7 @@ class NAND(BooleanFunction):
         
         else:
             # initial node uses 2 args
-            clauses = self.tseytin_formula(arg_labels[0],arg_labels[1],gate_labels[0])
+            clauses = AND.tseytin_formula(arg_labels[0],arg_labels[1],gate_labels[0])
 
             # afterward each node uses the previous + the next arg
             # using the associative operation and negating
@@ -354,33 +435,33 @@ class NOR(BooleanFunction):
         self.arg_limit = arg_limit
         self.args = args
 
-    def eval(self, array):
+    def _eval(self, array, cache):
         return invert(reduce(
             lambda a, b: a | b,
-            (arg.eval(array) for arg in self.args)
+            (cache[arg] for arg in self.args)
         ))
-    def eval_ANF(self, array):
+    def _eval_ANF(self, array, cache):
         return reduce(
             lambda a, b: a & b,
-            (invert(arg.eval_ANF(array)) for arg in self.args)
+            (invert(cache[arg]) for arg in self.args)
         )
     
     def generate_c(self):
         return "(!(" + " | ".join(arg.generate_c() for arg in self.args) + "))"
     def generate_VHDL(self):
         return "(" + " NOR ".join(arg.generate_VHDL() for arg in self.args) + ")"
-    def generate_python(self):
-        return "(1-(" + " | ".join(arg.generate_python() for arg in self.args) + "))"
+    def _generate_python(self, cache, array_name):
+        return "(1-(" + " | ".join(cache[arg] for arg in self.args) + "))"
 
 
-    @cache
-    def _binarize(self):
+
+    def _binarize(self, new_nodes):
         return NOR(
             reduce(
                 lambda a, b: OR(a,b),
-                (arg._binarize() for arg in self.args[:-1])
+                (new_nodes[arg] for arg in self.args[:-1])
             ), 
-            self.args[-1]._binarize()
+            new_nodes[self.args[-1]]
         )
     
     @classmethod
@@ -404,7 +485,7 @@ class NOR(BooleanFunction):
         
         else:
             # initial node uses 2 args
-            clauses = self.tseytin_formula(arg_labels[0],arg_labels[1],gate_labels[0])
+            clauses = OR.tseytin_formula(arg_labels[0],arg_labels[1],gate_labels[0])
 
             # afterward each node uses the previous + the next arg
             # using the associative operation and negating
@@ -430,22 +511,30 @@ class NOT(BooleanFunction):
             raise ValueError("NOT takes only 1 argument")
         self.arg_limit = 1
         self.args = args
+
+    @classmethod
+    def _node_copy(self, fn, child_copies):
+        return NOT(child_copies[fn.args[0]])
     
-    def eval(self,array):
-        return invert(self.args[0].eval(array))
-    def eval_ANF(self,array):
-        return invert(self.args[0].eval_ANF(array))
+    def _merge_redundant(self, cache, in_place=False, p = False):
+        return NOT(cache[self.args[0]])
+    
+    
+    def _eval(self, array, cache):
+        return invert(cache[self.args[0]])
+    def _eval_ANF(self, array, cache):
+        return invert(cache[self.args[0]])
 
     def generate_c(self):
         return "(!(" + f"{self.args[0].generate_c()}" + "))"
     def generate_VHDL(self):
         return "(NOT(" + f"{self.args[0].generate_VHDL()}" + "))"
-    def generate_python(self):
-        return "(1-(" + f"{self.args[0].generate_python()}" + "))"
+    def _generate_python(self, cache, array_name):
+        return "(1-(" + f"{cache[self.args[0]]}" + "))"
 
-    @cache
-    def _binarize(self):
-        return NOT(self.args[0]._binarize())
+
+    def _binarize(self, new_nodes):
+        return NOT(new_nodes[self.args[0]])
     
     @classmethod
     def tseytin_formula(self,a,c):

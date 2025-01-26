@@ -17,22 +17,6 @@ import numba
 import time
 import random
 
-from matplotlib import pyplot as plt
-
-
-# this file is attacks on filter generators - combination generators do not work here. 
-
-# def access_fns(lfsr_fn, filter_fn):
-#     # given a full state, simulate that state to get the bit
-#     def sim_fn(state):
-#         register = FeedbackRegister(state,lfsr_fn)
-#         for i in range(init_rounds):
-#             register.clock_compiled()
-#             output = register._state[0]
-
-#         register.reset()
-#         return output
-
 
 # small helper function to help pretty-print:
 def indent(n):
@@ -102,16 +86,34 @@ def FAA_offline(
        
         # use berlekamp_massey to get the exact relation
         feedback_fn.compile()
+        multiple_compiled = multiple.compile()
         test_register = FeedbackRegister(random.random(), feedback_fn)
-        seq = [multiple.eval(state) for state in test_register.run_compiled(2*max_LC+32)]
-        linear_complexity, linear_relation = berlekamp_massey(seq)
+        max_count = 1000*((2*max_LC+256)//1000 + 1)
+        count = 0
+
+        for curr_LC, curr_relation in berlekamp_massey_iterator(
+            seq = (multiple_compiled(state._state) for state in test_register.run_compiled(2*max_LC+256)),
+            yield_rate=1000
+        ):
+            count += 1000
+            if verbose:
+                print(
+                    f"\r{indent(print_depth+2)}Bits processed: {count} / {max_count}" +
+                    f"  --  Linear Complexity: {curr_LC} / {max_LC}", 
+                    end=''
+                )
+
+            linear_complexity = curr_LC
+            linear_relation = curr_relation
+
+
 
         # flip linear relation, due to dot product vs convolution
         linear_relation = linear_relation[::-1]
         margin += linear_complexity
 
         if verbose:
-            print(f"{indent(print_depth+1)}Linear relation found:")
+            print(f"\n{indent(print_depth+1)}Linear relation found:")
             print(f"{indent(print_depth+1)}Linear complexity: {linear_complexity}")
             print(f"{indent(print_depth+1)}Time: {time.time()-lin_rel_time} s")
 
@@ -319,7 +321,7 @@ def FAA_online(
 
         if verbose:
             print(
-                f"\r{indent(print_depth+2)}Equations Substituted: {eq_idx+1} / {num_eqs - len(linear_relation)}" +
+                f"\r{indent(print_depth+2)}Equations Substituted: {eq_idx+1} / {num_eqs+1 - len(linear_relation)}" +
                 f"  --  Current Rank: {combined_eqs.rank} / {num_vars}",
                 end = ''
             )
@@ -365,7 +367,6 @@ def FAA_online(
             print(f"{indent(print_depth+1)}Time: {time.time() - initial_guess_start} s")
             print(f"{indent(print_depth)}Online phase complete -- Total time: ", time.time() - start_time)
         return list(base_solution)
-
 
 
     # otherwise we need to try different guesses
@@ -416,7 +417,7 @@ def FAA_online(
     
     
     for i, ((v,comb), effect_vector) in enumerate(guess_effect_map.items()):
-        # ignore any guessed_monomial which contains a known 0
+        # don't guess a monomial which contains a known 0:
         impossible_comb = False
         for var in comb:
             if (not unstable_bits[var]) and (base_solution[var] == 0):

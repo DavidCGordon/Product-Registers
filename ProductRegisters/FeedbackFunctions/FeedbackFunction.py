@@ -8,11 +8,10 @@ import contextlib
 
 # for compiling to python
 import numpy as np
-from numba import njit, jit
+from numba import njit
 import types
 
 # For Storing and loading as JSON files.
-from copy import deepcopy
 import json
 
 class FeedbackFunction:
@@ -20,6 +19,12 @@ class FeedbackFunction:
         #convert update to a list of ANF<int> objects:
         self.fn_list = fn_list
         self.size = len(fn_list)
+    
+    def __copy__(self):
+        new_obj = object.__new__(type(self))
+        new_obj.__dict__ = self.__dict__
+        new_obj.fn_list = [f.__copy__() for f in self.fn_list]
+        return new_obj
 
     def __getitem__(self, idx): return self.fn_list[idx]
 
@@ -27,7 +32,7 @@ class FeedbackFunction:
 
     def __len__(self): return self.size
 
-    def __eq__(self, other): return self.fn_list == other.fn_list
+    # def __eq__(self, other): return self.fn_list == other.fn_list
 
     def __str__(self):
         outstr = ""
@@ -40,7 +45,7 @@ class FeedbackFunction:
         outstr = ""
         for i in range(self.size-1,-1,-1):
             outstr += f"Bit {i} updates according to:\n"
-            outstr += self.fn_list[i].pretty_str() + ";\n\n\n"
+            outstr += self.fn_list[i].pretty_str() + "\n\n\n"
         return outstr[:-3]
 
     def dense_str(self):
@@ -56,14 +61,12 @@ class FeedbackFunction:
             outstr += str(i) + "="
             outstr += self.fn_list[i].anf_str() + ";\n"
         return outstr[:-1]
-
-    #FUNCTION MANIPULATION:
+    
 
     #new function that generates the same states with bit order reversed
     def flip(self):
         new_indices = {i: self.size-1-i for i in range(self.size)}
         self.fn_list = [f.remap_indices(new_indices) for f in self.fn_list][::-1]
-
 
     # return the number of gates before any optimization (VERY rough estimate of size)
     def gateSummary(self):
@@ -85,10 +88,6 @@ class FeedbackFunction:
                 return False
             else:
                 return True
-
-
-
-
 
 
     def to_JSON(self):
@@ -130,23 +129,104 @@ class FeedbackFunction:
                 setattr(output,key,value)
     
         return output
-
-    # json files only:
+    
     def to_file(self, filename):
+        # json files only:
         with open(filename, 'w') as f:
             f.write(json.dumps(self.to_JSON(), indent = 2))
 
-    # json files only:
     @classmethod
     def from_file(self, filename):
+        # json files only:
         with open(filename, 'r') as f:
             return FeedbackFunction.from_JSON(json.loads(f.read()))
 
+    #writes a VHDL file
+    #Credit: Anna Hemingway
+    def write_VHDL(self, filename):
+        with open(filename, "w") as f:
+            f.write(f"""
+library ieee;
+use ieee.std_logic_1164.all;
+
+entity fpr is
+    port (
+    i_clk :in std_logic;
+    i_rst : in std_logic;
+    i_seed_data: in std_logic_vector( {self.size - 1} downto 0);
+    output: out std_logic_vector({self.size - 1} downto 0)
+    );
+end entity fpr;
+
+architecture run of fpr is
+
+    signal currstate, nextstate:std_logic_vector({self.size - 1} downto 0);
 
 
+begin
 
+    statereg: process(i_clk, i_rst)
+    begin
+        if (i_rst = '1') then
+            currstate <= i_seed_data;
+        elsif (i_clk = '1' and i_clk'event) then
+            currstate <= nextstate;
+        end if;
+    end process;\n""")
+        
+            for i in range(self.size - 1, -1 , -1):
+                f.write(f"    nextstate({str(i)}) <= {self.fn_list[i].generate_VHDL()};\n")
+            f.write("""
 
+    output <= currstate;
 
+end run;
+
+""")
+
+    def write_tex(self, filename):
+        with open(filename, "w") as f:
+            for i in range(self.size - 1, -1 , -1):
+                f.write(f"c_{{{str(i)}}}[t+1] &= {self.fn_list[i].generate_tex()}\\\\\n")
+
+    # generate C implementation for a CMPR
+    # by default, the C implementation uses an initial state of all 1's and clocks for 25 cycles (including the initial state)
+    def write_C(self, filename, limit=100):
+        with open(filename, "w") as f:
+            f.write(f"""
+#include <stdio.h>
+#include <stdlib.h>
+int main() {{
+    unsigned long long limit = {limit};
+    unsigned short arr1[{self.size}]; // initial state: index 0 is the LSB
+    for (int i = 0; i < {self.size}; i++) {{
+        arr1[i] = 1;
+    }}
+    unsigned short arr2[{self.size}]; // next state: always initialize to all 0's
+    for (int i = 0; i < {self.size}; i++) {{
+        arr2[i] = 0;
+    }}
+    
+    unsigned short (*currstate)[{self.size}] = &arr1;
+    unsigned short (*nextstate)[{self.size}] = &arr2;
+    unsigned short (*temporary)[{self.size}];
+    for (unsigned long long cycle = 0; cycle < limit; cycle++) {{\n""")
+
+            for i in range(self.size - 1, -1 , -1):
+                f.write(f"        (*nextstate)[{str(i)}] = {self.fn_list[i].generate_c()};\n")
+
+            f.write(f"""
+        for (int j = 0; j < {self.size}; j++) {{
+            // currstate[0] is the LSB of the state
+            printf("%hu", (*currstate)[j]);
+        }}
+        printf("\\n");
+        temporary = currstate;
+        currstate = nextstate;
+        nextstate = temporary;
+    }}
+    return 0;
+}}""")
 
     @contextlib.contextmanager
     def compiled_to_c(self):
@@ -203,87 +283,55 @@ int main(int argc, char *argv[]) {{
         rmtree(self._data_store)
         del self._data_store
 
-
-    #writes a VHDL file
-    #Credit: Anna Hemingway
-    def write_VHDL(self, filename):
-        with open(filename, "w") as f:
-            f.write(f"""
-library ieee;
-use ieee.std_logic_1164.all;
-
-entity fpr is
-    port (
-    i_clk :in std_logic;
-    i_rst : in std_logic;
-    i_seed_data: in std_logic_vector( {self.size - 1} downto 0);
-    output: out std_logic_vector({self.size - 1} downto 0)
-    );
-end entity fpr;
-
-architecture run of fpr is
-
-    signal currstate, nextstate:std_logic_vector({self.size - 1} downto 0);
-
-
-begin
-
-    statereg: process(i_clk, i_rst)
-    begin
-        if (i_rst = '1') then
-            currstate <= i_seed_data;
-        elsif (i_clk = '1' and i_clk'event) then
-            currstate <= nextstate;
-        end if;
-    end process;\n""")
-        
-            for i in range(self.size - 1, -1 , -1):
-                f.write(f"    nextstate({str(i)}) <= {self.fn_list[i].generate_VHDL()};\n")
-            f.write("""
-
-    output <= currstate;
-
-end run;
-
-""")
-
-
-    def __copy__(self):
-        new_obj = object.__new__(type(self))
-        new_obj.__dict__ = self.__dict__
-        new_obj.fn_list = [f.__copy__() for f in self.fn_list]
-        return new_obj
-
-    # compile and run in python
     def compile(self):
         self._compiled = None
         self._compiled_inplace = None
 
         # return a new answer
+        overides = {}
         exec_str = """
 @njit(parallel=True)
-def _compiled(currstate):
-    nextstate = np.zeros_like(currstate)
+def _compiled(curr_state):
+    next_state = np.zeros_like(curr_state)
 """
+        exec_str += "\n    "
         for i in range(self.size - 1, -1 , -1):
-                exec_str += f"    nextstate[{str(i)}] = {self.fn_list[i].generate_python()}\n"
-        exec_str += "    return nextstate\n\n"
+            exec_str += ("\n    ".join(self.fn_list[i].generate_python(
+                output_name = f"next_state[{i}]",
+                array_name = "curr_state",
+                subfunction_prefix = f"fn_{i}",
+                overides = overides
+            )) + "\n    ")
 
+            for j, node in enumerate(self.fn_list[i].subfunctions()):
+                if node not in overides:
+                    overides[node] = f'fn_{i}_{j+1}'
+            
+        exec_str += "return next_state\n\n"
         exec_str += "self._compiled = _compiled"
         exec(exec_str)
 
         # write to an existing buffer
+        overides = {}
         exec_str = """
 @njit(parallel=True)
-def _compiled_inplace(currstate,output_buffer):
+def _compiled_inplace(curr_state,output_buffer):
 """
+        exec_str += ("    ")
         for i in range(self.size - 1, -1 , -1):
-                exec_str += f"    output_buffer[{str(i)}] = {self.fn_list[i].generate_python()}\n"
-        exec_str += "    return\n\n"
+            exec_str += ("\n    ".join(self.fn_list[i].generate_python(
+                output_name = f"output_buffer[{i}]",
+                array_name = "curr_state",
+                subfunction_prefix = f"fn_{i}",
+                overides = overides
+            )) + "\n    ")
 
+            for j, node in enumerate(self.fn_list[i].subfunctions()):
+                if node not in overides:
+                    overides[node] = f'fn_{i}_{j+1}'
+        exec_str += "return\n\n"
         exec_str += "self._compiled_inplace = _compiled_inplace"
         exec(exec_str)
-
 
         return self._compiled
 
@@ -296,7 +344,6 @@ def _compiled_inplace(currstate,output_buffer):
         for i in range(1,n+1): 
             fns = [self.fn_list[b].compose(fns) for b in range(self.size)]
             yield fns
-
 
     def anf_iterator(self,n,bits=None):
         #input handling:

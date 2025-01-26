@@ -137,7 +137,6 @@ def BM_FCSR_iterator(seq, yield_rate):
             num_curr,
             den_curr
         )
-    raise StopIteration
 
 
 """

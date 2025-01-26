@@ -134,4 +134,4 @@ def BM_NL_iterator(seq, yield_rate = 1000, yield_corrected = True):
     # final yield
     reverse_labels = {idx: m-1-idx for idx in range(m)}
     yield m, h.remap_indices(reverse_labels)
-    raise StopIteration
+

@@ -15,8 +15,6 @@ from itertools import product
 import numpy as np
 import numba
 import time
-import random
-
 
 # small helper function to help pretty-print:
 def indent(n):
@@ -320,7 +318,7 @@ def RAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
     already_solved = set()
     reduced_matrix = np.zeros([feedback_fn.size,feedback_fn.size], dtype = np.uint8)
     for (v,comb), effect_vector in guess_effect_map.items():
-        # ignore any guessed_monomial which contains a known 0
+        # don't guess a monomial which contains a known 0
         impossible_comb = False
         for var in comb:
             if (not unstable_bits[var]) and (base_solution[var] == 0):

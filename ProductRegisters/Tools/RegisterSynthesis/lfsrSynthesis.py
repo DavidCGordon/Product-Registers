@@ -139,4 +139,3 @@ def berlekamp_massey_iterator(seq, yield_rate = 1000):
         # update the index and yield
         start_idx += yield_rate
         yield(linear_complexity, curr_guess[:linear_complexity + 1])
-    raise StopIteration

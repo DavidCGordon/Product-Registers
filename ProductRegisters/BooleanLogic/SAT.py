@@ -47,9 +47,6 @@ def tseytin_clauses(self, label_map):
     return list(clauses.keys())
     
 
-# iterative implementation allows use of a counter in the recursion, 
-# rather than passing the next available index through the parameters 
-# and return. This is cleaner and easier to reason about in this case
 def tseytin_labels(self,node_labels=None,variable_labels=None):
     stack = [self]
 
@@ -61,12 +58,11 @@ def tseytin_labels(self,node_labels=None,variable_labels=None):
     
     # if only 1 is passed in, raise an error
     elif node_labels == None:
-        raise ValueError("Missing nodelabels")
+        raise ValueError("Missing node labels")
     elif variable_labels == None:
         raise ValueError("Missing variable labels")
-
-    # if both passed in, justn set the next index
     else:
+        # if both passed in, just set the next index
         next_available_index = max([max(ls) for ls in node_labels.values()]) + 1
 
     while stack:
@@ -147,7 +143,8 @@ def enumerate_models(self, solver_name = 'cadical195', verbose = False):
             yield {k: (assignment[v-1]>0) for k,v in var_map.items()}
 
 
-
+def functionally_equivalent(self, other):
+    return ((satisfiable(XOR(self,other))) == None)
 
 
 
@@ -357,11 +354,4 @@ BooleanFunction.tseytin_clauses = tseytin_clauses
 BooleanFunction.sat = satisfiable
 BooleanFunction.enum_models = enumerate_models
 BooleanFunction.low_degree_multiple = low_degree_multiple
-
-def functionally_equivalent(self,other):
-    if (XOR(self,other).sat()) == None: 
-        return True
-    else:
-        return False
-
 BooleanFunction.functionally_equivalent = functionally_equivalent
