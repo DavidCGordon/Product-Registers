@@ -404,7 +404,7 @@ class BooleanFunction:
         output_name = 'output',
         subfunction_prefix = 'fn', 
         array_name = 'array',
-        overides = {}
+        overrides = {}
     ):
         subfuncs = self.subfunctions() + [self]
         fn_strings = {
@@ -418,7 +418,7 @@ class BooleanFunction:
 
         for root in subfuncs:
             # dont rederive an expression we already have:
-            if root in overides:
+            if root in overrides:
                 continue
 
 
@@ -435,8 +435,8 @@ class BooleanFunction:
                     continue
 
                 # override node already has a string
-                elif curr_node in overides:
-                    py_strings[curr_node] = overides[curr_node]
+                elif curr_node in overrides:
+                    py_strings[curr_node] = overrides[curr_node]
                     last = stack.pop()
                     continue
 
@@ -470,6 +470,7 @@ class BooleanFunction:
 
     def generate_tex(self):
         pass
+
 
     def remap_indices(self, constant_map, in_place = False):
         if in_place: fn = self
@@ -754,11 +755,12 @@ class BooleanFunction:
 
     def compile(self):
         self._compiled = None
+        python_body = "\n    ".join(self.generate_python())
 
         exec(f"""
 @njit(parallel=True)
 def _compiled(array):
-    {"\n    ".join(self.generate_python())}
+    {python_body}
     return output
 self._compiled = _compiled
 """)

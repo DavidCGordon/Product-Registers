@@ -288,7 +288,7 @@ int main(int argc, char *argv[]) {{
         self._compiled_inplace = None
 
         # return a new answer
-        overides = {}
+        overrides = {}
         exec_str = """
 @njit(parallel=True)
 def _compiled(curr_state):
@@ -300,19 +300,19 @@ def _compiled(curr_state):
                 output_name = f"next_state[{i}]",
                 array_name = "curr_state",
                 subfunction_prefix = f"fn_{i}",
-                overides = overides
+                overrides = overrides
             )) + "\n    ")
 
             for j, node in enumerate(self.fn_list[i].subfunctions()):
-                if node not in overides:
-                    overides[node] = f'fn_{i}_{j+1}'
+                if node not in overrides:
+                    overrides[node] = f'fn_{i}_{j+1}'
             
         exec_str += "return next_state\n\n"
         exec_str += "self._compiled = _compiled"
         exec(exec_str)
 
         # write to an existing buffer
-        overides = {}
+        overrides = {}
         exec_str = """
 @njit(parallel=True)
 def _compiled_inplace(curr_state,output_buffer):
@@ -323,12 +323,12 @@ def _compiled_inplace(curr_state,output_buffer):
                 output_name = f"output_buffer[{i}]",
                 array_name = "curr_state",
                 subfunction_prefix = f"fn_{i}",
-                overides = overides
+                overrides = overrides
             )) + "\n    ")
 
             for j, node in enumerate(self.fn_list[i].subfunctions()):
-                if node not in overides:
-                    overides[node] = f'fn_{i}_{j+1}'
+                if node not in overrides:
+                    overrides[node] = f'fn_{i}_{j+1}'
         exec_str += "return\n\n"
         exec_str += "self._compiled_inplace = _compiled_inplace"
         exec(exec_str)
