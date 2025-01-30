@@ -92,10 +92,10 @@ class MonomialProfile:
                 )])
 
         total_fn = XOR(*fn_list)
-        total_fn = total_fn.remap_constants({
-            0: MonomialProfile.logical_zero(),
-            1: MonomialProfile.logical_one()
-        })
+        total_fn = total_fn.remap_constants([
+            (0, MonomialProfile.logical_zero()),
+            (1, MonomialProfile.logical_one())
+        ])
 
         return total_fn.eval_ANF(bitmap)
     
