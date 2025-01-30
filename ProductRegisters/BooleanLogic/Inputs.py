@@ -43,8 +43,14 @@ class CONST(BooleanFunction):
 
     # overwriting BooleanFunction
     def _remap_constants(self, const_map):
-        if self.value in const_map:
-            self.value = const_map[self.value]
+        for key,new_value in const_map:
+            try:
+                if self.value == key:
+                    self.value = new_value
+                    break
+            except:
+                pass
+        
     def _remap_indices(self, index_map):
         pass
     def _shift_indices(self, shift_amount):
@@ -139,7 +145,6 @@ class VAR(BooleanFunction):
     def _remap_indices(self, index_map):
         if self.index in index_map:
             self.index = index_map[self.index]
-
     def _shift_indices(self, shift_amount):
         self.index = self.index + shift_amount
 

@@ -345,16 +345,12 @@ def _compiled_inplace(curr_state,output_buffer):
             fns = [self.fn_list[b].compose(fns) for b in range(self.size)]
             yield fns
 
-    def anf_iterator(self,n,bits=None):
-        #input handling:
-        if not bits:
-             bits = list(range(self.size))
-
-        fns = [VAR(b) if b in bits else None for b in range(self.size)]
+    def anf_iterator(self,n):
+        fns = [VAR(b) for b in range(self.size)]
         yield fns
 
         for i in range(1,n+1):
-            
-            fns = [fns[b].compose(self.fn_list).translate_ANF() if b in bits else None for b in range(self.size)]
+            fns = [self.fn_list[b].compose(fns).translate_ANF() for b in range(self.size)]
             yield fns
+            
             

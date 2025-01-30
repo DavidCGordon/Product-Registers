@@ -84,10 +84,10 @@ class ANF_spec_repr:
     @classmethod
     def from_BooleanFunction(self,fn):
         var_list = {i: ANF_spec_repr([[i]]) for i in fn.idxs_used()}
-        new_fn = fn.remap_constants({
-            0: ANF_spec_repr([0]),
-            1: ANF_spec_repr([1])
-        })
+        new_fn = fn.remap_constants([
+            (0, ANF_spec_repr([0])),
+            (1, ANF_spec_repr([1]))
+        ])
         return new_fn.eval_ANF(var_list)
     
     def to_BooleanFunction(self):

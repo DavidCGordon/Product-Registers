@@ -242,10 +242,10 @@ class CMPR(FeedbackFunction):
                 print(f"Profiling Time: {time.time()-start_time}\n")
 
             # combine function
-            block_fn = chaining_profile.remap_constants({
-                0: MonomialProfile.logical_zero(),
-                1: MonomialProfile.logical_one()
-            })
+            block_fn = chaining_profile.remap_constants([
+                (0, MonomialProfile.logical_zero()),
+                (1, MonomialProfile.logical_one())
+            ])
 
             start_time = time.time()
             if verbose:
@@ -390,10 +390,10 @@ class CMPR(FeedbackFunction):
                 print(f"Chaining Profile: {monomial_profile.dense_str()}")
                 print(f"Profiling Time: {time.time()-start_time}\n")
 
-            block_fn = monomial_profile.remap_constants({
-                0: RootExpression.logical_zero(),
-                1: RootExpression.logical_one()
-            })
+            block_fn = monomial_profile.remap_constants([
+                (0, RootExpression.logical_zero()),
+                (1, RootExpression.logical_one())
+            ])
 
             start_time = time.time()
 

@@ -147,14 +147,6 @@ def functionally_equivalent(self, other):
     return ((satisfiable(XOR(self,other))) == None)
 
 
-
-
-
-
-
-
-
-
 def monomial_annihilator(self):
     # construct max-sat instance
     anf = ANF_spec_repr.from_BooleanFunction(self)
@@ -181,17 +173,56 @@ def monomial_annihilator(self):
         multiple
     )
 
+def monomial_annihilators(self):
+    # construct max-sat instance
+    anf = ANF_spec_repr.from_BooleanFunction(self)
+    vs = [(v+1) for v in self.idxs_used()]
+    clauses = [[-(v+1) for v in term] for term in anf]
+
+    rc2 = RC2(WCNF())
+    for clause in clauses:
+        rc2.add_clause(clause)
+    for v in vs:
+        rc2.add_clause([v], weight=1)
+
+    cost = None
+    for assignment in rc2.enumerate():
+        if cost == None:
+            cost = rc2.cost 
+        
+        if rc2.cost > cost:
+            break
+
+        # get negated variables from assignment:
+        base_negated_vars = [abs(v)-1 for v in assignment if v<0]
+
+        # derive ann data from it
+        degree = len(base_negated_vars)
+        annihilator = AND(*(NOT(VAR(v)) for v in base_negated_vars))
+        multiple = CONST(0)
+
+        yield (
+            degree,
+            annihilator,
+            multiple
+        )
+
+
 
 
 def low_degree_multiple(self):
+    # details for correctness/optimality:
+    # either a term is cancelled or its degree increases by that of the annihilator
+
     # anf information
     anf = ANF_spec_repr.from_BooleanFunction(self)
     potential_degrees = sorted(list(set([len(x) for x in anf])))[:-1]
 
-    # use best total annihilator as a base
-    best_degree,best_annihilator,best_multiple = self.monomial_annihilator
+    # use best total annihilator as a base for comparison
+    best_degree,best_annihilator,best_multiple = self.monomial_annihilator()
     bits = [1]
     
+    # target degree is the degree of the MULTIPLE:
     for target_degree in potential_degrees:
         # construct DNF which preserves at least 1 small term
         preservation_terms = [term for term in anf if len(term) <= target_degree]
@@ -253,16 +284,16 @@ def low_degree_multiple(self):
         best_degree,
         best_annihilator, 
         best_multiple,
+        bits,
     )
 
-
-def low_degree_multiple2(self):
+def low_degree_multiples(self):
     # anf information
     anf = ANF_spec_repr.from_BooleanFunction(self)
 
     # use best total annihilator as a base
-    best_degree,best_annihilator,best_multiple = self.monomial_annihilator
-    bits = [1]
+    # best_degree,best_annihilator,best_multiple = self.monomial_annihilator
+    # bits = [1]
 
     # construct DNF which preserves at least 1 small term
     preservation_fns = []
@@ -289,7 +320,8 @@ def low_degree_multiple2(self):
         curr_fn = AND(deg_terms[i][1],curr_fn)
         cum_deg_fns.append(curr_fn)
 
-        if i>0: deg_gaps.append( deg_terms[i-1][0] - deg_terms[i][0])
+        if i>0: 
+            deg_gaps.append( deg_terms[i-1][0] - deg_terms[i][0])
 
     # construct sat clauses
     clauses, node_map, var_map = preservation_query.tseytin()
@@ -309,14 +341,16 @@ def low_degree_multiple2(self):
     for v, w in zip(tower_vars,deg_gaps):
         rc2.add_clause([v], weight=w)
 
-    assignments = rc2.compute()
-    rc2.delete()
-
-    satisfiable = (assignments != None)
-    if satisfiable:
+    cost = None
+    for assignment in rc2.enumerate():
+        if cost == None:
+            cost = rc2.cost
+        
+        if rc2.cost > cost:
+            break
 
         # calculate annihilator from sat assignment
-        negated_vars = set([k for k,v in var_map.items() if assignments[v-1]<0])
+        negated_vars = set([k for k,v in var_map.items() if assignment[v-1]<0])
         annihilator = AND(*(NOT(VAR(v)) for v in negated_vars))
 
         # calculate low-degree multiple and its degree
@@ -330,19 +364,45 @@ def low_degree_multiple2(self):
             key = lambda x: len(x.args)
         ).args)
 
-        # update data if better degree is achieved:
-        if low_multiple_degree < best_degree:
-            best_degree = low_multiple_degree
-            best_annihilator = annihilator
-            best_multiple = low_multiple
-            bits = [0,1]
+        yield (
+            low_multiple_degree,
+            annihilator, 
+            low_multiple,
+            [0,1]
+        )
+    rc2.delete()
 
-    return (
-        best_degree,
-        best_annihilator, 
-        best_multiple,
-        bits
-    )
+    # satisfiable = (assignments != None)
+    # if satisfiable:
+
+    #     # calculate annihilator from sat assignment
+    #     negated_vars = set([k for k,v in var_map.items() if assignments[v-1]<0])
+    #     annihilator = AND(*(NOT(VAR(v)) for v in negated_vars))
+
+    #     # calculate low-degree multiple and its degree
+    #     low_multiple = XOR(*(
+    #         AND(*(VAR(v) for v in term),*(NOT(VAR(v)) for v in negated_vars)) 
+    #         for term in anf if not (term & negated_vars)
+    #     ))
+
+    #     low_multiple_degree = len(max(
+    #         (term for term in low_multiple.args),
+    #         key = lambda x: len(x.args)
+    #     ).args)
+
+    #     # update data if better degree is achieved:
+    #     if low_multiple_degree < best_degree:
+    #         best_degree = low_multiple_degree
+    #         best_annihilator = annihilator
+    #         best_multiple = low_multiple
+    #         bits = [0,1]
+
+    # return (
+    #     best_degree,
+    #     best_annihilator, 
+    #     best_multiple,
+    #     bits
+    # )
 
 
 
@@ -353,5 +413,8 @@ BooleanFunction.tseytin_labels = tseytin_labels
 BooleanFunction.tseytin_clauses = tseytin_clauses
 BooleanFunction.sat = satisfiable
 BooleanFunction.enum_models = enumerate_models
+BooleanFunction.monomial_annihilator = monomial_annihilator
+BooleanFunction.monomial_annihilators = monomial_annihilators
 BooleanFunction.low_degree_multiple = low_degree_multiple
+BooleanFunction.low_degree_multiples = low_degree_multiples
 BooleanFunction.functionally_equivalent = functionally_equivalent

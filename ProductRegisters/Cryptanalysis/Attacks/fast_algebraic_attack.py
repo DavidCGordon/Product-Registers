@@ -49,10 +49,10 @@ def FAA_offline(
             print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Calculating monomial profile for annihilator:")
             mp_a_time = time.time()
 
-        annihilator_mp = annihilator.remap_constants({
-            0: MonomialProfile.logical_zero(),
-            1: MonomialProfile.logical_one()
-        }).eval_ANF(monomial_profiles)
+        annihilator_mp = annihilator.remap_constants([
+            (0, MonomialProfile.logical_zero()),
+            (1, MonomialProfile.logical_one())
+        ]).eval_ANF(monomial_profiles)
 
         if verbose:
             print(f"{indent(print_depth+1)}Monomial profile computed:")
@@ -61,10 +61,10 @@ def FAA_offline(
             mp_m_time = time.time()
 
         # Precompute LC for low degree multiple:
-        multiple_mp = multiple.remap_constants({
-            0: MonomialProfile.logical_zero(),
-            1: MonomialProfile.logical_one()
-        }).eval_ANF(monomial_profiles)
+        multiple_mp = multiple.remap_constants([
+            (0, MonomialProfile.logical_zero()),
+            (1, MonomialProfile.logical_one())
+        ]).eval_ANF(monomial_profiles)
         max_LC = multiple_mp.upper()
 
         if verbose:

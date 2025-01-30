@@ -257,10 +257,10 @@ def cmpr_cube_summary(cmpr_fn, output_fn,tweakable_vars, analyze_sources = False
     print('Computing Monomial Profile')
     output_anf = output_fn.translate_ANF()
     monomial_profiles = cmpr_fn.monomial_profiles()
-    output_profile = output_anf.remap_constants({
-        0: MonomialProfile.logical_zero(),
-        1: MonomialProfile.logical_one()
-    }).eval_ANF(monomial_profiles)
+    output_profile = output_anf.remap_constants([
+        (0, MonomialProfile.logical_zero()),
+        (1, MonomialProfile.logical_one())
+    ]).eval_ANF(monomial_profiles)
 
     cube_candidates = sorted(
         output_profile.get_cube_candidates(),
@@ -298,10 +298,10 @@ def cmpr_cube_summary(cmpr_fn, output_fn,tweakable_vars, analyze_sources = False
 
             sources = []
             for term in output_anf.args:
-                term_profile = term.remap_constants({
-                    0: MonomialProfile.logical_zero(),
-                    1: MonomialProfile.logical_one()
-                }).eval_ANF(monomial_profiles)
+                term_profile = term.remap_constants([
+                    (0, MonomialProfile.logical_zero()),
+                    (1, MonomialProfile.logical_one())
+                ]).eval_ANF(monomial_profiles)
 
                 # check if parent_term == output_term
                 for output_monomial in term_profile.terms:
@@ -370,10 +370,10 @@ def cmpr_cube_attack_offline(
     tweakable_set = set(tweakable_vars)
     tweakable_blocks = [set(block) & tweakable_set for block in cmpr_fn.blocks]
 
-    monomial_profile = output_fn.translate_ANF().remap_constants({
-        0: MonomialProfile.logical_zero(),
-        1: MonomialProfile.logical_one()
-    }).eval_ANF(cmpr_fn.monomial_profiles())
+    monomial_profile = output_fn.translate_ANF().remap_constants([
+        (0, MonomialProfile.logical_zero()),
+        (1, MonomialProfile.logical_one())
+    ]).eval_ANF(cmpr_fn.monomial_profiles())
 
     cube_candidates = sorted(
         monomial_profile.get_cube_candidates(),

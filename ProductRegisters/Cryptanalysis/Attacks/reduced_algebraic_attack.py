@@ -43,10 +43,10 @@ def RAA_offline(
             mp_time = time.time()
 
         selected = max((annihilator, multiple), key = lambda x: x.degree())
-        selected_mp = selected.remap_constants({
-            0: MonomialProfile.logical_zero(),
-            1: MonomialProfile.logical_one()
-        }).eval_ANF(monomial_profiles)
+        selected_mp = selected.remap_constants([
+            (0, MonomialProfile.logical_zero()),
+            (1, MonomialProfile.logical_one())
+        ]).eval_ANF(monomial_profiles)
         max_LC = selected_mp.upper()
 
 

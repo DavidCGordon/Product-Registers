@@ -42,10 +42,10 @@ def NAA_offline(
             mp_time = time.time()
 
         # A map with all subsets filled in, to sum over cubes
-        output_mp = output_fn.remap_constants({
-            0: MonomialProfile.logical_zero(),
-            1: MonomialProfile.logical_one()
-        }).eval_ANF(monomial_profiles)
+        output_mp = output_fn.remap_constants([
+            (0, MonomialProfile.logical_zero()),
+            (1, MonomialProfile.logical_one())
+        ]).eval_ANF(monomial_profiles)
 
         if verbose:
             print(f"{indent(print_depth+1)}Monomial profile computed:")
