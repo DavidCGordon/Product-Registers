@@ -603,7 +603,6 @@ architecture run of fpr is
 
     signal currstate, nextstate:std_logic_vector({self.size - 1} downto 0);
 
-
 begin
 
     statereg: process(i_clk, i_rst)
@@ -628,3 +627,99 @@ begin
 end run;
 
 """)
+            
+    def write_VHDL(self, filename, include_mpr = True):
+        overrides = {}
+        vhdl_str = "\n    "
+        for i in range(self.size - 1, -1 , -1):
+            
+            # write the current function:
+            if self.has_chaining[i] and include_mpr:
+                chaining_lines = self.chaining_feedback[i].merge_redundant().generate_VHDL(
+                    output_name = f"next_state({i})",
+                    array_name = "curr_state",
+                    subfunction_prefix = f"fn_{i}",
+                    overrides = overrides
+                ) 
+
+                # add in all subfunction lines:
+                vhdl_str += ("\n    ".join(chaining_lines[:-1]) + "\n    ")
+
+                # add in the MPR feedback
+                vhdl_str += (self.component_feedback[i].merge_redundant().generate_VHDL(
+                    output_name = f"next_state({i})",
+                    array_name = "curr_state",
+                    subfunction_prefix = f"fn_{i}",
+                    overrides = overrides
+                )[0][:-1]) + " XOR "
+
+                # add in the chaining logic
+                vhdl_str += chaining_lines[-1][len(f"next_state({i}) <= "):] + "\n    "
+
+            elif self.has_chaining[i] and not include_mpr:
+                vhdl_str += ("\n    ".join(self.chaining_feedback[i].merge_redundant().generate_VHDL(
+                    output_name = f"next_state({i})",
+                    array_name = "curr_state",
+                    subfunction_prefix = f"fn_{i}",
+                    overrides = overrides
+                )) + "\n    ")
+                
+            elif not self.has_chaining[i] and include_mpr:
+                vhdl_str += (self.component_feedback[i].merge_redundant().generate_VHDL(
+                    output_name = f"next_state({i})",
+                    array_name = "curr_state",
+                    subfunction_prefix = f"fn_{i}",
+                    overrides = overrides
+                )[0] + "\n    ")
+
+            else:
+                vhdl_str += (f"next_state({i}) <= '0';\n    ")
+
+
+            # add in override strings:
+            for j, node in enumerate(self.fn_list[i].subfunctions()):
+                if node not in overrides:
+                    overrides[node] = f'fn_{i}_{j+1}'
+
+        subfunction_vars = list(overrides.values())
+        if subfunction_vars:
+            subfn_var_string = f"signal {", ".join(overrides.values())}: std_logic;\n"
+        else:
+            subfn_var_string = ""
+
+        vhdl_str = f"""
+library ieee;
+use ieee.std_logic_1164.all;
+
+entity fpr is
+    port (
+    i_clk :in std_logic;
+    i_rst : in std_logic;
+    i_seed_data: in std_logic_vector( {self.size - 1} downto 0);
+    output: out std_logic_vector({self.size - 1} downto 0)
+    );
+end entity fpr;
+
+architecture run of fpr is
+
+    signal curr_state, next_state:std_logic_vector({self.size - 1} downto 0);
+    {subfn_var_string}    
+begin
+
+    statereg: process(i_clk, i_rst)
+    begin
+        if (i_rst = '1') then
+            curr_state <= i_seed_data;
+        elsif (i_clk = '1' and i_clk'event) then
+            curr_state <= next_state;
+        end if;
+    end process;\n""" + vhdl_str
+
+        vhdl_str += """
+    output <= currstate;
+
+end run;
+
+"""
+        with open(filename, "w") as f:
+            f.write(vhdl_str)

@@ -174,8 +174,8 @@ class BooleanFunction:
                 last = stack.pop()
                 continue
 
-            # hitting a visited node while travelling down:
-            elif curr_node in visited:
+            # hitting an already visited gate:
+            elif curr_node in visited and not curr_node.is_leaf():
                 if curr_node not in subfuncs:
                     subfuncs.append(curr_node)
                 last=stack.pop()
@@ -397,6 +397,76 @@ class BooleanFunction:
     def generate_VHDL(self):
         pass 
 
+    def _generate_VHDL(self):
+        pass
+
+    def generate_VHDL(self,
+        output_name = 'output',
+        subfunction_prefix = 'fn', 
+        array_name = 'array',
+        overrides = {}
+    ):
+        subfuncs = self.subfunctions() + [self]
+        fn_strings = {
+            root:f"{subfunction_prefix}_{i+1}" 
+            for i,root in enumerate(subfuncs)
+        }
+
+        fn_strings[self] = f"{output_name}"
+        subfunction_lines = []
+        vhdl_strings = {}
+
+        for root in subfuncs:
+            # dont rederive an expression we already have:
+            if root in overrides:
+                continue
+
+            # no need for visited set (subfuncs is the same info):
+            stack = [root]
+            last = None
+
+            while stack:
+                curr_node = stack[-1]
+
+                # dont interact with sentinel values
+                if curr_node == False:
+                    last = stack.pop()
+                    continue
+
+                # override node already has a string
+                elif curr_node in overrides:
+                    vhdl_strings[curr_node] = overrides[curr_node]
+                    last = stack.pop()
+                    continue
+
+                # hitting a subfunc contained in the current one:
+                elif curr_node in subfuncs and curr_node != root:
+                    last = stack.pop()
+                    continue
+
+                # hitting a leaf:
+                elif curr_node.is_leaf():
+                    vhdl_strings[curr_node] = curr_node._generate_VHDL(vhdl_strings,array_name)
+                    last = stack.pop()
+                    continue
+                    
+                # moving up the tree after finishing children:
+                elif last == False:
+                    vhdl_strings[curr_node] = curr_node._generate_VHDL(vhdl_strings,array_name)
+                    last = stack.pop()
+                    continue
+            
+                else:
+                    # set up children to process:
+                    stack.append(False) # sentinel value
+                    for child in reversed(curr_node.args):
+                        stack.append(child)
+                    continue
+
+            subfunction_lines.append(f"{fn_strings[root]} <= {vhdl_strings[root]}" + ";")
+            vhdl_strings[root] = fn_strings[root]
+        return subfunction_lines
+
     def _generate_python(self):
         pass
 
@@ -472,20 +542,20 @@ class BooleanFunction:
         pass
 
 
-    def remap_indices(self, constant_map, in_place = False):
+    def remap_indices(self, index_map, in_place = False):
         if in_place: fn = self
         else: fn = self.copy()
 
         for leaf in fn.inputs():
-            leaf._remap_indices(constant_map)
+            leaf._remap_indices(index_map)
         return fn
     
-    def remap_constants(self, index_map, in_place = False):
+    def remap_constants(self, constant_map, in_place = False):
         if in_place: fn = self
         else: fn = self.copy()
 
         for leaf in fn.inputs():
-            leaf._remap_constants(index_map)
+            leaf._remap_constants(constant_map)
         return fn
 
     def shift_indices(self, shift_amount, in_place = False):
@@ -543,7 +613,7 @@ class BooleanFunction:
 
         return new_nodes[self]
    
-    def _merge_redundant(self, cache, in_place = False):
+    def _merge_redundant(self, cache, subfunctions, in_place = False):
         if len(self.args) == 1:
             return cache[self.args[0]]
         elif in_place:
@@ -557,7 +627,8 @@ class BooleanFunction:
 
         Performs several basic/heuristic simplifications. By default, first removes 
         non-unary functions with only one input, as these have no effect 
-        on the output. Secondly, merge any associative gates (e.g. XOR, AND, OR).
+        on the output. Secondly, merge any associative gates (e.g. XOR, AND, OR),
+        unless the child is a subfunction (does not include leaves).
         Even these basic simplifications can result in a dramatically
         simplified function when applied recursively, and help clean up 
         structures created during function composition or other modifications.
@@ -577,6 +648,9 @@ class BooleanFunction:
         Returns:
             output (BooleanFunction): A simplified boolean function.
         """
+        
+        subfunctions = self.subfunctions()
+
         new_nodes = {}
         stack = [self]
         last = None
@@ -599,7 +673,7 @@ class BooleanFunction:
             
                 # new node:
                 new_nodes[curr_node] = curr_node._merge_redundant(
-                    new_nodes, in_place = in_place, p=(len(stack) <= 5)
+                    new_nodes, subfunctions, in_place = in_place,
                 )
 
             # hitting a leaf:

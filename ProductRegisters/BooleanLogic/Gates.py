@@ -33,21 +33,28 @@ class XOR(BooleanFunction):
         
     def generate_c(self):
         return "(" + " ^ ".join(arg.generate_c() for arg in self.args) + ")"
-    def generate_VHDL(self):
-        return "(" + " XOR ".join(arg.generate_VHDL() for arg in self.args) + ")"
+    def _generate_VHDL(self, cache, array_name):
+        return "(" + " XOR ".join(cache[arg] for arg in self.args) + ")"
     def _generate_python(self, cache, array_name):
         return "(" + " ^ ".join(cache[arg] for arg in self.args) + ")"
     def generate_tex(self):
         return " \\oplus \\,".join(arg.generate_tex() for arg in self.args)
 
 
-    def _merge_redundant(self, cache, in_place = False, p = False):
+    def _merge_redundant(self, cache, subfunctions, in_place = False, p = False):
         if len(self.args) == 1:
             return cache[self.args[0]]
         
         # merge nested args:
         new_args = {} # Dicts maintain order
         for arg in self.args:
+            if arg in subfunctions:
+                if cache[arg] in new_args:
+                    new_args[cache[arg]] += 1
+                else:
+                    new_args[cache[arg]] = 1
+                continue
+
             if type(cache[arg]) == XOR:
                 for nested_arg in cache[arg].args:
                     if nested_arg in new_args:
@@ -126,21 +133,25 @@ class AND(BooleanFunction):
     
     def generate_c(self):
         return "(" + " & ".join(arg.generate_c() for arg in self.args) + ")"
-    def generate_VHDL(self):
-        return "(" + " AND ".join(arg.generate_VHDL() for arg in self.args) + ")"
+    def _generate_VHDL(self, cache, array_name):
+        return "(" + " AND ".join(cache[arg] for arg in self.args) + ")"
     def generate_tex(self):
         return "".join(arg.generate_tex() for arg in self.args)
     def _generate_python(self, cache, array_name):
         return "(" + " & ".join(cache[arg] for arg in self.args) + ")"
 
 
-    def _merge_redundant(self, cache, in_place = False, p = False):
+    def _merge_redundant(self, cache, subfunctions, in_place = False, p = False):
         if len(self.args) == 1:
             return cache[self.args[0]]
         
         seen = set()
         new_args = []
         for arg in self.args:
+            if arg in subfunctions:
+                new_args.append(cache[arg])
+                continue
+
             if type(cache[arg]) == AND:
                 for nested_arg in cache[arg].args:
                     if nested_arg not in seen:
@@ -214,21 +225,25 @@ class OR(BooleanFunction):
     
     def generate_c(self):
         return "(" + " | ".join(arg.generate_c() for arg in self.args) + ")"
-    def generate_VHDL(self):
-        return "(" + " OR ".join(arg.generate_VHDL() for arg in self.args) + ")"
+    def _generate_VHDL(self, cache, array_name):
+        return "(" + " OR ".join(cache[arg] for arg in self.args) + ")"
     def generate_tex(self):
         return " \\vee ".join(arg.generate_tex() for arg in self.args)
     def _generate_python(self, cache, array_name):
         return "(" + " | ".join(cache[arg] for arg in self.args) + ")"
 
 
-    def _merge_redundant(self, cache, in_place = False, p = False):
+    def _merge_redundant(self, cache, subfunctions, in_place = False, p = False):
         if len(self.args) == 1:
             return cache[self.args[0]]
         
         seen = set()
         new_args = []
         for arg in self.args:
+            if arg in subfunctions:
+                new_args.append(cache[arg])
+                continue
+            
             if type(cache[arg]) == OR:
                 for nested_arg in cache[arg].args:
                     if nested_arg not in seen:
@@ -300,8 +315,8 @@ class XNOR(BooleanFunction):
         
     def generate_c(self):
         return "(!(" + " ^ ".join(arg.generate_c() for arg in self.args) + "))"
-    def generate_VHDL(self):
-        return "(" + " XNOR ".join(arg.generate_VHDL() for arg in self.args) + ")"
+    def _generate_VHDL(self, cache, array_name):
+        return "(" + " XNOR ".join(cache[arg] for arg in self.args) + ")"
     def _generate_python(self, cache, array_name):
         return "(1-(" + " ^ ".join(cache[arg] for arg in self.args) + "))"
 
@@ -374,8 +389,8 @@ class NAND(BooleanFunction):
     
     def generate_c(self):
         return "(!(" + " & ".join(arg.generate_c() for arg in self.args) + "))"
-    def generate_VHDL(self):
-        return "(" + " NAND ".join(arg.generate_VHDL() for arg in self.args) + ")"
+    def _generate_VHDL(self, cache, array_name):
+        return "(" + " NAND ".join(cache[arg] for arg in self.args) + ")"
     def _generate_python(self, cache, array_name):
         return "(1-(" + " & ".join(cache[arg] for arg in self.args) + "))"
 
@@ -448,8 +463,8 @@ class NOR(BooleanFunction):
     
     def generate_c(self):
         return "(!(" + " | ".join(arg.generate_c() for arg in self.args) + "))"
-    def generate_VHDL(self):
-        return "(" + " NOR ".join(arg.generate_VHDL() for arg in self.args) + ")"
+    def _generate_VHDL(self, cache, array_name):
+        return "(" + " NOR ".join(cache[arg] for arg in self.args) + ")"
     def _generate_python(self, cache, array_name):
         return "(1-(" + " | ".join(cache[arg] for arg in self.args) + "))"
 
@@ -516,7 +531,7 @@ class NOT(BooleanFunction):
     def _node_copy(self, fn, child_copies):
         return NOT(child_copies[fn.args[0]])
     
-    def _merge_redundant(self, cache, in_place=False, p = False):
+    def _merge_redundant(self, cache, subfunctions, in_place=False, p = False):
         return NOT(cache[self.args[0]])
     
     
@@ -527,8 +542,8 @@ class NOT(BooleanFunction):
 
     def generate_c(self):
         return "(!(" + f"{self.args[0].generate_c()}" + "))"
-    def generate_VHDL(self):
-        return "(NOT(" + f"{self.args[0].generate_VHDL()}" + "))"
+    def _generate_VHDL(self, cache, array_name):
+        return "(NOT(" + f"{cache[self.args[0]]}" + "))"
     def _generate_python(self, cache, array_name):
         return "(1-(" + f"{cache[self.args[0]]}" + "))"
 

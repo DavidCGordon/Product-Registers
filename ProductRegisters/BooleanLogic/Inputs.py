@@ -20,7 +20,7 @@ class CONST(BooleanFunction):
 
     def generate_c(self):
         return f"{self.value}"
-    def generate_VHDL(self):
+    def _generate_VHDL(self, cache, array_name):
         return f" '{self.value}' "
     def _generate_python(self, cache, array_name):
         return f"{self.value}"
@@ -117,8 +117,8 @@ class VAR(BooleanFunction):
     
     def generate_c(self):
         return f"(*currstate)[{self.index}]"
-    def generate_VHDL(self):
-        return f"currstate({self.index})"
+    def _generate_VHDL(self, cache, array_name):
+        return f"{array_name}({self.index})"
     def _generate_python(self, cache, array_name):
         return f"{array_name}[{self.index}]"
     def generate_tex(self):

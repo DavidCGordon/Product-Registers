@@ -144,8 +144,8 @@ class FeedbackFunction:
     #writes a VHDL file
     #Credit: Anna Hemingway
     def write_VHDL(self, filename):
-        with open(filename, "w") as f:
-            f.write(f"""
+        overrides = {}
+        vhdl_str = f"""
 library ieee;
 use ieee.std_logic_1164.all;
 
@@ -160,7 +160,7 @@ end entity fpr;
 
 architecture run of fpr is
 
-    signal currstate, nextstate:std_logic_vector({self.size - 1} downto 0);
+    signal curr_state, next_state:std_logic_vector({self.size - 1} downto 0);
 
 
 begin
@@ -168,21 +168,33 @@ begin
     statereg: process(i_clk, i_rst)
     begin
         if (i_rst = '1') then
-            currstate <= i_seed_data;
+            curr_state <= i_seed_data;
         elsif (i_clk = '1' and i_clk'event) then
-            currstate <= nextstate;
+            curr_state <= next_state;
         end if;
-    end process;\n""")
+    end process;\n"""
         
-            for i in range(self.size - 1, -1 , -1):
-                f.write(f"    nextstate({str(i)}) <= {self.fn_list[i].generate_VHDL()};\n")
-            f.write("""
+        vhdl_str += "\n    "
+        for i in range(self.size - 1, -1 , -1):
+            vhdl_str += ("\n    ".join(self.fn_list[i].generate_VHDL(
+                output_name = f"next_state({i})",
+                array_name = "curr_state",
+                subfunction_prefix = f"fn_{i}",
+                overrides = overrides
+            )) + "\n    ")
 
+            for j, node in enumerate(self.fn_list[i].subfunctions()):
+                if node not in overrides:
+                    overrides[node] = f'fn_{i}_{j+1}'
+
+        vhdl_str += """
     output <= currstate;
 
 end run;
 
-""")
+"""
+        with open(filename, "w") as f:
+            f.write(vhdl_str)
 
     def write_tex(self, filename):
         with open(filename, "w") as f:
