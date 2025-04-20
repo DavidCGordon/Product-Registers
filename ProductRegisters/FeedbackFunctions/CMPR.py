@@ -683,7 +683,7 @@ end run;
 
         subfunction_vars = list(overrides.values())
         if subfunction_vars:
-            subfn_var_string = f"signal {", ".join(overrides.values())}: std_logic;\n"
+            subfn_var_string = f"signal {', '.join(overrides.values())}: std_logic;\n"
         else:
             subfn_var_string = ""
 
