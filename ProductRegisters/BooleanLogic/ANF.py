@@ -19,7 +19,12 @@ class ANF_spec_repr:
                 return frozenset()
         return None
 
-    def __init__(self, nested_iterable = None):
+    def __init__(self, nested_iterable = None, fast_init=False):
+        # fast init allows you to skip extra input handling
+        if fast_init:
+            self.terms = nested_iterable
+            return 
+        
         self.terms = set()
 
         #if they want an empty ANF_spec_repr object.
@@ -30,24 +35,31 @@ class ANF_spec_repr:
             new_term = ANF_spec_repr._convert_iterable_term(term)
             if not(new_term == None):
                 self.terms ^= set([new_term])
-        
+
+    def degree(self):
+        return max([len(term) for term in self.terms], default=0)
+
     # ANF_spec_repr Operations:
     # ADD and XOR
     def __xor__(self,other): return self.__add__(other)
-    def __add__(self,other): return ANF_spec_repr(self.terms ^ other.terms)
+    def __add__(self,other): return ANF_spec_repr(self.terms ^ other.terms,fast_init=True)
     
 
     # MUL and AND (can make an ANF_spec_repr very large, use w/ caution)
     def __and__(self,other): return self.__mul__(other)
     def __mul__(self,other):
-        newANF_spec_repr = ANF_spec_repr()
+        termset = set()
         for a,b in product(self.terms,other.terms):
-            newANF_spec_repr += ANF_spec_repr([a | b])
-        return newANF_spec_repr
+            new_term = a|b
+            if new_term in termset:
+                termset.remove(new_term)
+            else:
+                termset.add(new_term)
+        return ANF_spec_repr(termset,fast_init=True)
     
     # add an inverter operation
     def __invert__(self):
-        return self ^ ANF_spec_repr([True])
+        return self ^ ANF_spec_repr(set([frozenset()]),fast_init=True)
 
     # use a pretty print for __str__, generic object for repr:
     def __str__(self):
@@ -126,22 +138,8 @@ def anf_str(self):
     return stringBeginning + "".join(sorted(termStrings, key = lambda x: len(x)))[:-1]
 BooleanFunction.anf_str = anf_str
 
-def degree(self, convert = True):
-    if convert:
-        return len(max(
-            ANF_spec_repr.from_BooleanFunction(self),
-            key = lambda x: len(x),
-            default = tuple()
-        ))
-    
-    degree = 0
-    for term in self.args:
-        if type(term) == CONST: degree = max(degree,0)
-        elif type(term) == VAR: degree = max(degree,1)
-        else:
-            degree = max(degree, len(term.args))
-        
-    return degree
+def degree(self):
+    return ANF_spec_repr.from_BooleanFunction(self).degree()
 BooleanFunction.degree = degree
 
 def monomial_count(self, convert = True):

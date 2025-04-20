@@ -981,6 +981,11 @@ self._compiled = _compiled
     def idxs_used(self):
         return set().union(*(arg.idxs_used() for arg in self.args))
 
+    def condense_idxs(self):
+        return self.remap_indices(
+            {v:i for i,v in enumerate(sorted(self.idxs_used()))}
+        )
+
     def num_nodes(self):
         visited = set()
         stack = [self]

@@ -41,22 +41,26 @@ def LU_reduction(
 # class types and tradeoffs:
 # dynamic 
 #   - dont need to provide monomial map ahead of time (will build it up)
-#   - can link to other dynamic stores to match their comb_to_index maps
+#   - can link to other dynamic stores to match their comb_to_idx maps
 # static
 #    - can pass as an array directly
 # LU
 #    - will build up vectors in LU decomposition
 class EqStore:
-    def __init__(self, comb_to_index):
-        self.num_vars = len(comb_to_index)
-        self.num_eqs = 0
-        
-        self.comb_to_idx = {**comb_to_index}
-        self.idx_to_comb = {v:k for k,v in comb_to_index.items()}
+    def __init__(self, comb_to_idx, integrated_constants=False):        
+        self.comb_to_idx = {**comb_to_idx}
+        self.idx_to_comb = {v:k for k,v in comb_to_idx.items()}
         self.equation_ids = {} # mapping of equation to identifier (usually a clock cycle)
+        if integrated_constants and tuple() not in comb_to_idx:
+            self.comb_to_idx[tuple()] = len(comb_to_idx)
+            self.idx_to_comb[len(comb_to_idx)] = tuple()
+
+        self.num_vars = len(comb_to_idx)
+        self.num_eqs = 0
 
         self.equations = np.zeros([256,self.num_vars], dtype = 'uint8')
         self.constants = np.zeros([256], dtype = 'uint8')
+
 
     def insert_equation(self, equation, extra_const = 0, identifier=None, translate_ANF = True):
         const_val = extra_const
@@ -72,11 +76,15 @@ class EqStore:
                 equation_anf = equation
 
             coef_vector = np.zeros([self.num_vars], dtype=np.uint8)
+            const_val = extra_const
             for term in equation_anf.args:
 
                 # handle constant values
                 if type(term) == CONST:
-                    const_val = term.value
+                    if tuple() in self.comb_to_idx:
+                        coef_vector[self.comb_to_idx[tuple()]] = term.value
+                    else:
+                        const_val ^= term.value
                     continue
 
                 # do not need to expand for new variables:
@@ -109,18 +117,22 @@ class EqStore:
     
 
 class DynamicEqStore:
-    def __init__(self):
-        self.num_vars = 0
-        self.num_eqs = 0
-        
+    def __init__(self, integrated_constants=False):
         self.comb_to_idx = {} # mapping of monomial -> index
         self.idx_to_comb = {} # mapping of index -> monomial
         self.equation_ids = {} # mapping of equation to identifier (usually a clock cycle)
+        if integrated_constants and tuple() not in self.comb_to_idx:
+            self.comb_to_idx[tuple()] = len(self.comb_to_idx)
+            self.idx_to_comb[len(self.comb_to_idx)] = tuple()
 
+        self.num_vars = len(self.comb_to_idx)
+        self.num_eqs = 0
+        
         self.linked_stores = set([self])
 
         self.equations = np.zeros([256,256], dtype = 'uint8')
         self.constants = np.zeros([256], dtype = 'uint8')
+
 
     def insert_equation(self, equation, extra_const = 0, identifier=None, translate_ANF = True):
         if translate_ANF:
@@ -128,17 +140,23 @@ class DynamicEqStore:
         else:
             equation_anf = equation
 
-        const_val = extra_const
-        coef_vector = np.zeros([self.equations.shape[1]], dtype=np.uint8)
         
+        coef_vector = np.zeros([self.equations.shape[1]], dtype=np.uint8)
+        const_val = extra_const
         for term in equation_anf.args:
 
             # handle constant values
             if type(term) == CONST:
-                const_val ^= term.value
+                if tuple() in self.comb_to_idx:
+                    coef_vector[self.comb_to_idx[tuple()]] = term.value
+                else:
+                    const_val ^= term.value
                 continue
-
-            comb = tuple(sorted([var.index for var in term.args]))
+            try:
+                comb = tuple(sorted([var.index for var in term.args]))
+            except:
+                print(term)
+                raise KeyboardInterrupt
 
             # insert variable into self data
             if comb not in self.comb_to_idx:
@@ -219,13 +237,16 @@ class DynamicEqStore:
 
 
 class LUEqStore:
-    def __init__(self, comb_to_index):
-        self.num_vars = len(comb_to_index)
-        self.num_eqs = 0
-        
-        self.comb_to_idx = {k:v for k,v in comb_to_index.items()}
-        self.idx_to_comb = {v:k for k,v in comb_to_index.items()}
+    def __init__(self, comb_to_idx, integrated_constants = False):        
+        self.comb_to_idx = {k:v for k,v in comb_to_idx.items()}
+        self.idx_to_comb = {v:k for k,v in comb_to_idx.items()}
         self.equation_ids = {} # mapping of equation to identifier (usually a clock cycle)
+        if integrated_constants and tuple() not in comb_to_idx:
+            self.comb_to_idx[tuple()] = len(comb_to_idx)
+            self.idx_to_comb[len(comb_to_idx)] = tuple()
+
+        self.num_vars = len(comb_to_idx)
+        self.num_eqs = 0
 
         self.lower_matrix = np.eye(self.num_vars, dtype = 'uint8')
         self.upper_matrix = np.eye(self.num_vars, dtype = 'uint8')
@@ -234,8 +255,6 @@ class LUEqStore:
 
 
     def insert_equation(self, equation, extra_const = 0, identifier=None, translate_ANF = True):
-        const_val = extra_const
-
         # shortcut to allow accepting an array directly
         if type(equation) == np.ndarray and equation.shape == (self.num_vars,):
             coef_vector = equation
@@ -247,11 +266,15 @@ class LUEqStore:
                 equation_anf = equation
 
             coef_vector = np.zeros([self.num_vars], dtype=np.uint8)
+            const_val = extra_const
             for term in equation_anf.args:
 
                 # handle constant values
                 if type(term) == CONST:
-                    const_val = term.value
+                    if tuple() in self.comb_to_idx:
+                        coef_vector[self.comb_to_idx[tuple()]] = term.value
+                    else:
+                        const_val ^= term.value
                     continue
 
                 # do not need to expand for new variables:
@@ -277,13 +300,16 @@ class LUEqStore:
 
 
 class LUDynamicEqStore:
-    def __init__(self):
-        self.num_vars = 0
-        self.num_eqs = 0
-        
+    def __init__(self, integrated_constants=False):
         self.comb_to_idx = {}  # mapping of monomial -> index
         self.idx_to_comb = {}  # mapping of index -> 
         self.equation_ids = {} # mapping of equation to identifier (usually a clock cycle)
+        if integrated_constants and tuple() not in self.comb_to_idx:
+            self.comb_to_idx[tuple()] = len(self.comb_to_idx)
+            self.idx_to_comb[len(self.comb_to_idx)] = tuple()
+
+        self.num_vars = len(self.comb_to_idx)
+        self.num_eqs = 0
 
         self.linked_stores = set([self])
 
@@ -292,20 +318,23 @@ class LUDynamicEqStore:
         self.constants = np.zeros([256], dtype = 'uint8')
         self.solved_for = np.zeros([256], dtype = 'uint8')
 
+
     def insert_equation(self, equation, extra_const = 0, identifier=None, translate_ANF = True):
         if translate_ANF:
             equation_anf = equation.translate_ANF()
         else:
             equation_anf = equation
 
-        const_val = extra_const
         coef_vector = np.zeros([self.lower_matrix.shape[1]], dtype=np.uint8)
-        
+        const_val = extra_const
         for term in equation_anf.args:
 
             # handle constant values
             if type(term) == CONST:
-                const_val ^= term.value
+                if tuple() in self.comb_to_idx:
+                    coef_vector[self.comb_to_idx[tuple()]] = term.value
+                else:
+                    const_val ^= term.value
                 continue
 
             comb = tuple(sorted([var.index for var in term.args]))
