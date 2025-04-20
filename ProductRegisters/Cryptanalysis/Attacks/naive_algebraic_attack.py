@@ -22,7 +22,7 @@ def indent(n):
 
 
 def NAA_offline(
-    feedback_fn, output_fn,
+    feedback_fn, output_fn, init_rounds,
     time_limit, verbose = False, print_depth=0,
 
     # both are needed to specify a monomial layout:
@@ -78,6 +78,10 @@ def NAA_offline(
             print(f"{indent(print_depth+1)}Using monomial profile optimization: False")
 
         eqs = LUDynamicEqStore()
+        # ensure all variables are in the eq store:
+        for v in range(len(feedback_fn)):
+            eqs._update_from_linked(tuple([v]))
+
         eq_gen = EqGenerator(feedback_fn, output_fn, 2**feedback_fn.size)
 
     if verbose:
@@ -86,6 +90,8 @@ def NAA_offline(
 
     # main loop:
     for t, equation, extra_const in eq_gen:
+        if t < init_rounds: continue
+    
         linearly_independent = eqs.insert_equation(
             equation, extra_const,
             identifier = t,
@@ -168,6 +174,10 @@ def NAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
     const_vector = attack_data['constant vector']
     num_vars = len(upper_matrix)
 
+    variable_indices = [
+        attack_data['comb to idx map'][(v,)] 
+        for v in range(feedback_fn.size)
+    ]
 
 
     if verbose:    
@@ -187,7 +197,7 @@ def NAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
         lower_matrix,
         upper_matrix,
         online_vector
-    )[[attack_data['comb to idx map'][(v,)] for v in range(feedback_fn.size)]].copy()
+    )[variable_indices].copy()
 
     # data / buffers for testing an candidate initial state
     F = FeedbackRegister(0,feedback_fn)
@@ -232,7 +242,7 @@ def NAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
             lower_matrix,
             upper_matrix,
             online_vector
-        )[:feedback_fn.size]
+        )[variable_indices]
 
         difference = (solution ^ base_solution)
         guess_effect_map[guess_bits[t]] = difference

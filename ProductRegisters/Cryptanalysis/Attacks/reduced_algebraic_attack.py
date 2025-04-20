@@ -90,6 +90,13 @@ def RAA_offline(
         annihilator_LU.link(annihilator_eqs)
         multiple_LU.link(multiple_eqs)
 
+        # ensure all variables are in the eq store:
+        for v in range(len(feedback_fn)):
+            annihilator_eqs._update_from_linked(tuple([v]))
+            annihilator_LU._update_from_linked(tuple([v]))
+            multiple_eqs._update_from_linked(tuple([v]))
+            multiple_LU._update_from_linked(tuple([v]))
+
         eq_gen = EqGenerator(
             feedback_fn, [annihilator, multiple], 2**feedback_fn.size
         )

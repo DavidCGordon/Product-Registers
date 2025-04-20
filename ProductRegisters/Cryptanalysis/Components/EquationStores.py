@@ -140,7 +140,6 @@ class DynamicEqStore:
         else:
             equation_anf = equation
 
-        
         coef_vector = np.zeros([self.equations.shape[1]], dtype=np.uint8)
         const_val = extra_const
         for term in equation_anf.args:
@@ -255,6 +254,8 @@ class LUEqStore:
 
 
     def insert_equation(self, equation, extra_const = 0, identifier=None, translate_ANF = True):
+        const_val = extra_const
+
         # shortcut to allow accepting an array directly
         if type(equation) == np.ndarray and equation.shape == (self.num_vars,):
             coef_vector = equation
@@ -266,7 +267,6 @@ class LUEqStore:
                 equation_anf = equation
 
             coef_vector = np.zeros([self.num_vars], dtype=np.uint8)
-            const_val = extra_const
             for term in equation_anf.args:
 
                 # handle constant values

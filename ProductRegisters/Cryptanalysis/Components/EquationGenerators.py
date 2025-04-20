@@ -9,6 +9,62 @@ u64 = numba.types.uint64
 feedback_function_type = numba.types.FunctionType(u8[:](u8[:]))
 output_function_type = numba.types.FunctionType(u8(u8[:]))
 
+
+
+def get_var_map(
+    feedback_fn,
+    monomial_profile,
+    variable_blocks,
+    include_variables = True, # include all base variables
+    complete_subsets = False, # ensure variable map is closed under subsets
+    lexicographic = True      # sort monomials lexicographically
+):
+    mons_by_len = {}
+
+    for selectors in monomial_profile.get_monomials(complete_subsets=complete_subsets):
+        # construct monomial
+        mon = []
+        for block_idx in range(len(selectors)):
+            for bit_idx in selectors[block_idx]:
+                mon.append(variable_blocks[block_idx][bit_idx])
+        
+        # append to the appropriate list
+        mon = tuple(sorted(mon))
+        if len(mon) in mons_by_len:
+            mons_by_len[len(mon)].append(mon)
+        else:
+            mons_by_len[len(mon)] = [mon]
+
+    # replace length 1 segment if necessary:
+    if include_variables:
+        mons_by_len[1] = [(i,) for i in range(feedback_fn.size)] 
+
+    # cosmetic changes to order:
+    list_segments = []
+    for length, mon_list in mons_by_len.items():
+        if lexicographic:
+            sorted_mons = [m for m in mon_list]
+            for i in range(length):
+                sorted_mons = sorted(sorted_mons, key=lambda x: x[i])
+            list_segments.append((length,sorted_mons))
+        else:
+            list_segments.append((length,mon_list))
+    list_segments = sorted(list_segments, key = lambda x: x[0])
+
+    # merging list segments into output maps
+    var_idx = 0
+    comb_to_idx = {}
+    idx_to_comb = {}
+    for segment in list_segments:
+        for monomial in segment[1]:
+            comb_to_idx[monomial] = var_idx
+            idx_to_comb[var_idx] = monomial
+            var_idx += 1
+
+    return comb_to_idx #, idx_to_comb
+
+
+
 # small helper function to help pretty-print:
 def indent(n):
     return ("|   " * n)
@@ -184,7 +240,6 @@ def combine_vecs(
 
     return eq_vec
 
-
 def compute_splits(var_map):
     #subcomb_precomputed, subcomb_evals = split_fn(var_map, output_map)
     subcomb_precomputed = []
@@ -345,9 +400,6 @@ def compute_splits_restricted(var_map,output_map, split_fn = random_split(1000))
 
     return output_1_data, output_2_data, output_bounds
 
-
-
-
 def CubeEqGenerator_restricted(
     feedback_fn, output_fn, limit, var_map, output_map,
     split_function = random_split(num_trials = 1000)
@@ -414,8 +466,6 @@ def CubeEqGenerator_restricted(
                 fn_idx, output_fn, curr_states, evaluations
             )
 
-
-    
 def compute_splits_restricted(var_map,output_map,split_fn=random_split(1000)):
     subcomb_precomputed, subcomb_evals = split_fn(var_map, output_map)
 

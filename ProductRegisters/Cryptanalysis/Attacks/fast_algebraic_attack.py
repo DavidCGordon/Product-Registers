@@ -136,6 +136,11 @@ def FAA_offline(
         annihilator_eqs = DynamicEqStore()
         annihilator_LU = LUDynamicEqStore()
         annihilator_LU.link(annihilator_eqs)
+        
+        # ensure all variables are in the eq store:
+        for v in range(len(feedback_fn)):
+            annihilator_eqs._update_from_linked(tuple([v]))
+            annihilator_LU._update_from_linked(tuple([v]))
 
         eq_gen = EqGenerator(
             feedback_fn, annihilator, 2**feedback_fn.size
@@ -209,8 +214,8 @@ def FAA_offline(
         if check_ranks:
             ann_independent = annihilator_LU.insert_equation(ann_eq, ann_extra_const, identifier = t)
         
-            # continue for margin more steps after both have hit their
-            # linear recurrence phase (not perfect but better than nothing)
+            # continue for margin more steps after hitting linear 
+            # recurrent phase (not perfect but better than nothing)
             if not (ann_independent):
                 count_into_margin += 1
                 if count_into_margin == margin:
