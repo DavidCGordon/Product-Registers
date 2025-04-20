@@ -1,5 +1,5 @@
 from numba import njit
-from memoization import cached
+from functools import cache
 # What a crazy algorithm: https://arxiv.org/pdf/math/0612437.pdf
 # note this should be symmetric.
 
@@ -40,7 +40,7 @@ def update(i,s,t,p):
     return length, degree, next_idx
 
 # final method
-@cached
+@cache
 def JP_solve(s,t,p):
     s,t = sorted([s,t])
     out = []
