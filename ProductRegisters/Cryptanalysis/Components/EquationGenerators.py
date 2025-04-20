@@ -23,12 +23,7 @@ def EqGenerator(feedback_fn, output_fn, limit):
         output_fn_list = [output_fn]
 
     for t, equations in enumerate(
-        feedback_fn.anf_iterator(
-            limit, 
-            bits = list(sorted(set().union(*(
-                fn.idxs_used() for fn in output_fn_list
-            ))))
-        )
+        feedback_fn.anf_iterator(limit)
     ):
         if not return_list:
             # because constant is included in ANF, no extra const needed
