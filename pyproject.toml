@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "PyPR"
+version = "0.0.1"
+description = "Product Registers Code"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numba",
+    "numpy",
+    "galois",
+    "python-sat"
+]
+
+[tool.setuptools]
+packages = ["PyPR"]
+package-dir = {"" = "src"}

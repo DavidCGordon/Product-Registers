@@ -1,4 +1,0 @@
-numba==0.60.0
-numpy==2.0.2
-galois==0.4.3
-python-sat==1.8.dev14

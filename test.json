@@ -1,0 +1,945 @@
+{
+  "class": "CMPR",
+  "data": {
+    "num_components": 3,
+    "divisions": [
+      0,
+      2,
+      5,
+      12
+    ],
+    "fn_list": {
+      "Return IDs": [
+        11,
+        18,
+        30,
+        38,
+        47,
+        53,
+        61,
+        69,
+        77,
+        85,
+        93,
+        99
+      ],
+      "Node Data": [
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 1
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              0
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 0
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              2
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              1,
+              3
+            ]
+          }
+        },
+        {
+          "class": "CONST",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "value": 1
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 4
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 2
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 4
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              7,
+              8
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              5,
+              6,
+              9
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              4,
+              10
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 0
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              12
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              13
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 3
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              7,
+              15
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              5,
+              6,
+              16
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              14,
+              17
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 3
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              19
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 2
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              21
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              20,
+              22
+            ]
+          }
+        },
+        {
+          "class": "CONST",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "value": 1
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 5
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 11
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 9
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              26,
+              27
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              24,
+              25,
+              28
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              23,
+              29
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 4
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              31
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              32
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 6
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 10
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              34,
+              35
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              24,
+              25,
+              36
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              33,
+              37
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 2
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              39
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              40
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 8
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 9
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 5
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              35,
+              44
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              42,
+              43,
+              45
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              41,
+              46
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 7
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              48
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 5
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              50
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              49,
+              51
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              52
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 8
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              54
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 7
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              56
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 6
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              58
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              55,
+              57,
+              59
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              60
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 8
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              62
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 7
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              64
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 9
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              66
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              63,
+              65,
+              67
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              68
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 10
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              70
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 8
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              72
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 9
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              74
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              71,
+              73,
+              75
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              76
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 10
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              78
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 11
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              80
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 9
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              82
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              79,
+              81,
+              83
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              84
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 10
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              86
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 11
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              88
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 5
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              90
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              87,
+              89,
+              91
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              92
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 6
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              94
+            ]
+          }
+        },
+        {
+          "class": "VAR",
+          "data": {
+            "args": [],
+            "arg_limit": 0,
+            "index": 11
+          }
+        },
+        {
+          "class": "AND",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              96
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              95,
+              97
+            ]
+          }
+        },
+        {
+          "class": "XOR",
+          "data": {
+            "arg_limit": null,
+            "args": [
+              98
+            ]
+          }
+        }
+      ]
+    },
+    "size": 12,
+    "blocks": [
+      [
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      [
+        2,
+        3,
+        4
+      ],
+      [
+        0,
+        1
+      ]
+    ]
+  }
+}

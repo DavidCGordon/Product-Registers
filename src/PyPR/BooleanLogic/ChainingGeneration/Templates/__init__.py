@@ -1,0 +1,5 @@
+from PyPR.BooleanLogic.ChainingGeneration.Templates.arman_template import arman_template
+from PyPR.BooleanLogic.ChainingGeneration.Templates.three_majority_template import three_majority_template
+from PyPR.BooleanLogic.ChainingGeneration.Templates.old_ANF_template import old_ANF_template
+from PyPR.BooleanLogic.ChainingGeneration.Templates.fast_template import fast_template
+from PyPR.BooleanLogic.ChainingGeneration.Templates.prob_ANF_template import prob_ANF_template
