@@ -1,7 +1,8 @@
-from typing import Any
+from typing import Any, Self
 
 from PyPR.BooleanLogic import BooleanFunction, VAR
 from PyPR.BooleanLogic.BooleanANF import BooleanANF
+import PyPR.JSON_Serialization
 
 # for compiling to c to iterate faster
 import tempfile
@@ -17,6 +18,11 @@ from numba import njit
 import json
 
 class FeedbackFunction:
+    fn_list: list[BooleanFunction]
+    size: int
+    _compiled: Any
+    _compiled_inplace: Any
+
     def __init__(self, fn_list):
         #convert update to a list of ANF<int> objects:
         self.fn_list = fn_list
@@ -28,6 +34,10 @@ class FeedbackFunction:
         new_obj.fn_list = [f.__copy__() for f in self.fn_list]
         return new_obj
 
+    #TODO: expand on this
+    def copy(self):
+        return self.__copy__()
+    
     def __getitem__(self, idx): return self.fn_list[idx]
 
     def __setitem__(self, idx, val): self.fn_list[idx] = val
@@ -70,59 +80,222 @@ class FeedbackFunction:
         self.fn_list = [f.remap_indices(new_indices) for f in self.fn_list][::-1]
 
 
-    # Storage:
-    def to_JSON(self):
+    # Storage
+    def generate_ids(self,
+        previous_ids: dict[Any, int] | None = None,
+        in_place = True
+    ) -> dict[Any, int]:
+        """Generate a dictionary which maps each object to a unique ID.
+
+        When called with no inputs, this function will create these IDs from scratch. However,
+        the function can also recieve the output of previous calls as input, and will continue 
+        to add in new IDs, reusing IDs where possible. This means the same function can also be
+        used to add onto existing output. For example:
+        ```python
+        ids = object_1.generate_ids()
+        ids = object_2.generate_ids(ids)
+        ids = object_3.generate_ids(ids)
+        ...
+        ```
+        For efficiency reasons, this method both mutates the input and returns the mutated
+        list of ids by default. This can be disabled by setting the parameter `in_place=False`
+
+        :param previous_ids: the output of previous calls to the function
+        :type previous_ids: dict[Any, int] | None
+        :param in_place: whether the input list of ids is mutated in place or not. If false, a copy
+            is created and returned. If true (by default) the data is modified in place with no copy.
+        :type in_place: bool
+        :return: A dict which maps each node to a unique id
+        :rtype: dict[Any, int]
+        """
+        if not previous_ids:
+            ids = {}
+        elif in_place: 
+            ids = previous_ids
+        else:
+            # shallow copy to maintain objects, but new id dict
+            ids = {k:v for k,v in previous_ids.items()}
+
+        # create ids for all functions:
+        for fn in self.fn_list:
+            ids = fn.generate_ids(ids)
+        
+        # lastly, add id for self:
+        ids[self] = max(ids.values()) + 1
+        return ids
+  
+    def _generate_JSON_entry(self,
+        ids: dict[Any, int]
+    ) -> dict[str, Any]:
+        """Create a JSON entry for a given object
+
+        This should return a JSON encoding with all the data necessary to recreate the object
+        to an acceptable degree, with a convention matching the corresponding `parse_JSON_entry`.
+        This convention is dependent on the class, and this is the pair of methods to overwrite
+        to implement JSON serialization for a custom object.
+
+        For `FeedbackFunction` specifically, the `fn_list` attribute is stored as a list of ids,
+        each pointing to a previously stored `BooleanFunction`. The `_compiled` and `_compiled_inplace`
+        functions are hard to store (and easy to regenerate with `.compile()`), and so they are
+        simply not stored, and are viewed as an acceptable loss. The rest of the attributes in 
+        `__dict__` are copied with no change. 
+
+        :param node_ids: A dictionary which maps each object to a unique id.
+        :type node_ids: dict[Any, int]
+        :return: A dictionary which represents the JSON data for one object
+        :rtype: dict[str, Any]
+        """
         # copy class name and non-nested data
-        JSON_object = {
-            'class': type(self).__name__,
-            'data': self.__dict__.copy()
-        }
-
-        # convert fn_list/nested data:
-        if 'fn_list' in JSON_object['data']:
-            # JSON_object['data']['fn_list'] = [f.to_JSON() for f in self.fn_list]
-            JSON_object['data']['fn_list'] = BooleanFunction.generate_JSON(*self.fn_list)
-
+        JSON_data = self.__dict__.copy()
+        # fn_list:
+        if 'fn_list' in JSON_data:
+            JSON_data['fn_list'] = [ids[fn] for fn in self.fn_list]
         # ignore the compiled version (not serializable)
-        if '_compiled' in JSON_object['data']:
-            del JSON_object['data']['_compiled']
+        if '_compiled' in JSON_data:
+            del JSON_data['_compiled']
+        if '_compiled_inplace' in JSON_data:
+            del JSON_data['_compiled_inplace']
+            
+        return JSON_data
 
-        return JSON_object
+    @classmethod
+    def _parse_JSON_entry(cls,
+        object_data: dict[str,Any],
+        parsed_objects: list[Any | None]
+    ) -> Self:
+        """Parse a JSON entry back into a given object.
+
+        This method is able to parse JSON generated by `_generate_JSON_entry` for the
+        corresponding class, according to some convention. This convention may be different,
+        and is decided by the class implementer.
+
+        For `FeedbackFunction` specifically, the `fn_list` attribute is stored as a list of ids,
+        each pointing to a previously stored `BooleanFunction`. The `_compiled` and `_compiled_inplace`
+        functions are hard to store (and easy to regenerate with `.compile()`), and so they are
+        simply not stored, and are viewed as an acceptable loss. The rest of the attributes in 
+        `__dict__` are copied with no change. 
+
+        :param object_data: A dictionary which contains the fields and data of the
+            original node object, as generated by `_generate_JSON_entry`.
+        :type object_data: dict[str, Any]
+        :param parsed_objects: A list which contains the previously parsed objects.
+            This can be used to get references to previously stored items, allowing the
+            serialization methods to connect the parsed objects together in complex ways.
+        :type parsed_objects: list[Any | None]
+        :return: The parsed object, with data matching the JSON.
+        :rtype: Self
+        """
+        # intantiate new object:
+        new_obj = object.__new__(cls)
+        for key,value in object_data.items():
+            # Use previously parsed functions for args
+            if key == 'fn_list':
+                new_obj.fn_list = [parsed_objects[fn_id] for fn_id in value]
+            
+            # for other fields, just set directly
+            else:
+                setattr(new_obj,key,value)
+                
+        return new_obj
+        
+    def to_JSON(self):
+        """An alias for `PyPR.JSON_Serialization.generate_JSON(fn)`
+        
+        This can be used in conjunction with `from_JSON` to reduce verbosity and improve readibility
+        when you only want to store/parse one function. These are useful shortcuts for a lot of cases,
+        but once the use case becomes complex enough, its preferred to use the full 
+        `generate_JSON`/`parse_JSON` methods in PyPR.JSON_Serialization. Check the docstrings on these
+        methods for more information on usage and output.
+
+        :return: A JSON object which encodes the input function
+        :rtype: dict[str,Any]
+        """
+        return PyPR.JSON_Serialization.generate_JSON(self)
     
     @classmethod
-    def from_JSON(cls, JSON_object):
-        # parse object class and data
-        object_data = JSON_object['data']
-        object_class = None
-        for subcls in cls.__subclasses__():
-            if subcls.__name__ == JSON_object['class']:
-                object_class = subcls
+    def from_JSON(cls, 
+        json_object: dict[str,Any]
+    ) -> Self:
+        """An alias for `PyPR.JSON_Serialization.parse_JSON(json_object)[0]`
+        
+        This can be used in conjunction with `to_JSON` to reduce verbosity and improve readibility
+        when you only want to store/parse one function. These are useful shortcuts for a lot of cases,
+        but once the use case becomes complex enough, its preferred to use the full 
+        `generate_JSON`/`parse_JSON` methods in PyPR.JSON_Serialization. Check the docstrings on these
+        methods for more information on usage and output.
 
-        # throw a better error if no class found
-        if object_class == None:
-            raise TypeError(f"Type \'{JSON_object['class']}\' is not a valid FeedbackFunction")
+        Although there is no functional difference between `X.from_JSON` and `Y.from_JSON` for two
+        classes (`X` and `Y`) which are both serializable, the class you call this method from is used
+        to determine type hinting and to clarify the code. Therefore, I choose to throw an error if the
+        json encodes a different class than the one you use to decode. This is mostly to enforce 
+        readable code and good usage, and to make sure objects are interpreted correctly.
 
-        # put data into new object
-        output = object.__new__(object_class)
-        for key,value in object_data.items():
-            if key == "fn_list":
-                #output.fn_list = [BooleanFunction.from_JSON(f) for f in value]
-                output.fn_list = list(BooleanFunction.parse_JSON(value))
-            else:
-                setattr(output,key,value)
+        :param json_object: A dictionary with the expected structure.
+        :type json_object: dict[str,Any]
+        :return: The FeedbackFunction which was used to create the JSON.
+        :rtype: FeedbackFunction
+        """
+        return_idx = json_object['return order'][0]
+        json_class = json_object['objects'][return_idx]['class']
+        subclasses = set((
+            str(cls)[8:-2] for cls in 
+            PyPR.JSON_Serialization.all_subclasses(cls)
+        ))
+         
+        if json not in subclasses:
+            raise ValueError(
+                f"JSON encodes {json_class}, which is not " + 
+                f"a subclass of class {str(cls)[8:-2]}"
+            )
+        
+        print("PyPR.FeedbackRegister.FeedbackRegister" in subclasses)
+        return PyPR.JSON_Serialization.parse_JSON(json_object)[0]
     
-        return output
-    
-    def to_file(self, filename):
+    def to_file(self,
+        filename: str
+    ) -> None:
+        """Writes the output of fn.to_JSON to a file with the given filename.
+        
+        This can be used in conjunction with `from_file` to reduce verbosity and improve readibility
+        when you only want to store/parse one object. These are useful shortcuts for a lot of cases,
+        but once the use case becomes complex enough, its preferred to manage I/O manually and use 
+        the full `generate_JSON`/`parse_JSON` methods in PyPR.JSON_Serialization. Check the docstrings\
+        on these methods for more information on usage and output.
+
+        :param filename: A string which will be used as the name of the generated file 
+            (must end with the `.json` file extension)
+        :type filename: str
+        """
         # json files only:
+        if filename[-5:] != ".json":
+            raise ValueError("Filename must end with the \".json\" file extension")
+        
         with open(filename, 'w') as f:
             f.write(json.dumps(self.to_JSON(), indent = 2))
 
     @classmethod
-    def from_file(cls, filename):
-        # json files only:
+    def from_file(cls, 
+        filename: str
+    ) -> Self:
+        """Reads a single function from the file with the given filename.
+        
+        This can be used in conjunction with `to_file` to reduce verbosity and improve readibility
+        when you only want to store/parse one function. These are useful shortcuts for a lot of cases,
+        but once the use case becomes complex enough, its preferred to manage I/O manually and use 
+        the full `generate_JSON`/`parse_JSON` methods. Check the docstrings on these methods for more 
+        information on usage and output.
+
+        Although there is no functional difference between `X.from_file` and `Y.from_file` for two
+        classes (`X` and `Y`) which are both serializable, the class you call this method from is used
+        to determine type hinting and to clarify the code. Therefore, I choose to throw an error if the
+        json encodes a different class than the one you use to decode. This is mostly to enforce 
+        readable code and good usage, and to make sure objects are interpreted correctly.
+
+        :param filename: A string which gives the name of the file to read.
+        :type filename: str
+        """
         with open(filename, 'r') as f:
-            return FeedbackFunction.from_JSON(json.loads(f.read()))
+            return cls.from_JSON(json.loads(f.read()))
 
 
     # text generation
@@ -182,67 +355,12 @@ end run;
         with open(filename, "w") as f:
             f.write(vhdl_str)
 
-    def write_tex(self, filename):
-        with open(filename, "w") as f:
-            for i in range(self.size - 1, -1 , -1):
-                f.write(f"c_{{{str(i)}}}[t+1] &= {self.fn_list[i].generate_tex()}\\\\\n")
+    # def write_tex(self, filename):
+    #     with open(filename, "w") as f:
+    #         for i in range(self.size - 1, -1 , -1):
+    #             f.write(f"c_{{{str(i)}}}[t+1] &= {self.fn_list[i].generate_tex()}\\\\\n")
 
     # Compilation
-    @contextlib.contextmanager
-    def compiled_to_c(self):
-        self._data_store = tempfile.mkdtemp(prefix="ProductRegisters_")
-
-        with open(self._data_store + "function_source.c","w") as f:
-            f.write(f"""
-#include <stdio.h>
-#include <stdlib.h>
-
-int main(int argc, char *argv[]) {{
-
-    //parse number of cycles from cmd
-    unsigned long long limit = strtoll(argv[1],NULL,10);
-
-
-    //parse and init arrays:
-    unsigned short arr1[{self.size}];
-    unsigned short arr2[{self.size}];
-
-    for(int i = 0; argv[2][i] != 0; i++) {{
-        arr1[i] = (unsigned short)(argv[2][i] - '0');
-    }}
-    
-    unsigned short (*currstate)[{self.size}] = &arr1;
-    unsigned short (*nextstate)[{self.size}] = &arr2;
-    unsigned short (*temporary)[{self.size}];
-
-    for (int i = 0; i<limit; i++) {{\n""")
-
-            for i in range(self.size - 1, -1 , -1):
-                f.write(f"        (*nextstate)[{str(i)}] = {self.fn_list[i].generate_c()};\n")
-
-            f.write(f"""
-        for (int j = 0; j < {self.size}; j++) {{
-            printf("%hu", (*currstate)[j]);
-        }}
-        printf("\\n");
-
-        temporary = currstate;
-        currstate = nextstate;
-        nextstate = temporary;
-    }}
-    return 0;
-}}""")
-
-        subprocess.run(
-            ["gcc", self._data_store +"function_source.c", "-o", self._data_store + "function_iteration.exe"],
-            creationflags=subprocess.CREATE_NO_WINDOW
-        )
-
-        yield
-        print(f"deleting {self._data_store}")
-        rmtree(self._data_store)
-        del self._data_store
-
     def compile(self):
         self._compiled = None
         self._compiled_inplace = None
@@ -304,67 +422,7 @@ def _compiled_inplace(curr_state,output_buffer):
             fns = [self.fn_list[b].compose(fns) for b in range(self.size)]
             yield fns
 
-    # Probably remove
-    def anf_iterator_1(
-        self,
-        rounds,
-        bits=None,
-        initialization = None,
-    ):
-        if bits == None: 
-            bits = list(range(self.size))
 
-        # if initialization == None:
-            
-        # else:
-        #     fns = initialization
-
-        fns: list[Any] = [VAR(b) if b in bits else None for b in range(self.size)]
-        out: list[Any] = [None]*self.size
-        for b in bits:
-            out[b] = fns[b].compose(initialization).translate_ANF()
-
-        yield out
-        for i in range(1,rounds+1):
-            #fns = [self.fn_list[b].compose(fns).translate_ANF() for b in range(self.size)]
-            
-            for b in bits:
-                fns[b] = fns[b].compose(self.fn_list).translate_ANF()
-                out[b] = fns[b].compose(initialization).translate_ANF()
-            # fns = [
-            #     fns[b].compose(self.fn_list).translate_ANF() if b in bits else None
-            #     for b in range(self.size)
-            # ]
-            
-            yield out
-            
-    def anf_iterator_2(
-        self,
-        rounds,
-        initialization = None,
-    ):
-        #optimized_list = [self.fn_list[b].anf_optimize() for b in range(self.size)]
-        #optimized_list = self.fn_list
-
-        eval_list = [
-            f.anf_optimize().remap_constants([
-                (0, BooleanANF()),
-                (1, BooleanANF([True]))
-            ]) for f in self.fn_list
-        ]
-
-        if initialization == None:
-            fns = [BooleanANF([b]) for b in range(self.size)]
-        else:
-            fns = [BooleanANF.from_BooleanFunction(f) for f in initialization]
-
-        yield [f.to_BooleanFunction() for f in fns]
-        for i in range(1,rounds+1):
-            fns = [eval_list[b].eval_ANF(fns) for b in range(self.size)]
-            yield [f.to_BooleanFunction() for f in fns]
-    
-        # return the number of gates before any optimization (VERY rough estimate of size)
-    
     # Statistics:
     def gateSummary(self):
         # get and merge counts from all fns

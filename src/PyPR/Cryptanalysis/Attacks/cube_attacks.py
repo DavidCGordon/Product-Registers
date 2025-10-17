@@ -12,7 +12,6 @@ from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile, TermSet
 # Cube attacks need to tweak/query the actual register:
 # because of this, we need pass functions to the attack
 # which allow it to interface with the target system
-# 
 def access_fns(register, output_fn, tweakable_bits, init_rounds=100, keystream_len=None):
     # default keystream len:
     if keystream_len == None:
@@ -25,20 +24,25 @@ def access_fns(register, output_fn, tweakable_bits, init_rounds=100, keystream_l
         output_fn.compile()
 
     for i in range(init_rounds):
-        register.clock_compiled()
-    keystream = [output_fn._compiled(state._state) for state in register.run_compiled(keystream_len)]
+        register.clock()
+
+    keystream = [
+        output_fn._compiled(state._state) 
+        for state in register.run(keystream_len)
+    ]
+
     register.reset()
 
     # given a full state, simulate that state to get the bit
     def sim_fn(state):
-        register._state = state
+        register.set_state(state)
         for i in range(init_rounds):
-            register.clock_compiled()
+            register.clock()
 
         # generate keystream as normal:
         keystream = [
             output_fn._compiled(state._state) 
-            for state in register.run_compiled(keystream_len)
+            for state in register.run(keystream_len)
         ]
 
         register.reset()
@@ -53,16 +57,16 @@ def access_fns(register, output_fn, tweakable_bits, init_rounds=100, keystream_l
         # write only to tweakable bits
         for bit in tweakable_bits:
             if state[bit] != None:
-                register._state[bit] = state[bit]
+                register[bit] = state[bit]
         
         # initialization rounds:
         for i in range(init_rounds):
-            register.clock_compiled()
+            register.clock()
 
         # generate keystream as normal:
         keystream = [
             output_fn._compiled(state._state) 
-            for state in register.run_compiled(keystream_len)
+            for state in register.run(keystream_len)
         ]
 
         register.reset()
@@ -70,28 +74,19 @@ def access_fns(register, output_fn, tweakable_bits, init_rounds=100, keystream_l
     
     # test a state to see if the keystream is correct
     def test_fn(state):
-        register._state = state
+        register.set_state(state)
         for i in range(init_rounds):
-            register.clock_compiled()
+            register.clock()
 
         test_keystream = [
             output_fn._compiled(state._state) 
-            for state in register.run_compiled(keystream_len)
+            for state in register.run(keystream_len)
         ]
 
         register.reset()
         return test_keystream == keystream
 
     return access_fn,sim_fn,test_fn
-
-
-
-
-
-
-
-
-
 
 
 
@@ -351,9 +346,6 @@ def iproduct(*iterables, repeat=1):
                 return
     yield ()  # There are no iterables.
 
-
-
-
 def cmpr_cube_attack_offline(
     cmpr_fn, output_fn, sim_fn, tweakable_vars, 
     time_limit = None, num_tests = 20, verbose = False
@@ -454,9 +446,13 @@ def cmpr_cube_attack_offline(
 
             # cube information:
             equations, constants = determine_equations(sim_fn,maxterm,cmpr_fn.size)
+            for i in range(100):
+                print(i, [int(x) for x in equations[i]])
+            print(constants)
             nonlinear_mask = get_nonlinear_mask(sim_fn,maxterm,cmpr_fn.size,num_tests)
             constant_mask = get_constant_mask(sim_fn,maxterm,cmpr_fn.size,num_tests)
-
+            print(nonlinear_mask,constant_mask)
+            
             for t in range(len(nonlinear_mask)):
                 # filter constant / nonlinear superpoly's
                 if constant_mask[t]:
@@ -653,8 +649,10 @@ def cube_attack_online(access_fn, test_fn, state_size, known_bits, cube_data, ve
         )[:,0]
         
         # test if candidate is correct
+        print(state_candidate)
         if test_fn(state_candidate):
             found = True
+            print("MATCH FOUND", state_candidate)
             break
 
     guess_time = time.time() - start_time
@@ -676,9 +674,8 @@ def cube_attack_online(access_fn, test_fn, state_size, known_bits, cube_data, ve
 
 
 
-
 # returns a vector of outputs
-def evaluate_super_poly(sim_fn, index_set, state):
+def evaluate_super_poly(sim_fn, index_set, state, verbose=False):
     # input sanitization:
     state_copy = state.copy()
 
@@ -689,9 +686,10 @@ def evaluate_super_poly(sim_fn, index_set, state):
     for assigment in list(product(range(2),repeat=len(index_set))):
         for n in range(len(assigment)):
             state_copy[index_set[n]] = assigment[n]
-        xor_total ^= sim_fn(state_copy)
+        a = sim_fn(state_copy.copy())
+        if verbose: print(assigment, a)
+        xor_total ^= a
     return xor_total
-
 
 def get_nonlinear_mask(sim_fn, index_set, state_size, num_tests):
     offset = np.zeros(state_size,'uint8')
@@ -704,17 +702,17 @@ def get_nonlinear_mask(sim_fn, index_set, state_size, num_tests):
 
         # BLR test for a nonlinear relationship:
         nonlinear_mask |= (
-            evaluate_super_poly(sim_fn,index_set,state) ^ 
-            evaluate_super_poly(sim_fn,index_set,delta) ^
-            evaluate_super_poly(sim_fn,index_set,diff) ^
-            evaluate_super_poly(sim_fn,index_set,offset)
+            evaluate_super_poly(sim_fn,index_set,state.copy()) ^ 
+            evaluate_super_poly(sim_fn,index_set,delta.copy()) ^
+            evaluate_super_poly(sim_fn,index_set,diff.copy()) ^
+            evaluate_super_poly(sim_fn,index_set,offset.copy())
         )
 
     return nonlinear_mask
 
 def get_constant_mask(sim_fn, index_set, state_size, num_tests):
     state = np.zeros(state_size,'uint8')
-    comparison_vector = evaluate_super_poly(sim_fn,index_set,state)
+    comparison_vector = evaluate_super_poly(sim_fn,index_set,state.copy())
     constant_mask = np.ones_like(comparison_vector)
     comparison_vector ^= 1
 
@@ -722,25 +720,23 @@ def get_constant_mask(sim_fn, index_set, state_size, num_tests):
         state = np.random.randint(0,2,state_size,'uint8')
         constant_mask &= (
             comparison_vector ^
-            evaluate_super_poly(sim_fn,index_set,state)
+            evaluate_super_poly(sim_fn,index_set,state.copy())
         )
 
     return constant_mask
 
-
-# combines the above tests to be slightly more efficient:
 def determine_equations(fn, index_set, state_size, target_set = None):
     if target_set == None: target_set = range(state_size)
 
     state = np.zeros(state_size, dtype = np.uint8)
-    consts = evaluate_super_poly(fn,index_set,state)
+    consts = evaluate_super_poly(fn,index_set,state.copy())
 
     keystream_len = len(consts)
     coefs = np.zeros([state_size,keystream_len], dtype=np.uint8)
     
     for i in target_set:
         state[i] = 1
-        coefs[i] = consts ^ evaluate_super_poly(fn,index_set,state)
+        coefs[i] = consts ^ evaluate_super_poly(fn,index_set,state.copy())
         state[i] = 0
 
     # transpose coefs to be [time, bit] instead.

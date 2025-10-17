@@ -38,11 +38,7 @@ class CDGBEqStore:
                 XOR(VAR(selected_var), CONST(1))
             ]
             self.s0.enqueue_equation(self.assumptions[0])
-            self.s1.enqueue_equation(self.assumptions[1])
-
-    def insert_equation(self, equation, extra_const = 0, identifier=None, translate_ANF = True):
-        self.enqueue_equation(equation, extra_const, identifier, translate_ANF)
-        self.consume_queue()
+            self.s1.enqueue_equation(self.assumptions[1]) 
 
     def enqueue_equation(self, equation, extra_const = 0, identifier=None, translate_ANF = True):
         self.var_counts.update({v:1 for v in equation.idxs_used()})

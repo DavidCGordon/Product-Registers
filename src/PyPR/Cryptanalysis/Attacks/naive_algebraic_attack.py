@@ -8,18 +8,16 @@ from PyPR.Cryptanalysis.Components.EquationStores.LUDynamicEqStore import LUDyna
 from PyPR.Cryptanalysis.Components.EquationGenerators.CubeEqGenerator import CubeEqGenerator, get_var_map
 from PyPR.Cryptanalysis.Components.EquationGenerators.SubstitutionEqGenerator import SubstitutionEqGenerator
 
+from PyPR.Cryptanalysis.Components.EquationSolvers.LU_Solver import lu_solve
+
 from itertools import product
 import numpy as np
 import numba
 import time
 
-print("TEST: ", type(CubeEqGenerator))
-
 # small helper function to help pretty-print:
 def indent(n):
     return ("|   " * n)
-
-
 
 def NAA_offline(
     feedback_fn, output_fn, init_rounds,
@@ -93,7 +91,7 @@ def NAA_offline(
         if t < init_rounds: continue
     
         linearly_independent = eqs.insert_equation(
-            equation, extra_const,
+            equation, extra_const, #type: ignore
             identifier = t,
             # equations are generated in ANF,
             # don't need to translate again
@@ -137,26 +135,6 @@ def NAA_offline(
 
 
 
-u8 = numba.types.uint8
-@numba.njit(u8[:](u8[:,:],u8[:,:],u8[:]))
-def lu_solve(L,U,b):
-    c = b.copy()
-
-    # backsolve L
-    for i in range(len(b)-1):
-        for j in range(i+1,len(b)):
-            c[j] ^= L[j,i] * c[i]
-
-    # backsolve U
-    for i in range(len(b)-1,0,-1):
-        for j in range(i):
-            c[j] ^= U[j,i] * c[i]
-
-    return c
-
-
-
-
 # Dont need known bits: this is because each equation is cheap (relative to cube attacks)
 # and the known bits doesnt /really/ help with the monomials (without a big loop), so it
 # doesnt shrink the system that much, but does introduce a lot of overhead.
@@ -186,17 +164,18 @@ def NAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
     # initialize new data:
     initial_guess_start = time.time()
     guess_count = 0
-    online_vector = np.zeros([num_vars],dtype=np.uint8)
+    keystream_vector = np.zeros([num_vars],dtype=np.uint8)
 
     # determine base solution:
     for v in range(num_vars):
         if v in var_map:
-            online_vector[v] = keystream[var_map[v]] ^ const_vector[v]
+            keystream_vector[v] = keystream[var_map[v]]
     
     base_solution = lu_solve(
         lower_matrix,
         upper_matrix,
-        online_vector
+        const_vector,
+        keystream_vector
     )[variable_indices].copy()
 
     # data / buffers for testing an candidate initial state
@@ -230,18 +209,19 @@ def NAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
         guess_assignment = [0]*len(guess_bits)
         guess_assignment[t] = 1
 
-        # fill in the vector with known equations + guesses
+        # fill in the vector with keystream + guesses
         for v in range(num_vars):
             if v in var_map:
-                online_vector[v] = keystream[var_map[v]] ^ const_vector[v]
+                keystream_vector[v] = keystream[var_map[v]]
         for i, (v,c) in enumerate(guess_bits):
-            online_vector[v] = guess_assignment[i]
+            keystream_vector[v] = guess_assignment[i]
 
         # solve the equation.
         solution = lu_solve(
             lower_matrix,
             upper_matrix,
-            online_vector
+            const_vector,
+            keystream_vector,
         )[variable_indices]
 
         difference = (solution ^ base_solution)
@@ -290,7 +270,6 @@ def NAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
         print(f"{indent(print_depth+2)}Max number of guesses (original): 2^{len(guess_bits)}")
         print(f"{indent(print_depth+2)}Max number of guesses (pruned): 2^{len(pruned_guesses)}")
         print(f"{indent(print_depth+2)}Time: {time.time() - effect_pruning_time} s")
-        #print(f"{indent(print_depth+2)}Time for total pruning process: {time.time() - effect_collection_start} s")
         print(f"{indent(print_depth+2)}\n{indent(print_depth+2)}Starting to Guess:")
 
     # Now test using the pruned guesses:
@@ -302,7 +281,7 @@ def NAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
         if verbose:
             print(f"\r{indent(print_depth+3)}Guess count: {guess_count}",end='')
 
-        F._state = base_solution.copy()
+        F.set_state(base_solution)
         for idx, assigned in enumerate(guess_assignment):
             if assigned:
                 F._state ^= pruned_guesses[idx]

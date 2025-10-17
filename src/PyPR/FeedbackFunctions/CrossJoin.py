@@ -100,7 +100,7 @@ class CrossJoin(FeedbackFunction):
 
         # shift any needed linear terms to tau (always valid)
         for term in self.fn_list[self.size-1].args[0].args:
-            if term.args[0].index >= self.tau:
+            if term.args[0].index >= self.tau: #type: ignore
                 self.fn_list[self.size-1].args[1].add_arguments(term)
                 self.fn_list[self.tau].args[1].add_arguments(term.shift_indices(self.tau-self.size+1))
                 

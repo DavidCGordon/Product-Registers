@@ -12,7 +12,7 @@ import numba
 import time
 
 # internal use only:
-def _generate_monomials(bits,degree=None, verbose=False):
+def _generate_monomials(bits, degree=None, verbose=False):
     if degree == None:
         degree = len(bits)
 

@@ -1,3 +1,5 @@
+from typing import Iterator
+
 import numpy as np
 import time
 
@@ -14,6 +16,7 @@ def get_var_map(
     variable_blocks,
     include_variables = True, # include all base variables
     complete_subsets = False, # ensure variable map is closed under subsets
+    include_constant = False, # whether or not to include an empty tuple
     lexicographic = True      # sort monomials lexicographically
 ):
     mons_by_len = {}
@@ -53,6 +56,11 @@ def get_var_map(
     comb_to_idx = {}
     idx_to_comb = {}
     for segment in list_segments:
+
+        # skip the constant segment if needed
+        if segment[0] == 0 and not include_constant:
+            continue
+
         for monomial in segment[1]:
             comb_to_idx[monomial] = var_idx
             idx_to_comb[var_idx] = monomial
@@ -67,7 +75,10 @@ def indent(n):
 # main method
 def CubeEqGenerator(
     feedback_fn, output_fn, limit, var_map, verbose=False, print_depth = 0
-):
+) -> Iterator[
+    tuple[int, np.ndarray[tuple[int],np.dtype[np.uint8]], int] |
+    list[tuple[int, np.ndarray[tuple[int],np.dtype[np.uint8]], int]]
+]:
     # set flags to match outputs shape to input shape:
     if type(output_fn) == list:
         return_list = True
@@ -169,7 +180,7 @@ def combine_vecs(
     # Note that for any sets of evaluations, we have a variant of the principle of inclusion-exclusion: 
     #   (Sum over Set A) + (Sum over Set B) = (Sum over A union B) + (Sum over A intersect B)
 
-    # Consider for some set of variables, S, consider the cubes with each variable missing: 
+    # For some set of variables, S, consider the cubes with each variable missing: 
     #   -  i.e. the cube over (V - s) for each s in S
     #
     # the union of all of these sets is every evaluation except those which contain all of S

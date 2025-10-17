@@ -13,12 +13,15 @@ from PyPR.Cryptanalysis.Components.EquationStores.LUDynamicEqStore import LUDyna
 from PyPR.Cryptanalysis.Components.EquationGenerators.CubeEqGenerator import CubeEqGenerator, get_var_map
 from PyPR.Cryptanalysis.Components.EquationGenerators.SubstitutionEqGenerator import SubstitutionEqGenerator
 
+import PyPR.Cryptanalysis.Components.EquationSolvers.LU_Solver as LU_Solver
+
 from itertools import product
 import numpy as np
 import numba
 import time
 import random
 
+u8 = numba.types.uint8
 u64 = numba.types.uint64
 
 # small helper function to help pretty-print:
@@ -90,12 +93,12 @@ def FAA_offline(
         # use berlekamp_massey to get the exact relation
         feedback_fn.compile()
         multiple_compiled = multiple.compile()
-        test_register = FeedbackRegister(random.random(), feedback_fn)
+        test_register = FeedbackRegister(random.randint(0,2**feedback_fn.size-1), feedback_fn)
         max_count = 1000*((2*max_LC+256)//1000 + 1)
         count = 0
 
         for curr_LC, curr_relation in berlekamp_massey_iterator(
-            seq = (multiple_compiled(state._state) for state in test_register.run_compiled(2*max_LC+256)),
+            seq = (multiple_compiled(state._state) for state in test_register.run(2*max_LC+256)),
             yield_rate=1000
         ):
             count += 1000
@@ -157,7 +160,7 @@ def FAA_offline(
         # Precompute LC for low degree multiple:
         # because max_LC isnt known, test until there are no changes:
         feedback_fn.compile()
-        test_register = FeedbackRegister(random.random(), feedback_fn)
+        test_register = FeedbackRegister(random.getrandbits(feedback_fn.size), feedback_fn)
         
 
         if verbose:
@@ -168,7 +171,7 @@ def FAA_offline(
         curr_LC = 0
         curr_relation = []
         for linear_complexity, linear_relation in berlekamp_massey_iterator(
-            seq = (multiple.eval(state) for state in test_register.run_compiled(2**(feedback_fn.size))),
+            seq = (multiple.eval(state) for state in test_register.run(2**(feedback_fn.size))),
             yield_rate=1000
         ):
             if verbose:
@@ -244,28 +247,6 @@ def FAA_offline(
 
 
 
-u8 = numba.types.uint8
-@numba.njit(u8[:](u8[:,:],u8[:,:],u8[:]))
-def lu_solve(L,U,b):
-    c = b.copy()
-
-    # backsolve L
-    for i in range(len(b)-1):
-        for j in range(i+1,len(b)):
-            c[j] ^= L[j,i] * c[i]
-
-    # backsolve U
-    for i in range(len(b)-1,0,-1):
-        for j in range(i):
-            c[j] ^= U[j,i] * c[i]
-
-    return c
-
-
-
-
-
-
 @numba.njit(numba.types.Tuple((u8[:],u8))(u64,u8[:],u8[:,:],u8[:],u8[:]))
 def sum_over_linear_relationship(start_idx, keystream, equations, constants, linear_relation):
     coef_vector = np.zeros((equations.shape[1],), dtype="uint8")
@@ -278,8 +259,6 @@ def sum_over_linear_relationship(start_idx, keystream, equations, constants, lin
             const_val ^= constants[start_idx + i]
 
     return coef_vector,const_val
-
-
 
 
 
@@ -355,11 +334,7 @@ def FAA_online(
     ]
 
     # determine base solution:
-    base_solution = lu_solve(
-        combined_eqs.lower_matrix,
-        combined_eqs.upper_matrix,
-        combined_eqs.constants
-    )[variable_indices].copy()
+    base_solution = LU_Solver.solve(combined_eqs)[variable_indices].copy()
 
     # data / buffers for testing an candidate initial state
     F = FeedbackRegister(0,feedback_fn)
@@ -367,7 +342,7 @@ def FAA_online(
     test_keystream = keystream[:test_length]
 
     # test if this was the correct initial_state
-    F._state = base_solution.copy()
+    F.set_state(base_solution)
     test_seq = [output_fn.eval(state) for state in F.run(test_length)]
     if np.all(test_seq == test_keystream):
         if verbose:
@@ -384,7 +359,7 @@ def FAA_online(
         
    # first, collect the effects of every guessed bit independently
     effect_collection_start = time.time()
-    online_vector = combined_eqs.constants.copy()
+    guess_vector = combined_eqs.constants.copy()
     guess_effect_map = {}
     unstable_bits = np.zeros_like(base_solution)
     for t in range(len(guess_bits)):
@@ -393,20 +368,11 @@ def FAA_online(
 
         guess_assignment = [0]*len(guess_bits)
         guess_assignment[t] = 1
-
-        # fill in the vector with known equations + guesses
-        for v in range(num_vars):
-            if v in combined_eqs.equation_ids:
-                online_vector[v] = combined_eqs.constants[v]
         for i,(v,comb) in enumerate(guess_bits):
-            online_vector[v] = guess_assignment[i]
+            guess_vector[v] = guess_assignment[i]
 
         # solve the equation.
-        solution = lu_solve(
-            combined_eqs.lower_matrix,
-            combined_eqs.upper_matrix,
-            online_vector
-        )[variable_indices]
+        solution = LU_Solver.solve(combined_eqs, guess_vector)[variable_indices]
 
         difference = (solution ^ base_solution)
         guess_effect_map[guess_bits[t]] = difference
@@ -468,7 +434,7 @@ def FAA_online(
         if verbose:
             print(f"\r{indent(print_depth+3)}Guess count: {guess_count}",end='')
 
-        F._state = base_solution.copy()
+        F.set_state(base_solution)
         for idx, assigned in enumerate(guess_assignment):
             if assigned:
                 F._state ^= pruned_guesses[idx]

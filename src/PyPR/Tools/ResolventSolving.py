@@ -174,8 +174,8 @@ def generate_resolvent_example(cmpr, use_z_convention = False):
     z = SequenceTransform.one() / SequenceTransform.delay()
 
     # collect information about CMPR:
-    prev_state = cmpr._prev_state
-    initial_state = cmpr._state
+    prev_state = cmpr._prev_state.copy()
+    initial_state = cmpr._state.copy()
     REs = cmpr.fn.root_expressions()
     LC_bound = max([re.upper() for re in REs])
 

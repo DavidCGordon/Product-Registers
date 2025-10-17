@@ -61,16 +61,70 @@ def lead_term(f) -> frozenset[int] | None:
     else:
         return None
 
+
+
+# class GroebnerEquation():
+#     def __init__(self, terms = []):
+#         self.terms = terms
+
+#     def __mul__(self, scale):
+#         termset = set()
+#         for term in self.terms:
+#             new_term = term | scale
+#             if new_term in termset:
+#                 termset.remove(new_term)
+#             else:
+#                 termset.add(new_term)
+#         return GroebnerEquation(sorted(termset), key=monomial_order)
+        
+#     def __add__(self, other):
+#         output = []
+#         merged = heapq.merge(self.terms, other.terms, key=monomial_order)
+#         for i in range(len(merged)):
+#             term = merged[i]
+
+#             j = 0
+#             while (i+j < len(merged)) and merged[j] == term:
+#                 j += 1
+
+#             if (j+1) % 2:
+#                 output.append(term)
+#         return GroebnerEquation(output)
+
+
+#     def __lt__(self,other):
+#         if len(self.lead_term) < len(other.lead_term):
+#             return True
+#         if len(self.lead_term) > len(other.lead_term):
+#             return False
+#         return (
+#             sorted(self.lead_term, reverse=True) <= 
+#             sorted(other.lead_term, reverse=True)
+#         )
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 class GroebnerEqStore:
     lead_terms: list[frozenset[int]]
-    equations: list[BooleanANF]
 
-    def __init__(self, simplify_mode):
-            # TODO: Make impl. optional
-            # simplify = substitution
-            # simplify = backreduce
-            # simplify = None
-
+    def __init__(self):
         self.num_vars = 0
         self.num_eqs = 0
 
@@ -108,10 +162,6 @@ class GroebnerEqStore:
             self.equations[j] * BooleanANF([self.lead_terms[i]-self.lead_terms[j]]) 
         )
     
-    def insert_equation(self, equation, extra_const = 0, identifier=None, translate_ANF = True):
-        self.enqueue_equation(equation, extra_const, identifier, translate_ANF)
-        self.consume_queue()
-
     def enqueue_equation(self, equation, extra_const = 0, identifier=None, translate_ANF = True):
         equation = XOR(equation,CONST(extra_const)).compose({
             var: CONST(val) for var,val in self.solved_vars.items()
@@ -268,48 +318,6 @@ class GroebnerEqStore:
 
 
 
-
-
-
-# class GroebnerEquation():
-#     def __init__(self, terms = []):
-#         self.terms = terms
-
-#     def __mul__(self, scale):
-#         termset = set()
-#         for term in self.terms:
-#             new_term = term | scale
-#             if new_term in termset:
-#                 termset.remove(new_term)
-#             else:
-#                 termset.add(new_term)
-#         return GroebnerEquation(sorted(termset), key=monomial_order)
-        
-#     def __add__(self, other):
-#         output = []
-#         merged = heapq.merge(self.terms, other.terms, key=monomial_order)
-#         for i in range(len(merged)):
-#             term = merged[i]
-
-#             j = 0
-#             while (i+j < len(merged)) and merged[j] == term:
-#                 j += 1
-
-#             if (j+1) % 2:
-#                 output.append(term)
-#         return GroebnerEquation(output)
-
-
-#     def __lt__(self,other):
-#         if len(self.lead_term) < len(other.lead_term):
-#             return True
-#         if len(self.lead_term) > len(other.lead_term):
-#             return False
-#         return (
-#             sorted(self.lead_term, reverse=True) <= 
-#             sorted(other.lead_term, reverse=True)
-#         )
-    
 
 
 

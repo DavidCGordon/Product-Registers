@@ -1,11 +1,16 @@
-from PyPR.BooleanLogic import BooleanANF
+from typing import Iterator
+from PyPR.BooleanLogic import BooleanANF, BooleanFunction
+from PyPR.FeedbackFunctions import FeedbackFunction
 
 def SymbolicEqGenerator(
-    feedback_fn, 
-    output_fn, 
+    feedback_fn: FeedbackFunction, 
+    output_fn: BooleanFunction, 
     limit, 
     initialization=None
-):
+) -> Iterator[
+    tuple[int, list[BooleanFunction], int] |
+    list[tuple[int, list[BooleanFunction], int]]
+]:
     # Input handling:
     if type(output_fn) == list:
         return_list = True
@@ -21,14 +26,15 @@ def SymbolicEqGenerator(
 
     # set up the functions to evaluate
     eval_list = [
-        f.anf_optimize().remap_constants([
+        #f.anf_optimize().remap_constants([
+        f.remap_constants([
             (0, BooleanANF()),
             (1, BooleanANF([True]))
         ]) for f in feedback_fn.fn_list
     ]
 
     output_fn_list = [
-        f.anf_optimize().remap_constants([
+        f.remap_constants([
             (0, BooleanANF()),
             (1, BooleanANF([True]))
         ]) for f in output_fn_list

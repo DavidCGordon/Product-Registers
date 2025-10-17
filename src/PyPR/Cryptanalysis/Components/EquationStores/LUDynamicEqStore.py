@@ -9,11 +9,11 @@ b1 = numba.types.b1
 # general utilities:
 @numba.njit(numba.types.Tuple((b1,u64))(
         u8[:,:],u8[:,:],u8[:],u8[:],u64,
-        u8[:],u8)
+        u8[:],u8,b1)
 )
 def LU_reduction(
     upper,lower,constants,solved_for,num_vars,
-    coef_vector,const_val
+    coef_vector,const_val,consistent
 ):
     linearly_independent = False
     modification_vector  = np.zeros_like(coef_vector)
@@ -21,8 +21,11 @@ def LU_reduction(
         if coef_vector[idx] == 1:
             modification_vector[idx] = 1
             if solved_for[idx]:
+                # this changes constants to actually be L^{-1} C
+                const_val ^= constants[idx]
                 for i in range(idx,num_vars):
                     coef_vector[i] ^= upper[idx,i]
+                    
             else:
                 linearly_independent = True
 
@@ -31,18 +34,23 @@ def LU_reduction(
                 lower[idx] = modification_vector        
                 constants[idx] = const_val
                 break
-            
+
+    if (
+        consistent
+        and not linearly_independent
+        and const_val == 1
+    ):
+        raise ValueError("Inconsistent!")
+
     return linearly_independent, idx
 
 
 class LUDynamicEqStore:
-    def __init__(self, integrated_constants=False):
+    def __init__(self, consistent=False):
         self.comb_to_idx = {}  # mapping of monomial -> index
         self.idx_to_comb = {}  # mapping of index -> 
         self.equation_ids = {} # mapping of equation to identifier (usually a clock cycle)
-        if integrated_constants and tuple() not in self.comb_to_idx:
-            self.comb_to_idx[tuple()] = len(self.comb_to_idx)
-            self.idx_to_comb[len(self.comb_to_idx)] = tuple()
+        self.consistent = consistent
 
         self.num_vars = len(self.comb_to_idx)
         self.num_eqs = 0
@@ -65,12 +73,9 @@ class LUDynamicEqStore:
         const_val = extra_const
         for term in equation_anf.args:
 
-            # handle constant values
+            # handle constants
             if type(term) == CONST:
-                if tuple() in self.comb_to_idx:
-                    coef_vector[self.comb_to_idx[tuple()]] = term.value
-                else:
-                    const_val ^= term.value
+                const_val ^= term.value
                 continue
 
             comb = tuple(sorted([var.index for var in term.args]))
@@ -117,7 +122,7 @@ class LUDynamicEqStore:
 
         linearly_independent, insertion_idx =  LU_reduction(
             self.upper_matrix,self.lower_matrix,self.constants,self.solved_for, self.num_vars,
-            coef_vector,const_val,
+            coef_vector,const_val,self.consistent
         )
 
         # have to insert identifier outside of numba optimized loop

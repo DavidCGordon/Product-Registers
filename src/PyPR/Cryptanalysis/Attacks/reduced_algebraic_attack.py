@@ -10,6 +10,8 @@ from PyPR.Cryptanalysis.Components.EquationStores.LUDynamicEqStore import LUDyna
 from PyPR.Cryptanalysis.Components.EquationGenerators.CubeEqGenerator import CubeEqGenerator, get_var_map
 from PyPR.Cryptanalysis.Components.EquationGenerators.SubstitutionEqGenerator import SubstitutionEqGenerator
 
+import PyPR.Cryptanalysis.Components.EquationSolvers.LU_Solver as LU_Solver
+
 from itertools import product
 import numpy as np
 import numba
@@ -163,25 +165,6 @@ def RAA_offline(
 
 
 
-u8 = numba.types.uint8
-@numba.njit(u8[:](u8[:,:],u8[:,:],u8[:]))
-def lu_solve(L,U,b):
-    c = b.copy()
-
-    # backsolve L
-    for i in range(len(b)-1):
-        for j in range(i+1,len(b)):
-            c[j] ^= L[j,i] * c[i]
-
-    # backsolve U
-    for i in range(len(b)-1,0,-1):
-        for j in range(i):
-            c[j] ^= U[j,i] * c[i]
-
-    return c
-
-
-
 
 # Dont need known bits: this is because each equation is cheap (relative to cube attacks)
 # and the known bits doesnt /really/ help with the monomials (without a big loop), so it
@@ -212,7 +195,7 @@ def RAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
         print(f"{indent(print_depth+1)}Starting Equation Substitution:")
 
     # main loop:
-    combined_eqs = LUEqStore(comb_to_idx)
+    combined_eqs = LUEqStore(comb_to_idx, consistent=True)
     for eq_idx in range(num_eqs):
         # initialize vector/const:
         coef_vector = np.zeros([num_vars], dtype="uint8")
@@ -257,11 +240,7 @@ def RAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
     ]
 
     # determine base solution:
-    base_solution = lu_solve(
-        combined_eqs.lower_matrix,
-        combined_eqs.upper_matrix,
-        combined_eqs.constants
-    )[variable_indices].copy()
+    base_solution = LU_Solver.solve(combined_eqs)[variable_indices].copy()
 
     # data / buffers for testing an candidate initial state
     F = FeedbackRegister(0,feedback_fn)
@@ -269,14 +248,15 @@ def RAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
     test_keystream = keystream[:test_length]
 
     # test if this was the correct initial_state
-    F._state = base_solution.copy()
+    F.set_state(base_solution)
     test_seq = [output_fn.eval(state) for state in F.run(test_length)]
     if np.all(test_seq == test_keystream):
         if verbose:
             print(f"{indent(print_depth+1)}Initial matrix solve complete -- correct base solution")
             print(f"{indent(print_depth+1)}Time: {time.time() - initial_guess_start} s")
             print(f"{indent(print_depth)}Online phase complete -- Total time: ", time.time() - start_time)
-        return list(base_solution)
+        return base_solution
+        #return list(base_solution)
 
     # otherwise we need to try different guesses
     if verbose:
@@ -285,29 +265,21 @@ def RAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
 
     # first, collect the effects of every guessed bit independently
     effect_collection_start = time.time()
-    online_vector = combined_eqs.constants.copy()
-    guess_effect_map = {}
+    guess_vector = np.zeros_like(combined_eqs.constants)
     unstable_bits = np.zeros_like(base_solution)
+    guess_effect_map = {}
     for t in range(len(guess_bits)):
         if verbose:
             print(f"\r{indent(print_depth+3)}Matrix Solves: {t+1}/{len(guess_bits)}",end='')
 
+        # fill in guess vector
         guess_assignment = [0]*len(guess_bits)
         guess_assignment[t] = 1
-
-        # fill in the vector with known equations + guesses
-        for v in range(num_vars):
-            if v in combined_eqs.equation_ids:
-                online_vector[v] = combined_eqs.constants[v]
         for i,(v,comb) in enumerate(guess_bits):
-            online_vector[v] = guess_assignment[i]
+            guess_vector[v] = guess_assignment[i]
 
         # solve the equation.
-        solution = lu_solve(
-            combined_eqs.lower_matrix,
-            combined_eqs.upper_matrix,
-            online_vector
-        )[variable_indices]
+        solution = LU_Solver.solve(combined_eqs, guess_vector)[variable_indices]
 
         difference = (solution ^ base_solution)
         guess_effect_map[guess_bits[t]] = difference
@@ -350,7 +322,7 @@ def RAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
         if verbose:
             print(f"\r{indent(print_depth+3)}Vectors Pruned: {i+1}/{len(guess_effect_map)}",end='')
 
-    if verbose: 
+    if verbose:
         print(f"\n{indent(print_depth+2)}Pruning finished:")
         print(f"{indent(print_depth+2)}Max number of guesses (original): 2^{len(guess_bits)}")
         print(f"{indent(print_depth+2)}Max number of guesses (pruned): 2^{len(pruned_guesses)}")
@@ -367,7 +339,7 @@ def RAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
         if verbose:
             print(f"\r{indent(print_depth+3)}Guess count: {guess_count}",end='')
 
-        F._state = base_solution.copy()
+        F.set_state(base_solution)
         for idx, assigned in enumerate(guess_assignment):
             if assigned:
                 F._state ^= pruned_guesses[idx]

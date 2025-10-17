@@ -1,6 +1,3 @@
-# TYPE ANNOTATIONS: TRUE
-# DOCSTRINGS: FALSE
-
 from typing import Self, Optional, Any, Protocol
 from collections.abc import Iterator
 
@@ -9,6 +6,7 @@ from numba import njit
 
 import json
 
+import PyPR.JSON_Serialization
 
 class IndexableContainer[K,V](Protocol):
     def __getitem__(self, key: K, /) -> V: ...
@@ -986,7 +984,7 @@ class BooleanFunction:
         return fn
 
     def _remap_constants(self, 
-        const_map: Any
+        const_map: list[tuple[Any,Any]]
     ) -> None:
         """Helper function which remaps the constant of a particular leaf node.
 
@@ -1003,7 +1001,7 @@ class BooleanFunction:
         raise NotImplementedError
     
     def remap_constants(self, 
-        constant_map: Any, 
+        constant_map: list[tuple[Any,Any]], 
         in_place: bool = False
     ) -> Self:
         """Remap the input constants.
@@ -1083,7 +1081,7 @@ class BooleanFunction:
         )
     
     def _compose(self,
-        input_map: Any, 
+        input_map: IndexableContainer[int,"BooleanFunction"], 
         in_place: bool = False
     ) -> Self:
         """Helper function which helps compose functions.
@@ -1105,7 +1103,7 @@ class BooleanFunction:
         raise NotImplementedError
     
     def compose(self,
-        input_map: Any, 
+        input_map: IndexableContainer[int,"BooleanFunction"], 
         in_place: bool = False
     ) -> Self:
         """Compose a BooleanFunction with a container mapping input variables to other BooleanFunctions
@@ -1782,32 +1780,42 @@ self._compiled = _compiled
 
     # Storage
     def generate_ids(self,
-        previous_ids: dict["BooleanFunction", int] | None = None
-    ) -> dict["BooleanFunction", int]:
-        """Generate a dictionary which maps each node to a unique ID.
+        previous_ids: dict[Any, int] | None = None,
+        in_place: bool = True
+    ) -> dict[Any, int]:
+        """Generate a dictionary which maps each object to a unique ID.
 
         When called with no inputs, this function will create these IDs from scratch. However,
         the function can also recieve the output of previous calls as input, and will continue 
         to add in new IDs, reusing IDs where possible. This means the same function can also be
         used to add onto existing output. For example:
         ```python
-        node_ids = function_1.generate_ids()
-        node_ids = function_2.generate_ids(node_ids)
-        node_ids = function_3.generate_ids(node_ids)
+        ids = object_1.generate_ids()
+        ids = object_2.generate_ids(ids)
+        ids = object_3.generate_ids(ids)
         ...
         ```
+        For efficiency reasons, this method both mutates the input and returns the mutated
+        list of ids by default. This can be disabled by setting the parameter `in_place=False`
 
         :param previous_ids: the output of previous calls to the function
-        :type previous_ids: dict[BooleanFunction, int]
+        :type previous_ids: dict[Any, int] | None
+        :param in_place: whether the input list of ids is mutated in place or not. If false, a copy
+            is created and returned. If true (by default) the data is modified in place with no copy.
+        :type in_place: bool
         :return: A dict which maps each node to a unique id
-        :rtype: dict[BooleanFunction, int]
+        :rtype: dict[Any, int]
         """
-        if previous_ids:
-            node_labels = previous_ids
+        if not previous_ids:
+            ids = {}
+            next_available_index = 0
+        elif in_place: 
+            ids = previous_ids
             next_available_index = max(previous_ids.values()) + 1
         else:
-            node_labels = {}
-            next_available_index = 0
+            # shallow copy to maintain objects, but new id dict
+            ids = {k:v for k,v in previous_ids.items()}
+            next_available_index = max(previous_ids.values()) + 1 
         
         stack: list[Any] = [self]
         last = None
@@ -1821,14 +1829,14 @@ self._compiled = _compiled
                 continue
 
             # hitting a visited node while travelling down:
-            elif curr_node in node_labels:
+            elif curr_node in ids:
                 last=stack.pop()
                 continue
 
             # moving up the tree after finishing children or hitting a leaf:
             elif last == False or curr_node.is_leaf():
-                if curr_node not in node_labels:
-                    node_labels[curr_node] = next_available_index
+                if curr_node not in ids:
+                    ids[curr_node] = next_available_index
                     next_available_index += 1
                 last = stack.pop()
                 continue
@@ -1841,66 +1849,71 @@ self._compiled = _compiled
                     stack.append(child)
                     continue
 
-        return node_labels
+        return ids
     
     def _generate_JSON_entry(self,
         node_ids: dict["BooleanFunction", int]
     ) -> dict[str, Any]:
-        """Create a JSON entry for a given node
+        """Create a JSON entry for a given object
 
-        The default behavior is that data for the node is that most fields are simply stored
-        in the "data" field of the dict as a nested dict which matches the object fields.
-        The fields which dont map nicely to JSON values (i.e. `args` and potentially `_compiled`)
-        are the only ones which are handled differently. args uses the node ids instead, and
-        the `_compiled` field is simply dropped, as it is impractical and counterintuitive to store.
-        Other node types can override this to create custom JSON, if they have other fields or need
-        to be handled in special ways (e.g. `VAR`,`CONST`, or custom nodes).
+        This should return a JSON encoding with all the data necessary to recreate the object
+        to an acceptable degree, with a convention matching the corresponding `parse_JSON_entry`.
+        This convention is dependent on the class, and this is the pair of methods to overwrite
+        to implement JSON serialization for a custom object.
 
-        :param node_ids: A dictionary which maps each BooleanFunction to a unique id.
-        :type node_ids: dict[BooleanFunction, int]
-        :return: A dictionary which represents the JSON for one node
+        For `BooleanFunction` specifically, the `args` attribute is stored as a list of ids,
+        each pointing to a previously stored `BooleanFunction`. The `_compiled` function is 
+        hard to store (and easy to regenerate with `.compile()`), and so it is simply not stored,
+        and is viewed as an acceptable loss. The rest of the attributes in `__dict__` are copied
+        with no change. 
+
+        :param node_ids: A dictionary which maps each object to a unique id.
+        :type node_ids: dict[Any, int]
+        :return: A dictionary which represents the JSON data for one object
         :rtype: dict[str, Any]
         """
         # copy class name and non-nested data
-        JSON_object = {
-            'class': type(self).__name__,
-            'data': self.__dict__.copy()
-        }
-
-        # recurse on any children/nested data:
-        if 'args' in JSON_object['data']:
-            JSON_object['data']['args'] = [node_ids[arg] for arg in self.args]
-
+        JSON_data = self.__dict__.copy()
+        # use refs for children/nested data:
+        if 'args' in JSON_data:
+            JSON_data['args'] = [node_ids[arg] for arg in self.args]
         # ignore the compiled version (not serializable)
-        if '_compiled' in JSON_object['data']:
-            del JSON_object['data']['_compiled']
+        if '_compiled' in JSON_data:
+            del JSON_data['_compiled']
 
-        return JSON_object
+        return JSON_data
     
     @classmethod
     def _parse_JSON_entry(cls,
         object_data: dict[str,Any],
         parsed_functions: list["BooleanFunction | None"]
     ) -> Self:
-        """Parse a JSON entry back into a BooleanFunction.
+        """Parse a JSON entry back into a given object.
 
-        This method is able to parse JSON generated by `_generate_JSON_entry` back into
-        a BooleanFunction, and is used in `parse_JSON` to parse nodes back to their
-        original type.
+        This method is able to parse JSON generated by `_generate_JSON_entry` for the
+        corresponding class, according to some convention. This convention may be different,
+        and is decided by the class implementer.
+
+        For `BooleanFunction` specifically, the `args` attribute is stored as a list of ids,
+        each pointing to a previously stored `BooleanFunction`. The `_compiled` function is 
+        hard to store (and easy to regenerate with `.compile()`), and so it is simply not stored,
+        and is viewed as an acceptable loss. The rest of the attributes in `__dict__` are copied
+        with no change.
 
         :param object_data: A dictionary which contains the fields and data of the
             original node object, as generated by `_generate_JSON_entry`.
         :type object_data: dict[str, Any]
-        :param parsed_functions: A list which contains the previously parsed functions.
-            this can be used to make sure child functions are properly linked. Functions
-            which have not yet been parsed will have None at their index instead.
-        :type parsed_functions: list[BooleanFunction | None]
-        :return: The parsed node, with data matching the JSON.
-        :rtype: BooleanFunction
+        :param parsed_objects: A list which contains the previously parsed objects.
+            This can be used to get references to previously stored items, allowing the
+            serialization methods to connect the parsed objects together in complex ways.
+        :type parsed_objects: list[Any | None]
+        :return: The parsed object, with data matching the JSON.
+        :rtype: Self
         """
         # intantiate new object:
         new_node = object.__new__(cls)
         for key,value in object_data.items():
+            
             # Use previously parsed functions for args
             if key == 'args':
                 new_node.args = tuple([parsed_functions[child_id] for child_id in value])
@@ -1911,167 +1924,57 @@ self._compiled = _compiled
                 
         return new_node
 
-    @classmethod
-    def generate_JSON(cls, 
-        *fns: "BooleanFunction"
-    ) -> dict[str, Any]:
-        """Given a set of functions generate a JSON file which stores their information.
-
-        This method is paired with `parse_JSON`. The parse method can reverse the JSON generated
-        by this method back into an equivalent structure, and if you override this method, you
-        should also change the parse method to correspond. By default, the generated JSON is a dict,
-        structured as follows:
-
-        - **"Return IDs"**: A list of integers, each specifying the ID of a function to return, 
-            corresponding to the functions passed as input (usually the terminal nodes of the function DAG)
-        - **"Node Data"**: A list, where each entry is a dict containing the information needed to reconstruct
-            the node whose id matches that index in the list. The node data contains two fields,
-
-            - **"class"**: The class name. This is used to identify and construct the appropriate
-                BooleanFunction subclass and call the appropriate implementations of `_parse_JSON_entry`.
-            - **"data"**: The additional data which is used to recreate the fields of the node 
-                (in key:value pairs). For example:
-                - **"args"**: a list containing the id's of the child nodes, which can be used to reconstruct the nodes arguments.
-                - **"arg_limit"**: preserved as is from the node.
-                - any additional fields (e.g. value/index for `CONST`/`VAR` nodes)
-
-        One benefit of using this structure is that we can parse all nodes from their data,
-        and then return the ones we want using the stored return IDs. When we have multiple
-        functions which are enmeshed in a single DAG, this allows faithful reconstruction,
-        which is not possible if we generate JSON for each function by itself. Note that the
-        caller can control which functions are stored together, and which common nodes get copied
-        by which functions they group into a single call (separate calls will never be part of
-        a single DAG).
-
-        For single functions, where this generality is not needed, there are some aliases
-        which simplify the process and inputs. These are useful shortcuts for a lot of cases,
-        but once the use case becomes complex enough, its preferred to manually manage file_IO 
-        and using the full `generate_JSON`/`parse_JSON` methods.
-        - `fn.to_JSON()`: an alias for `BooleanFunction.generate_JSON(fn)`
-        - `BooleanFunction.from_JSON(json)`: an alias for `BooleanFunction.parse_JSON(json)[0]` 
-        - `fn.to_file(filename)`: writes the output of `fn.to_JSON()` to a `.json` file
-        - `BooleanFunction.from_file(filename)`: parses a `.json` file using `from_JSON()`
-
-        :param fns: A variable number of booleanfunctions to store into the JSON file
-        :type: BooleanFunction
-        :return: The JSON object encoding the data of the input functions.
-        :rtype: dict[str, Any]
-        """
-        node_ids = {}
-        for fn in fns:
-            node_ids = fn.generate_ids(node_ids)
-
-        num_nodes = max(node_ids.values())+1
-        json_node_list: list[Any] = [None for i in range(num_nodes)]
-
-        for node,id in node_ids.items():
-            json_node_list[id] = node._generate_JSON_entry(node_ids)
-        
-        return {
-            "Return IDs": [node_ids[fn] for fn in fns],
-            "Node Data": json_node_list
-        }
-
-    @classmethod
-    def parse_JSON(cls,
-        json_object: dict[str,Any]
-    ) -> tuple["BooleanFunction"]:
-        """Parses a JSON object back into the BooleanFunctions which generated it.
-
-        This method is paired with `generate_JSON`. This method must be able to reverse the Generated
-        JSON back into an equivalent structure, and if you override this method, you should ensure the
-        generate ist still in correspondence. By default, the JSON is expected to have the following structure:
-        
-        - **"Return IDs"**: A list of integers, each specifying the ID of a function to return
-            corresponding to the functions passed as input (usually the terminal nodes of the function DAG)
-        - **"Node Data"**: A list, where each entry is a dict containing the information needed to reconstruct
-            the node whose id matches that index in the list. The node data contains two fields,
-            
-            - **"class"**: The class name. This is used to identify and construct the appropriate
-                BooleanFunction subclass and call the appropriate implementations of `_parse_JSON_entry`.
-            - **"data"**: The additional data which is used to recreate the fields of the node 
-                (in key:value pairs). For example:
-                - **"args"**: a list containing the id's of the child nodes, which can be used to reconstruct the nodes arguments.
-                - **"arg_limit"**: preserved as is from the node.
-                - any additional fields (e.g. value/index for `CONST`/`VAR` nodes)
-
-        This function will return a tuple of functions, in the same template as they were passed to
-        `generate_functions`. Length checks may be needed if you are loading from a file that you don't
-        know the structure of. For single functions, where this generality is not needed, there are some aliases
-        which simplify the process and inputs. These are useful shortcuts for a lot of cases,
-        but once the use case becomes complex enough, its preferred to manually manage file_IO 
-        and using the full `generate_JSON`/`parse_JSON` methods.
-        - `fn.to_JSON()`: an alias for `BooleanFunction.generate_JSON(fn)`
-        - `BooleanFunction.from_JSON(json)`: an alias for `BooleanFunction.parse_JSON(json)[0]` 
-        - `fn.to_file(filename)`: writes the output of `fn.to_JSON()` to a `.json` file
-        - `BooleanFunction.from_file(filename)`: parses a `.json` file using `from_JSON()`
-
-        :json_object: A dictionary with the expected structure.
-        :type: dict[str,Any]
-        :return: A tuple of booleanFunctions, parsed from the JSON.
-        :rtype: tuple[BooleanFunction]
-        """
-        # parse object class and data
-        return_ids = json_object["Return IDs"]
-        json_node_list = json_object["Node Data"]
-        num_nodes = len(json_node_list)
-        parsed_functions: list[Any] = [None for i in range(num_nodes)]
-        for node_id in range(num_nodes):
-            node_data = json_node_list[node_id]
-            
-            # create information for the python object for this node
-            object_class = None
-            object_data = node_data['data']
-
-            # find the appropriate subclass of BooleanFunction for the node
-            for subcls in cls.__subclasses__():
-                if subcls.__name__ == node_data['class']:
-                    object_class = subcls
-
-            # throw a better error if no class found
-            if object_class == None:
-                raise TypeError(f"Type \'{node_data['class']}\' is not a valid BooleanFunction")
-
-            # put data into new object and add it to the parsed functions
-            parsed_functions[node_id] = object_class._parse_JSON_entry(
-                object_data, parsed_functions
-            )
-        
-        # the root node is the last one in the list:
-        return tuple([parsed_functions[node_id] for node_id in return_ids])
-
     def to_JSON(self) -> dict[str,Any]:
-        """An alias for `BooleanFunction.generate_JSON(fn)`
+        """An alias for `PyPR.JSON_Serialization.generate_JSON(fn)`
         
         This can be used in conjunction with `from_JSON` to reduce verbosity and improve readibility
         when you only want to store/parse one function. These are useful shortcuts for a lot of cases,
         but once the use case becomes complex enough, its preferred to use the full 
-        `generate_JSON`/`parse_JSON` methods. Check the docstrings on these methods for more 
-        information on usage and output.
+        `generate_JSON`/`parse_JSON` methods in PyPR.JSON_Serialization. Check the docstrings on these
+        methods for more information on usage and output.
 
         :return: A JSON object which encodes the input function
         :rtype: dict[str,Any]
         """
-        return BooleanFunction.generate_JSON(self)
+        return PyPR.JSON_Serialization.generate_JSON(self)
 
     @classmethod
     def from_JSON(cls, 
         json_object: dict[str,Any]
-    ) -> "BooleanFunction":
-        """An alias for `BooleanFunction.parse_JSON(json_object)[0]`
+    ) -> Self:
+        """An alias for `PyPR.JSON_Serialization.parse_JSON(json_object)[0]`
         
         This can be used in conjunction with `to_JSON` to reduce verbosity and improve readibility
         when you only want to store/parse one function. These are useful shortcuts for a lot of cases,
         but once the use case becomes complex enough, its preferred to use the full 
-        `generate_JSON`/`parse_JSON` methods. Check the docstrings on these methods for more 
-        information on usage and output.
+        `generate_JSON`/`parse_JSON` methods in PyPR.JSON_Serialization. Check the docstrings on these
+        methods for more information on usage and output.
 
-        :json_object: A dictionary with the expected structure.
-        :type: dict[str,Any]
+        Although there is no functional difference between `X.from_JSON` and `Y.from_JSON` for two
+        classes (`X` and `Y`) which are both serializable, the class you call this method from is used
+        to determine type hinting and to clarify the code. Therefore, I choose to throw an error if the
+        json encodes a different class than the one you use to decode. This is mostly to enforce 
+        readable code and good usage, and to make sure objects are interpreted correctly.
+
+        :param json_object: A dictionary with the expected structure.
+        :type json_object: dict[str,Any]
         :return: The BooleanFunction which was used to create the JSON.
         :rtype: BooleanFunction
         """
-        return BooleanFunction.parse_JSON(json_object)[0]
+        return_idx = json_object['return order'][0]
+        json_class = json_object['objects'][return_idx]['class']
+        subclasses = set((
+            str(cls)[8:-2] for cls in 
+            PyPR.JSON_Serialization.all_subclasses(cls)
+        ))
+         
+        if json not in subclasses:
+            raise ValueError(
+                f"JSON encodes {json_class}, which is not " + 
+                f"a subclass of class {str(cls)[8:-2]}"
+            )
+        
+        return PyPR.JSON_Serialization.parse_JSON(json_object)[0]
     
     def to_file(self,
         filename: str
@@ -2079,24 +1982,27 @@ self._compiled = _compiled
         """Writes the output of fn.to_JSON to a file with the given filename.
         
         This can be used in conjunction with `from_file` to reduce verbosity and improve readibility
-        when you only want to store/parse one function. These are useful shortcuts for a lot of cases,
+        when you only want to store/parse one object. These are useful shortcuts for a lot of cases,
         but once the use case becomes complex enough, its preferred to manage I/O manually and use 
-        the full `generate_JSON`/`parse_JSON` methods. Check the docstrings on these methods for more 
-        information on usage and output.
+        the full `generate_JSON`/`parse_JSON` methods in PyPR.JSON_Serialization. Check the docstrings\
+        on these methods for more information on usage and output.
 
         :param filename: A string which will be used as the name of the generated file 
-            (a `.json` suffix is highly recommended)
+            (must end with the `.json` file extension)
         :type filename: str
         """
+        # json files only:
+        if filename[-5:] != ".json":
+            raise ValueError("Filename must end with the \".json\" file extension")
+        
         with open(filename, 'w') as f:
-            # also equivalent: f.write(json.dumps(self.to_JSON(), indent = 2))
-            f.write(json.dumps(BooleanFunction.generate_JSON(self), indent = 2))
+            f.write(json.dumps(self.to_JSON(), indent = 2))
 
     @classmethod
     def from_file(cls, 
         filename: str
-    ) -> "BooleanFunction":
-        """Reads a single BooleanFunction from the file with the given filename.
+    ) -> Self:
+        """Reads a single function from the file with the given filename.
         
         This can be used in conjunction with `to_file` to reduce verbosity and improve readibility
         when you only want to store/parse one function. These are useful shortcuts for a lot of cases,
@@ -2104,12 +2010,17 @@ self._compiled = _compiled
         the full `generate_JSON`/`parse_JSON` methods. Check the docstrings on these methods for more 
         information on usage and output.
 
-        :param filename: A string which givens the name of the file to read.
+        Although there is no functional difference between `X.from_file` and `Y.from_file` for two
+        classes (`X` and `Y`) which are both serializable, the class you call this method from is used
+        to determine type hinting and to clarify the code. Therefore, I choose to throw an error if the
+        json encodes a different class than the one you use to decode. This is mostly to enforce 
+        readable code and good usage, and to make sure objects are interpreted correctly.
+
+        :param filename: A string which gives the name of the file to read.
         :type filename: str
         """
         with open(filename, 'r') as f:
-            # also equivalent: return BooleanFunction.from_json(json.loads(f.read()))
-            return BooleanFunction.parse_JSON(json.loads(f.read()))[0]
+            return cls.from_JSON(json.loads(f.read()))
 
 
     # statistics and properties:

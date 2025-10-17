@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Iterator
 
 from PyPR.BooleanLogic.FunctionInputs import VAR
 from PyPR.BooleanLogic import BooleanFunction, BooleanANF
@@ -7,7 +7,10 @@ def SubstitutionEqGenerator(
     feedback_fn, 
     output_fn, 
     limit, 
-):
+) -> Iterator[
+    tuple[int, list[BooleanFunction], int] |
+    list[tuple[int, list[BooleanFunction], int]]
+]:
     # Input handling:
     if type(output_fn) == list:
         return_list = True

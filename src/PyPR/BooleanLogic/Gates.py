@@ -115,8 +115,6 @@ class XOR(BooleanFunction):
 
 
 
-
-
 class AND(BooleanFunction):
     def __init__(self, *args, arg_limit = None):
         self.arg_limit = arg_limit
@@ -204,8 +202,6 @@ class AND(BooleanFunction):
                 )
             return clauses
     
-    
-
     
 
 
@@ -369,6 +365,7 @@ class XNOR(BooleanFunction):
             )
             
             return clauses
+
 
 
 
