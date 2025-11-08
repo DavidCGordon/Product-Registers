@@ -29,6 +29,7 @@ def lu_solve(L,U,c,z):
             
     return z
 
+# Incomplete solver -> additional constants
 def solve(equation_store, additional_constants = None):
     if additional_constants is None:
         additional_constants = np.zeros_like(equation_store.constants)

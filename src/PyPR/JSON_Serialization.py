@@ -49,6 +49,7 @@ def generate_JSON(
     # Create the ids:
     obj_ids = {}
     for o in objs:
+        # every object needs to specify it's IDs for this to work
         obj_ids = o.generate_ids(obj_ids)
     
     # create the json:

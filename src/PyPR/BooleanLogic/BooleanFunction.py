@@ -1968,7 +1968,7 @@ self._compiled = _compiled
             PyPR.JSON_Serialization.all_subclasses(cls)
         ))
          
-        if json not in subclasses:
+        if json_class not in subclasses:
             raise ValueError(
                 f"JSON encodes {json_class}, which is not " + 
                 f"a subclass of class {str(cls)[8:-2]}"

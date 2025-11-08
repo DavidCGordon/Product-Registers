@@ -1,4 +1,7 @@
+from typing import Any, Tuple
+
 from PyPR import FeedbackRegister
+from PyPR.FeedbackFunctions import FeedbackFunction
 from PyPR.BooleanLogic import BooleanFunction, AND, XOR, CONST
 
 from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile
@@ -25,34 +28,37 @@ u8 = numba.types.uint8
 u64 = numba.types.uint64
 
 # small helper function to help pretty-print:
-def indent(n):
+def indent(n:int) -> str:
     return ("|   " * n)
 
 
 
 def FAA_offline(
-    feedback_fn, annihilator, multiple, 
-    init_rounds, margin,
-    time_limit, 
-    verbose = False,
-    print_depth = 0,
+    feedback_fn: FeedbackFunction, 
+    annihilator: BooleanFunction, 
+    multiple: BooleanFunction, 
+    init_rounds: int, 
+    margin: int,
+    time_limit: int, 
+    verbose: bool = False,
+    _print_depth: int = 0,
 
     # both are needed to specify a monomial layout:
     # this enables optimizations
-    monomial_profiles = None,
-    variable_blocks = None
-    ):
+    monomial_profiles: list[MonomialProfile] | None = None,
+    variable_blocks: list[list[int]] | None = None
+):
 
     if verbose:
-        print(f"{indent(print_depth)}Starting offline phase (Fast Algebraic Attack):")
+        print(f"{indent(_print_depth)}Starting offline phase (Fast Algebraic Attack):")
     start_time = time.time()
 
     # compute equations for the annihilator:
     if monomial_profiles != None and variable_blocks != None:
 
         if verbose:
-            print(f"{indent(print_depth+1)}using monomial profile optimization: True")
-            print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Calculating monomial profile for annihilator:")
+            print(f"{indent(_print_depth+1)}using monomial profile optimization: True")
+            print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Calculating monomial profile for annihilator:")
             mp_a_time = time.time()
 
         annihilator_mp = annihilator.remap_constants([
@@ -61,9 +67,9 @@ def FAA_offline(
         ]).eval_ANF(monomial_profiles)
 
         if verbose:
-            print(f"{indent(print_depth+1)}Monomial profile computed:")
-            print(f"{indent(print_depth+1)}Time: {time.time() - mp_a_time} s")
-            print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Calculating monomial profile for low degree multiple:")
+            print(f"{indent(_print_depth+1)}Monomial profile computed:")
+            print(f"{indent(_print_depth+1)}Time: {time.time() - mp_a_time} s")
+            print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Calculating monomial profile for low degree multiple:")
             mp_m_time = time.time()
 
         # Precompute LC for low degree multiple:
@@ -74,9 +80,9 @@ def FAA_offline(
         max_LC = multiple_mp.upper()
 
         if verbose:
-            print(f"{indent(print_depth+1)}Monomial profile computed:")
-            print(f"{indent(print_depth+1)}Time: {time.time() - mp_m_time} s")
-            print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Calculating variable_map:")
+            print(f"{indent(_print_depth+1)}Monomial profile computed:")
+            print(f"{indent(_print_depth+1)}Time: {time.time() - mp_m_time} s")
+            print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Calculating variable_map:")
             var_map_time = time.time()
         
         # A map with all subsets filled in, to sum over cubes
@@ -85,9 +91,9 @@ def FAA_offline(
         )
 
         if verbose:
-            print(f"{indent(print_depth+1)}Variable map computed:")
-            print(f"{indent(print_depth+1)}Time: {time.time() - var_map_time} s")
-            print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Calculating linear relation:")
+            print(f"{indent(_print_depth+1)}Variable map computed:")
+            print(f"{indent(_print_depth+1)}Time: {time.time() - var_map_time} s")
+            print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Calculating linear relation:")
             lin_rel_time = time.time()
        
         # use berlekamp_massey to get the exact relation
@@ -104,7 +110,7 @@ def FAA_offline(
             count += 1000
             if verbose:
                 print(
-                    f"\r{indent(print_depth+2)}Bits processed: {count} / {max_count}" +
+                    f"\r{indent(_print_depth+2)}Bits processed: {count} / {max_count}" +
                     f"  --  Linear Complexity: {curr_LC} / {max_LC}", 
                     end=''
                 )
@@ -119,15 +125,15 @@ def FAA_offline(
         margin += linear_complexity
 
         if verbose:
-            print(f"\n{indent(print_depth+1)}Linear relation found:")
-            print(f"{indent(print_depth+1)}Linear complexity: {linear_complexity}")
-            print(f"{indent(print_depth+1)}Time: {time.time()-lin_rel_time} s")
+            print(f"\n{indent(_print_depth+1)}Linear relation found:")
+            print(f"{indent(_print_depth+1)}Linear complexity: {linear_complexity}")
+            print(f"{indent(_print_depth+1)}Time: {time.time()-lin_rel_time} s")
 
         # use precomputed maps for faster eq generation and storage
         annihilator_eqs = EqStore(variable_indices)
         eq_gen = CubeEqGenerator(
             feedback_fn, annihilator, (len(variable_indices) + margin), 
-            variable_indices, verbose=True, print_depth=print_depth+2
+            variable_indices, verbose=True, _print_depth=_print_depth+2
         )
 
         # additional flags
@@ -136,7 +142,7 @@ def FAA_offline(
 
     else:
         if verbose:
-            print(f"{indent(print_depth+1)}Using monomial profile optimization: False")
+            print(f"{indent(_print_depth+1)}Using monomial profile optimization: False")
 
         # create dynamic storage and generation
         annihilator_eqs = DynamicEqStore()
@@ -164,7 +170,7 @@ def FAA_offline(
         
 
         if verbose:
-            print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Calculating linear complexity dynamically:")
+            print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Calculating linear complexity dynamically:")
             lin_rel_time = time.time()
 
         count = 0
@@ -175,7 +181,7 @@ def FAA_offline(
             yield_rate=1000
         ):
             if verbose:
-                print(f"\r{indent(print_depth+2)}Bits processed (thousands): {count} -- Linear Complexity: {curr_LC}", end='')
+                print(f"\r{indent(_print_depth+2)}Bits processed (thousands): {count} -- Linear Complexity: {curr_LC}", end='')
 
             # check lengths first for more efficient short circuit:
             if (linear_complexity == curr_LC) and np.all(linear_relation == curr_relation):
@@ -190,29 +196,34 @@ def FAA_offline(
         margin += linear_complexity
 
         if verbose:
-            print(f"\n{indent(print_depth+1)}Linear relation found:")
-            print(f"{indent(print_depth+1)}Linear complexity: {curr_LC}")
-            print(f"{indent(print_depth+1)}Time: {time.time()-lin_rel_time} s")
+            print(f"\n{indent(_print_depth+1)}Linear relation found:")
+            print(f"{indent(_print_depth+1)}Linear complexity: {curr_LC}")
+            print(f"{indent(_print_depth+1)}Time: {time.time()-lin_rel_time} s")
 
     
     if verbose:
-        print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Generating Equations:")
+        print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Generating Equations:")
         eq_time = time.time()
    
     # main equation loop
-    for t, ann_eq, ann_extra_const in eq_gen:
-
+    for equation_data in eq_gen: # type: ignore
+        equation_data: ( # this is to narrow the types correctly
+            tuple[int, np.ndarray[tuple[int],np.dtype[np.uint8]], int] |
+            tuple[int, BooleanFunction                          , int]
+        )
+        t,ann_eq,ann_extra_const = equation_data
+        
         # don't generate equations for initialization rounds
         if t < init_rounds: continue
         
         annihilator_eqs.insert_equation(ann_eq, ann_extra_const, identifier = t)
 
         if verbose: 
-            print(f'\r{indent(print_depth+2)}Equations Found: {annihilator_eqs.num_eqs} / {annihilator_eqs.num_vars + margin}',end='')
+            print(f'\r{indent(_print_depth+2)}Equations Found: {annihilator_eqs.num_eqs} / {annihilator_eqs.num_vars + margin}',end='')
 
         if time_limit and (time.time() - start_time >= time_limit):
             if verbose:
-                print(f"\n{indent(print_depth)}Time limit reached!")
+                print(f"\n{indent(_print_depth)}Time limit reached!")
             break
 
         # break step only necessary for dynamic stores:
@@ -228,9 +239,9 @@ def FAA_offline(
                     break
 
     if verbose:
-        print(f'\r{indent(print_depth+2)}Equations Found: {annihilator_eqs.num_eqs} / {annihilator_eqs.num_vars + margin}',end='\n')
-        print(f"{indent(print_depth+1)}Finished equation generation: ")
-        print(f"{indent(print_depth+1)}Time: {time.time() - eq_time} s")
+        print(f'\r{indent(_print_depth+2)}Equations Found: {annihilator_eqs.num_eqs} / {annihilator_eqs.num_vars + margin}',end='\n')
+        print(f"{indent(_print_depth+1)}Finished equation generation: ")
+        print(f"{indent(_print_depth+1)}Time: {time.time() - eq_time} s")
         print(f"Offline phase complete -- Total time: ", time.time() - start_time)
 
     output = {}
@@ -248,7 +259,13 @@ def FAA_offline(
 
 
 @numba.njit(numba.types.Tuple((u8[:],u8))(u64,u8[:],u8[:,:],u8[:],u8[:]))
-def sum_over_linear_relationship(start_idx, keystream, equations, constants, linear_relation):
+def sum_over_linear_relationship(
+    start_idx: int, 
+    keystream: np.ndarray[tuple[int],np.dtype[np.uint8]], 
+    equations: np.ndarray[tuple[int],np.dtype[np.uint8]], 
+    constants: np.ndarray[tuple[int],np.dtype[np.uint8]], 
+    linear_relation: np.ndarray[tuple[int],np.dtype[np.uint8]]
+):
     coef_vector = np.zeros((equations.shape[1],), dtype="uint8")
     const_val = 0
 
@@ -266,15 +283,24 @@ def sum_over_linear_relationship(start_idx, keystream, equations, constants, lin
 # and the known bits doesnt /really/ help with the monomials (without a big loop), so it
 # doesnt shrink the system that much, but does introduce a lot of overhead.
 def FAA_online(
-    feedback_fn, output_fn, keystream, attack_data, 
-    test_length = 1000, verbose = False, print_depth = 0
+    feedback_fn: FeedbackFunction,
+    output_fn: BooleanFunction,
+    keystream: list[int] | np.ndarray[tuple[int],np.dtype[np.uint8]], 
+    attack_data: dict[str,Any], 
+    test_length: int = 1000, 
+    verbose: bool = False, 
+    _print_depth: int = 0
 ):
     if verbose:
-        print(f"{indent(print_depth)}Starting online phase (Fast Algebraic Attack):")
+        print(f"{indent(_print_depth)}Starting online phase (Fast Algebraic Attack):")
     start_time = time.time()
 
-    if type(keystream) != np.ndarray:
+    if type(keystream) == np.ndarray:
+        pass
+    elif type(keystream) == list:
         keystream = np.array(keystream, dtype = 'uint8')
+    else:
+        raise ValueError(f"Keystream must be a list or u8 ndarray, not {type(keystream)}")
 
     # unpack attack_data
     num_vars = attack_data['num variables']
@@ -293,7 +319,7 @@ def FAA_online(
     ]
 
     if verbose:
-        print(f"{indent(print_depth+1)}Starting Equation Substitution:")
+        print(f"{indent(_print_depth+1)}Starting Equation Substitution:")
 
     # main loop:
     combined_eqs = LUEqStore(comb_to_idx)
@@ -308,22 +334,22 @@ def FAA_online(
 
         if verbose:
             print(
-                f"\r{indent(print_depth+2)}Equations Substituted: {eq_idx+1} / {num_eqs+1 - len(linear_relation)}" +
+                f"\r{indent(_print_depth+2)}Equations Substituted: {eq_idx+1} / {num_eqs+1 - len(linear_relation)}" +
                 f"  --  Current Rank: {combined_eqs.rank} / {num_vars}",
                 end = ''
             )
 
         if combined_eqs.rank == combined_eqs.num_vars:
             if verbose:
-                print(f"\n{indent(print_depth+2)}\n{indent(print_depth+2)}Substitution finished early!")
-                print(f"{indent(print_depth+2)}Equations processed: {eq_idx+1}/{num_eqs}", end='')
+                print(f"\n{indent(_print_depth+2)}\n{indent(_print_depth+2)}Substitution finished early!")
+                print(f"{indent(_print_depth+2)}Equations processed: {eq_idx+1}/{num_eqs}", end='')
             break
 
     if verbose:
-        print(f"\n{indent(print_depth+1)}Finished substituting key stream:")
-        print(f"{indent(print_depth+1)}Variables Solved: {combined_eqs.num_eqs}/{num_vars}")
-        print(f"{indent(print_depth+1)}Time: {time.time() - start_time} s")    
-        print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Starting initial matrix solve:")
+        print(f"\n{indent(_print_depth+1)}Finished substituting key stream:")
+        print(f"{indent(_print_depth+1)}Variables Solved: {combined_eqs.num_eqs}/{num_vars}")
+        print(f"{indent(_print_depth+1)}Time: {time.time() - start_time} s")    
+        print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Starting initial matrix solve:")
 
     # initialize new data for guessing:
     initial_guess_start = time.time()
@@ -346,16 +372,16 @@ def FAA_online(
     test_seq = [output_fn.eval(state) for state in F.run(test_length)]
     if np.all(test_seq == test_keystream):
         if verbose:
-            print(f"{indent(print_depth+1)}Initial matrix solve complete -- correct base solution")
-            print(f"{indent(print_depth+1)}Time: {time.time() - initial_guess_start} s")
-            print(f"{indent(print_depth)}Online phase complete -- Total time: ", time.time() - start_time)
+            print(f"{indent(_print_depth+1)}Initial matrix solve complete -- correct base solution")
+            print(f"{indent(_print_depth+1)}Time: {time.time() - initial_guess_start} s")
+            print(f"{indent(_print_depth)}Online phase complete -- Total time: ", time.time() - start_time)
         return list(base_solution)
 
 
     # otherwise we need to try different guesses
     if verbose:
-        print(f"{indent(print_depth+1)}Initial solution failed, guessing remaining information:")
-        print(f"{indent(print_depth+2)}Collecting guess effect vectors:")
+        print(f"{indent(_print_depth+1)}Initial solution failed, guessing remaining information:")
+        print(f"{indent(_print_depth+2)}Collecting guess effect vectors:")
         
    # first, collect the effects of every guessed bit independently
     effect_collection_start = time.time()
@@ -364,7 +390,7 @@ def FAA_online(
     unstable_bits = np.zeros_like(base_solution)
     for t in range(len(guess_bits)):
         if verbose:
-            print(f"\r{indent(print_depth+3)}Matrix Solves: {t+1}/{len(guess_bits)}",end='')
+            print(f"\r{indent(_print_depth+3)}Matrix Solves: {t+1}/{len(guess_bits)}",end='')
 
         guess_assignment = [0]*len(guess_bits)
         guess_assignment[t] = 1
@@ -379,9 +405,9 @@ def FAA_online(
         unstable_bits |= difference
 
     if verbose:
-        print(f"\n{indent(print_depth+2)}Finished collecting guess effect vectors:")
-        print(f"{indent(print_depth+2)}Time: {time.time() - effect_collection_start} s")
-        print(f"{indent(print_depth+2)}\n{indent(print_depth+2)}Starting effect pruning:")
+        print(f"\n{indent(_print_depth+2)}Finished collecting guess effect vectors:")
+        print(f"{indent(_print_depth+2)}Time: {time.time() - effect_collection_start} s")
+        print(f"{indent(_print_depth+2)}\n{indent(_print_depth+2)}Starting effect pruning:")
 
     # prune guesses by removing impossible and dependent guesses:
     effect_pruning_time = time.time()
@@ -415,15 +441,15 @@ def FAA_online(
                     break
         
         if verbose:
-            print(f"\r{indent(print_depth+3)}Vectors Pruned: {i+1}/{len(guess_effect_map)}",end='')
+            print(f"\r{indent(_print_depth+3)}Vectors Pruned: {i+1}/{len(guess_effect_map)}",end='')
 
     if verbose: 
-        print(f"\n{indent(print_depth+2)}Pruning finished:")
-        print(f"{indent(print_depth+2)}Max number of guesses (original): 2^{len(guess_bits)}")
-        print(f"{indent(print_depth+2)}Max number of guesses (pruned): 2^{len(pruned_guesses)}")
-        print(f"{indent(print_depth+2)}Time: {time.time() - effect_pruning_time} s")
-        #print(f"{indent(print_depth+2)}Time for total pruning process: {time.time() - effect_collection_start} s")
-        print(f"{indent(print_depth+2)}\n{indent(print_depth+2)}Starting to Guess:")
+        print(f"\n{indent(_print_depth+2)}Pruning finished:")
+        print(f"{indent(_print_depth+2)}Max number of guesses (original): 2^{len(guess_bits)}")
+        print(f"{indent(_print_depth+2)}Max number of guesses (pruned): 2^{len(pruned_guesses)}")
+        print(f"{indent(_print_depth+2)}Time: {time.time() - effect_pruning_time} s")
+        #print(f"{indent(_print_depth+2)}Time for total pruning process: {time.time() - effect_collection_start} s")
+        print(f"{indent(_print_depth+2)}\n{indent(_print_depth+2)}Starting to Guess:")
 
     # Now test using the pruned guesses:
     guess_count = 0
@@ -432,7 +458,7 @@ def FAA_online(
         guess_count += 1
 
         if verbose:
-            print(f"\r{indent(print_depth+3)}Guess count: {guess_count}",end='')
+            print(f"\r{indent(_print_depth+3)}Guess count: {guess_count}",end='')
 
         F.set_state(base_solution)
         for idx, assigned in enumerate(guess_assignment):
@@ -448,10 +474,10 @@ def FAA_online(
         
         if not mismatch:
             if verbose:
-                print(f"\n{indent(print_depth+2)}Guessing Finished:")
-                print(f"{indent(print_depth+2)}Time: {time.time() - guess_start_time} s")
-                print(f"{indent(print_depth+1)}Solution Found!")
-                print(f"{indent(print_depth)}Online phase complete -- Total time: ", time.time() - start_time)
+                print(f"\n{indent(_print_depth+2)}Guessing Finished:")
+                print(f"{indent(_print_depth+2)}Time: {time.time() - guess_start_time} s")
+                print(f"{indent(_print_depth+1)}Solution Found!")
+                print(f"{indent(_print_depth)}Online phase complete -- Total time: ", time.time() - start_time)
             F.reset()
 
             return list(F)

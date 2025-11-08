@@ -241,14 +241,13 @@ class FeedbackFunction:
             str(cls)[8:-2] for cls in 
             PyPR.JSON_Serialization.all_subclasses(cls)
         ))
-         
-        if json not in subclasses:
+
+        if json_class not in subclasses:
             raise ValueError(
                 f"JSON encodes {json_class}, which is not " + 
                 f"a subclass of class {str(cls)[8:-2]}"
             )
         
-        print("PyPR.FeedbackRegister.FeedbackRegister" in subclasses)
         return PyPR.JSON_Serialization.parse_JSON(json_object)[0]
     
     def to_file(self,

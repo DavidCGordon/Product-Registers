@@ -1,5 +1,8 @@
 from PyPR.BooleanLogic.Gates import NOT
 from PyPR.BooleanLogic.BooleanANF import BooleanANF
+
+from PyPR.Cryptanalysis.Components.EquationStores.LUDynamicEqStore import LUDynamicEqStore
+
 from functools import cmp_to_key
 import time
 
@@ -220,6 +223,11 @@ def annihilators(f, annihilator_only=False, verbose = True):
             bounded_bases.append((sigma,c,p))
 
     annihilators = [a.to_BooleanFunction() for a in annihilators if a.terms]
+
+    # # filter out dependent equations: (not sure how this happens tbh)
+    # linear_dependence_filter = LUDynamicEqStore()
+    # annihilators = [a for a in annihilators if linear_dependence_filter.insert_equation(a)]
+    # print(linear_dependence_filter.rank)
 
     if verbose:
         print(f"\nFinished")

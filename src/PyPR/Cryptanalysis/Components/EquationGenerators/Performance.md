@@ -1,0 +1,1 @@
+Will write more thorough analysis regarding performance for equation generators here later

@@ -1,4 +1,5 @@
 from PyPR import FeedbackRegister
+from PyPR.BooleanLogic import BooleanFunction
 
 from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile
 
@@ -113,7 +114,12 @@ def RAA_offline(
         eq_time = time.time()
 
     # main equation loop
-    for ann_data, mult_data in eq_gen:
+    for equation_data in eq_gen: # type: ignore
+        equation_data: ( # this is to narrow the types correctly
+            list[tuple[int, np.ndarray[tuple[int],np.dtype[np.uint8]], int]] |
+            list[tuple[int, BooleanFunction                          , int]]
+        )
+        ann_data, mult_data = equation_data
         t, ann_eq, ann_extra_const = ann_data
         t, mult_eq, mult_extra_const = mult_data
 
@@ -295,6 +301,7 @@ def RAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
     pruned_guesses = []
     already_solved = set()
     reduced_matrix = np.zeros([feedback_fn.size,feedback_fn.size], dtype = np.uint8)
+
     for (v,comb), effect_vector in guess_effect_map.items():
         # don't guess a monomial which contains a known 0
         impossible_comb = False

@@ -8,6 +8,8 @@ from PyPR import FeedbackRegister
 from PyPR.BooleanLogic import BooleanFunction
 from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile, TermSet
 
+def indent(n):
+    return ("|   " * n)
 
 # Cube attacks need to tweak/query the actual register:
 # because of this, we need pass functions to the attack
@@ -328,28 +330,37 @@ def cmpr_cube_summary(cmpr_fn, output_fn,tweakable_vars, analyze_sources = False
 
 # lazy product implementation for faster skipping of unusable sets :)
 # attribution: https://discuss.python.org/t/a-product-function-which-supports-large-infinite-iterables/5753
-def iproduct(*iterables, repeat=1):
-    iterables = [item for row in zip(*(tee(iterable, repeat) for iterable in iterables)) for item in row]
+def iproduct(*iterables):
     N = len(iterables)
     saved = [[] for _ in range(N)]  # All the items that we have seen of each iterable.
     exhausted = set()               # The set of indices of iterables that have been exhausted.
-    for i in cycle(range(N)):
-        if i in exhausted:  # Just to avoid repeatedly hitting that exception.
+
+    idx = -1
+    while True:
+        idx = (idx+1) % N
+        if idx in exhausted:  # dont increment exhausted iterators
             continue
+
         try:
-            item = next(iterables[i])
-            yield from product(*saved[:i], [item], *saved[i+1:])  # Finite product.
-            saved[i].append(item)
+            item = next(iterables[idx])
+            # yield to products involving the new item:
+            yield from product(*saved[:idx], [item], *saved[idx+1:]) 
+            saved[idx].append(item)
+
+        # Product is empty or all iterables exhausted.
         except StopIteration:
-            exhausted.add(i)
-            if not saved[i] or len(exhausted) == N:  # Product is empty or all iterables exhausted.
+            exhausted.add(idx)
+            if not saved[idx] or len(exhausted) == N:  
                 return
     yield ()  # There are no iterables.
 
 def cmpr_cube_attack_offline(
-    cmpr_fn, output_fn, sim_fn, tweakable_vars, 
-    time_limit = None, num_tests = 20, verbose = False
+    cmpr_fn, output_fn, sim_fn, tweakable_vars,
+    time_limit = None, num_tests = 20, verbose = False, print_depth=0
     ):
+    print_skipped_cubes = False
+    if verbose:
+        print(f"{indent(print_depth)}Starting offline phase (Naive Algebraic Attack):")
 
     start_time = time.time()
     
@@ -362,23 +373,46 @@ def cmpr_cube_attack_offline(
     tweakable_set = set(tweakable_vars)
     tweakable_blocks = [set(block) & tweakable_set for block in cmpr_fn.blocks]
 
+    if verbose:
+        print(f"{indent(print_depth+1)}using monomial profile optimization: True")
+        print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Calculating larger monomial profile:")
+        mp_time = time.time()
+
     monomial_profile = output_fn.translate_ANF().remap_constants([
         (0, MonomialProfile.logical_zero()),
         (1, MonomialProfile.logical_one())
     ]).eval_ANF(cmpr_fn.monomial_profiles())
+
+    if verbose:
+        print(f"{indent(print_depth+1)}Monomial profile computed:")
+        print(f"{indent(print_depth+1)}Time: {time.time() - mp_time} s")
+        print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Calculating variable_map:")
+        cube_cand_time = time.time()
 
     cube_candidates = sorted(
         monomial_profile.get_cube_candidates(),
         key = (lambda x: sum(x[0].counts.values()))
     )
 
+    if verbose:
+        print(f"{indent(print_depth+1)}Cube candidates computed:")
+        print(f"{indent(print_depth+1)}Time: {time.time() - cube_cand_time} s")
+        print(f"{indent(print_depth+1)}")
+        print(f"{indent(print_depth+1)}Identifying Cubes:")
+
     # Maxterm search
     maxterm_count = 0
-    for cube_profile, target_block, num_cubes, cube_failure_prob in cube_candidates:
-        if verbose: print('\nCube Profile: ', cube_profile)
+    for cube_profile, target_block, num_cubes in cube_candidates:
+        if verbose:
+           profile_prefix = f"{indent(print_depth+2)}Cube Candidate Profile: {cube_profile}"
 
         # check to see if the block is saturated:
-        block_already_saturated = all([(bit in cube_map) for bit in cmpr_fn.blocks[target_block]])
+        block_already_saturated = True
+        for t in target_block:
+            for bit in cmpr_fn.blocks[t]:
+                if not (bit in cube_map):
+                    block_already_saturated = False
+                    break
 
         # create the iterators and calculate some statistics:
         tweakable_cube_count = 1
@@ -389,6 +423,7 @@ def cmpr_cube_attack_offline(
             loop_nums = []
             for block_id in range(len(cmpr_fn.blocks)-1,-1,-1):
                 if block_id in cube_profile.counts:
+                    
                     variable_iterators.append(combinations(tweakable_blocks[block_id],cube_profile.counts[block_id]))
 
                     num_loops = 1
@@ -406,19 +441,27 @@ def cmpr_cube_attack_offline(
 
         # output message for empty cube profiles:
         if tweakable_cube_count == 0:
-            if verbose: print(' - Cube skipped (not possible with current tweakable bits)')
-            continue
-        # output message for cube profiles we won't use but could:
-        if block_already_saturated:
-            if verbose: print(' - Cube skipped (target block already saturated)')
+            if print_skipped_cubes and verbose: 
+                print(f'{profile_prefix}: skipped (not possible with current tweakable bits)')
             continue
 
-        
+        # output message for cube profiles we won't use but could:
+        if block_already_saturated:
+            if print_skipped_cubes and verbose: 
+                print(f'{profile_prefix}: skipped (target block already saturated)')
+            continue
+
         # test the individual cubes/maxterms:
         already_printed = False
-        for var_selections in iproduct(*variable_iterators):
+        for cube_idx, var_selections in enumerate(iproduct(*variable_iterators)):
             # break out of the specific cube candidate loop if needed
-            block_already_saturated = all([(bit in cube_map) for bit in cmpr_fn.blocks[target_block]])
+            block_already_saturated = True
+            for t in target_block:
+                for bit in cmpr_fn.blocks[t]:
+                    if not (bit in cube_map):
+                        block_already_saturated = False
+                        break
+
             if block_already_saturated:
                 break
             if time_limit and time.time() - start_time > time_limit:
@@ -429,14 +472,15 @@ def cmpr_cube_attack_offline(
             if not already_printed:
                 already_printed = True
                 if verbose:
-                    print('Target Block: ', target_block, 'Target Block Size:', len(cmpr_fn.blocks[target_block]))
-                    print('Number of Cube Candidates (before restriction): ', num_cubes)
-                    print('Number of Cube Candidates (restricted to tweakable bits): ', tweakable_cube_count)
-                    print('Cube Failure Probability: ', cube_failure_prob)
-            
+                    print(f'{profile_prefix}:')
+                    print(f'{indent(print_depth+2)}Target Block: {target_block} - Target Block Size: {sum(len(cmpr_fn.blocks[t]) for t in target_block)}')
+                    print(f'{indent(print_depth+2)}Number of Cube Candidates (before restriction): {num_cubes}')
+                    print(f'{indent(print_depth+2)}Number of Cube Candidates (restricted to tweakable bits): {tweakable_cube_count}')
+
             maxterm_count += 1
             maxterm = tuple(chain(*var_selections))
-            if verbose: print('Cube Candidate: ', maxterm,)
+            if verbose:
+                print(f'\r{indent(print_depth+3)}Cube {cube_idx+1}/{tweakable_cube_count}: {maxterm}',end='')
 
             # counts for bookkeeping/printing:
             useful_count = 0
@@ -446,21 +490,17 @@ def cmpr_cube_attack_offline(
 
             # cube information:
             equations, constants = determine_equations(sim_fn,maxterm,cmpr_fn.size)
-            for i in range(100):
-                print(i, [int(x) for x in equations[i]])
-            print(constants)
             nonlinear_mask = get_nonlinear_mask(sim_fn,maxterm,cmpr_fn.size,num_tests)
             constant_mask = get_constant_mask(sim_fn,maxterm,cmpr_fn.size,num_tests)
-            print(nonlinear_mask,constant_mask)
             
-            for t in range(len(nonlinear_mask)):
+            for t in range(len(constant_mask)):
                 # filter constant / nonlinear superpoly's
                 if constant_mask[t]:
                     constant_count += 1
                     continue
-                elif nonlinear_mask[t]:
-                    nonlinear_count += 1
-                    continue
+                # elif nonlinear_mask[t]:
+                #     nonlinear_count += 1
+                #     continue
 
                 # attempt to insert equation, and determ
                 linearly_independent = insert_equation(
@@ -475,25 +515,32 @@ def cmpr_cube_attack_offline(
                     dependent_count += 1
                 
                 # print to keep information up to date:
-                if verbose: 
-                    print(
-                        f"\r - Useful: {useful_count} -- " +
-                        f"Constant: {constant_count} -- " +
-                        f"Nonlinear: {nonlinear_count} -- " +
-                        f"Dependent: {dependent_count}",
-                    end='')
+                # if verbose: 
+                    # print(
+                        
+                    #     f"Useful: {useful_count} -- " +
+                    #     f"Constant: {constant_count} -- " +
+                    #     f"Nonlinear: {nonlinear_count} -- " +
+                    #     f"Dependent: {dependent_count}",
+                    # end='')
 
-                
                 # this breaks out of the loop indexing the keystream by time
                 # the check at the top of this section breaks the individual cube loop
-                block_already_saturated = all([(bit in cube_map) for bit in cmpr_fn.blocks[target_block]])
+                block_already_saturated = True
+                for t in target_block:
+                    for bit in cmpr_fn.blocks[t]:
+                        if not (bit in cube_map):
+                            block_already_saturated = False
+                            break
+
                 if block_already_saturated:
+                    if verbose: print(f'\n{indent(print_depth+2)}Target Block Saturated!')
                     break
                 if time_limit and time.time() - start_time > time_limit:
-                    break 
+                    break
 
             # flush the print statements with a newline
-            if verbose: print()
+            # if verbose: print(f'{indent(print_depth+2)}')
 
         # This check breaks out of the monomial profile loop
         # no block saturated check because those are profile-specific
@@ -508,20 +555,21 @@ def cmpr_cube_attack_offline(
             num_queries += 2**len(cube)
             distinct_cubes.add(cube)
 
-    if verbose:  
-        print("Number of cubes tested: ", maxterm_count)
-        print("Number of cubes found: ", len(cube_map))
-        print("Num Queries: ", num_queries)
-
+    if verbose:
+        print(f'{indent(print_depth+1)}Finished equation generation: ')
+        print(f'{indent(print_depth+1)}Time: {time.time() - cube_cand_time} s')
+        print(f'{indent(print_depth+1)}')
+        print(f'{indent(print_depth+1)}Number of equations found: {len(cube_map)}')
+        print(f'{indent(print_depth+1)}Number of cube tested: {maxterm_count}')
+        print(f'{indent(print_depth+1)}Number of queries in attack: {num_queries}')
+        print(f'Offline phase complete -- Total time: ', time.time() - start_time)
+    
     output = {}
     output['cubes'] = cube_map
     output['lower matrix'] = lower_matrix
     output['upper matrix'] = upper_matrix
     output['constant vector'] = const_vec
     return output
-
-
-
 
 
 
@@ -546,11 +594,10 @@ def lu_solve(L,U,b):
 
 
 
+def cube_attack_online(access_fn, test_fn, state_size, known_bits, cube_data, verbose = False, print_depth=0):
+    if verbose:
+        print(f"{indent(print_depth)}Starting online phase (Cube Attack):")
 
-
-
-
-def cube_attack_online(access_fn, test_fn, state_size, known_bits, cube_data, verbose = False):
     cube_map = cube_data['cubes']
     lower_matrix = cube_data['lower matrix']
     upper_matrix = cube_data['upper matrix']
@@ -560,7 +607,8 @@ def cube_attack_online(access_fn, test_fn, state_size, known_bits, cube_data, ve
     # create copies to prevent known-variable reduction from deleting important information
     secret_bits = [i for i in range(state_size) if i not in known_bits]
     guess_bits = [i for i in secret_bits if i not in cube_map]
-    if verbose: print("Guessing Bits: ", guess_bits)
+    if verbose: 
+        print(f"{indent(print_depth+1)}Guessing Bits: {tuple(sorted(guess_bits))}")
 
     # if no cube bits, then cube attack is slower than brute force:
     # exit immediately
@@ -579,7 +627,12 @@ def cube_attack_online(access_fn, test_fn, state_size, known_bits, cube_data, ve
     reduced_lower_matrix = np.eye(total_matrix.shape[0],dtype=np.uint8)
 
     # Re-insert each equation and upper matrix to get new system:
+    if verbose:
+        print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Simplifying with known variables:")
+
     for eq_idx in range(len(total_matrix)):
+        print(f"\r{indent(print_depth+2)}Equations simplified: {eq_idx+1}/{len(total_matrix)}", end='')
+        
         # mark cube / time as None for known / guess bits
         if eq_idx in cube_map: cube,t = cube_map[eq_idx]
         else: cube,t = None,None
@@ -588,6 +641,10 @@ def cube_attack_online(access_fn, test_fn, state_size, known_bits, cube_data, ve
             reduced_lower_matrix, reduced_upper_matrix, reduced_consts, reduced_cube_map,
             cube, t, total_matrix[eq_idx], consts[eq_idx]
         )
+
+    if verbose:
+        print(f"\n{indent(print_depth+1)}Finished Simplying:")
+        print(f"{indent(print_depth+1)}Time: xxxxxx")
 
     # use the new reduced data going forward:
     lower_matrix = reduced_lower_matrix
@@ -607,29 +664,47 @@ def cube_attack_online(access_fn, test_fn, state_size, known_bits, cube_data, ve
     for bit in guess_bits:
         cube_background[bit] = 0
 
+    if verbose:
+        print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Summing cubes to generate equations:")
+
     # calculate the base cube values
     start_time = time.time()
     query_count = 0
     base_cube_values = np.zeros([state_size,1],dtype=np.uint8)
 
+
+    if verbose:
+        eq_idx = 0
+        total_eqs = len([x for x in cube_map if x != None])
+
     # only calculate each cube once and re-use for different times:
     cube_cache = {}
     for bit, (cube,t) in cube_map.items():
+        if verbose:
+            eq_idx += 1
+            print(f'\r{indent(print_depth+2)}Equations generated: {eq_idx}/{total_eqs}', end = '')
+
         if cube != None:
             if cube not in cube_cache:
                 query_count += 2**len(cube)
                 cube_cache[cube] = evaluate_super_poly(access_fn, cube, cube_background)
             base_cube_values[bit] = consts[bit] ^ cube_cache[cube][t]
     query_time = time.time() - start_time
+    if verbose:
+        print(f'\n{indent(print_depth+1)}Finished summing cubes:')
+        print(f'{indent(print_depth+1)}Time: xxxxxx')
     
     # guess assignment of the guess bits and solve
-    start_time = time.time()
-
+    print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Starting to Guess:")
+    guess_start_time = time.time()
+    
     found = False
     guess_count = 0
     total_values = np.zeros([state_size,1],dtype=np.uint8)
     for assignment in product((0,1), repeat = len(guess_bits)):
         guess_count += 1
+        if verbose:
+            print(f"\r{indent(print_depth+2)}Guess count: {guess_count}",end='')
 
         # reset total values to default state (guess 0, known and base cube values in place):
         total_values[:] = known_values | base_cube_values
@@ -649,18 +724,21 @@ def cube_attack_online(access_fn, test_fn, state_size, known_bits, cube_data, ve
         )[:,0]
         
         # test if candidate is correct
-        print(state_candidate)
         if test_fn(state_candidate):
             found = True
-            print("MATCH FOUND", state_candidate)
+            #print("MATCH FOUND", state_candidate)
             break
 
     guess_time = time.time() - start_time
     if verbose:
-        print('Query count:\t', query_count, '\tQuery time: ', query_time)
-        print('Guess count:\t', guess_count, '\tGuess time: ', guess_time)
+        print(f"\n{indent(print_depth+1)}Guessing Finished:")
+        print(f"{indent(print_depth+1)}Time: {time.time() - guess_start_time} s")
 
     if found:
+        if verbose:
+            print(f'{indent(print_depth+1)}\n{indent(print_depth+1)}Solution Found!')
+            print(f'{indent(print_depth+1)}Total number of Queries: {query_count}')
+            print(f'{indent(print_depth+1)}Time: {query_time}')
         return state_candidate
     else:
         return None

@@ -205,63 +205,69 @@ class MonomialProfile:
 
 
 
-    # for cube attacks
+    # for cube attacks:
     def get_cube_candidates(self):
-        candidates =  []
+        candidates = []
+        already_added = set()
         for term_set in self.terms:
             for block_id in term_set.totals:
-                # create the candidate:
-                modified_set = term_set.__copy__()
-                modified_set.counts[block_id] -= 1
+                # create the candidate and check if it's already been processed
+                candidate = term_set.__copy__()
+                candidate.counts[block_id] -= 1
+                already_added_key = (
+                    tuple(sorted(candidate.totals.values())),
+                    tuple(sorted(candidate.counts.values()))
+                )
 
-                # test if the candidate is useful
+                if candidate.counts == {3:4,1:0}:
+                    print("\n\n\n\nTEST\n\n\n\n\n")
+                if already_added_key in already_added:
+                    continue
+
+                # test if the candidate is useful and determine target blocks
                 useful = True
+                targets = set()
                 for other in self.terms:
-                    # dont compare to the termset this one was derived from
-                    if other == term_set:
-                        continue
 
-                    # all counts in A must be <= B to be a subset.
-                    is_subset = True
-                    for t in modified_set.totals:
-                        compare_value = other.counts[t] if t in other.counts else 0
-                        if modified_set.counts[t] > compare_value:
-                            is_subset = False
-                            break
+                    # compute differences 
+                    diffs = {}
+                    for i in candidate.totals.keys():
+                        compare_value = other.counts[i] if i in other.counts else 0
+                        diffs[i] = compare_value - candidate.counts[i]
 
-                    if is_subset:
-                        useful = False
+                    # check if term is useful / determine targets
+                    if any([x < 0 for x in diffs.values()]):
+                        continue # This set "sticks out" past the other term and is not a subset
+                    elif (len(candidate.totals)) > 1 and (sum(diffs.values()) == 0):
+                        pass # the same profile adds constants, but no targets (this can happen)
+                    elif sum(diffs.values()) == 1:
+                        targets.add([i for i, x in diffs.items() if x == 1][0])
+                    else:
+                        print(candidate, other, "USELESS")
+                        useful=False
                         break
+                        
 
                 if useful:
                     num_cubes = 1
-                    for i in modified_set.totals:
+                    for i in candidate.totals:
                         num_cubes *= choose(
-                            modified_set.totals[i],
-                            modified_set.counts[i]
+                            candidate.totals[i],
+                            candidate.counts[i]
                         )
 
-                    # for every bit which is in the block, but not in the term we are testing
-                    # there is a coin flip on whether its full monomial (i.e. test monomial * bit)
-                    # appears. This is the chance that all of those monomials fail to appear.
-                    cube_success_rate = 2**(-(
-                        term_set.totals[block_id]-term_set.counts[block_id]
+                    already_added.add((
+                        tuple(sorted(candidate.totals.values())),
+                        tuple(sorted(candidate.counts.values()))
                     ))
 
                     candidates.append((
-                        modified_set,
-                        block_id,
-                        num_cubes,
-                        cube_success_rate
+                        candidate,
+                        tuple(sorted(targets)),
+                        num_cubes
                     ))
                         
         return candidates
-
-
-
-
-
-
 
 
 

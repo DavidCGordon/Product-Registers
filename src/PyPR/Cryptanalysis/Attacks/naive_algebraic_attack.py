@@ -1,4 +1,5 @@
 from PyPR import FeedbackRegister
+from PyPR.BooleanLogic import BooleanFunction
 
 from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile
 
@@ -87,12 +88,19 @@ def NAA_offline(
         eq_time = time.time()
 
     # main loop:
-    for t, equation, extra_const in eq_gen:
+    for equation_data in eq_gen: # type: ignore
+        equation_data: ( # this is to narrow the types correctly
+            tuple[int, np.ndarray[tuple[int],np.dtype[np.uint8]], int] |
+            tuple[int, BooleanFunction                          , int] 
+        )
+        t, equation, extra_const = equation_data
+
         if t < init_rounds: continue
     
         linearly_independent = eqs.insert_equation(
-            equation, extra_const, #type: ignore
+            equation, extra_const,
             identifier = t,
+            
             # equations are generated in ANF,
             # don't need to translate again
             translate_ANF = False
