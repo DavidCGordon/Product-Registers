@@ -10,8 +10,6 @@ from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey_iterator
 
 from PyPR.Cryptanalysis.Components.EquationStores.EqStore import EqStore
 from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
-from PyPR.Cryptanalysis.Components.EquationStores.DynamicEqStore import DynamicEqStore
-from PyPR.Cryptanalysis.Components.EquationStores.LUDynamicEqStore import LUDynamicEqStore
 
 from PyPR.Cryptanalysis.Components.EquationGenerators.CubeEqGenerator import CubeEqGenerator, get_var_map
 from PyPR.Cryptanalysis.Components.EquationGenerators.SubstitutionEqGenerator import SubstitutionEqGenerator
@@ -145,14 +143,14 @@ def FAA_offline(
             print(f"{indent(_print_depth+1)}Using monomial profile optimization: False")
 
         # create dynamic storage and generation
-        annihilator_eqs = DynamicEqStore()
-        annihilator_LU = LUDynamicEqStore()
+        annihilator_eqs = EqStore()
+        annihilator_LU = LUEqStore()
         annihilator_LU.link(annihilator_eqs)
         
         # ensure all variables are in the eq store:
         for v in range(len(feedback_fn)):
-            annihilator_eqs._update_from_linked(tuple([v]))
-            annihilator_LU._update_from_linked(tuple([v]))
+            annihilator_eqs._update_known_monomials(tuple([v]))
+            annihilator_LU._update_known_monomials(tuple([v]))
 
         eq_gen = SubstitutionEqGenerator(
             feedback_fn, annihilator, 2**feedback_fn.size
@@ -206,17 +204,13 @@ def FAA_offline(
         eq_time = time.time()
    
     # main equation loop
-    for equation_data in eq_gen: # type: ignore
-        equation_data: ( # this is to narrow the types correctly
-            tuple[int, np.ndarray[tuple[int],np.dtype[np.uint8]], int] |
-            tuple[int, BooleanFunction                          , int]
-        )
-        t,ann_eq,ann_extra_const = equation_data
-        
+    for t, ann_eq in enumerate(eq_gen): #type: ignore  (to narrow types correctly)
+        ann_eq: BooleanFunction | np.ndarray[tuple[int],np.dtype[np.uint8]]
+
         # don't generate equations for initialization rounds
         if t < init_rounds: continue
         
-        annihilator_eqs.insert_equation(ann_eq, ann_extra_const, identifier = t)
+        annihilator_eqs.insert_equation(ann_eq, identifier = t)
 
         if verbose: 
             print(f'\r{indent(_print_depth+2)}Equations Found: {annihilator_eqs.num_eqs} / {annihilator_eqs.num_vars + margin}',end='')
@@ -229,7 +223,7 @@ def FAA_offline(
         # break step only necessary for dynamic stores:
         # reduces speed a fair bit, due to extra insert
         if check_ranks:
-            ann_independent = annihilator_LU.insert_equation(ann_eq, ann_extra_const, identifier = t)
+            ann_independent = annihilator_LU.insert_equation(ann_eq, identifier = t)
         
             # continue for margin more steps after hitting linear 
             # recurrent phase (not perfect but better than nothing)
@@ -248,7 +242,7 @@ def FAA_offline(
     output['idx to comb map'] = annihilator_eqs.idx_to_comb
     output['comb to idx map'] = annihilator_eqs.comb_to_idx
     output['annihilator equations'] = annihilator_eqs.equations[:annihilator_eqs.num_eqs,:annihilator_eqs.num_vars]
-    output['annihilator consts'] = annihilator_eqs.constants[:annihilator_eqs.num_eqs]
+    #output['annihilator consts'] = annihilator_eqs.constants[:annihilator_eqs.num_eqs]
     output['linear relation'] = linear_relation
     output['num variables'] = annihilator_eqs.num_vars
     output['keystream needed'] = max(annihilator_eqs.equation_ids.values()) + 1
@@ -257,26 +251,21 @@ def FAA_offline(
     return output
 
 
-
-@numba.njit(numba.types.Tuple((u8[:],u8))(u64,u8[:],u8[:,:],u8[:],u8[:]))
+@numba.njit(u8[:](u64,u8[:],u8[:,:],u8[:]))
 def sum_over_linear_relationship(
     start_idx: int, 
     keystream: np.ndarray[tuple[int],np.dtype[np.uint8]], 
-    equations: np.ndarray[tuple[int],np.dtype[np.uint8]], 
-    constants: np.ndarray[tuple[int],np.dtype[np.uint8]], 
+    equations: np.ndarray[tuple[int,int],np.dtype[np.uint8]], 
     linear_relation: np.ndarray[tuple[int],np.dtype[np.uint8]]
 ):
     coef_vector = np.zeros((equations.shape[1],), dtype="uint8")
-    const_val = 0
 
     for i in range(len(linear_relation)):
         if (keystream[start_idx + i])==1 and (linear_relation[i]==1):
             for j in range(equations.shape[1]):
                 coef_vector[j] ^= equations[start_idx + i, j]
-            const_val ^= constants[start_idx + i]
 
-    return coef_vector,const_val
-
+    return coef_vector
 
 
 # Dont need known bits: this is because each equation is cheap (relative to cube attacks)
@@ -308,7 +297,6 @@ def FAA_online(
     margin = attack_data['margin']
 
     annihilator_eqs = attack_data['annihilator equations']
-    annihilator_consts = attack_data['annihilator consts']
     linear_relation = attack_data['linear relation']
     
     comb_to_idx = attack_data['comb to idx map']
@@ -322,14 +310,14 @@ def FAA_online(
         print(f"{indent(_print_depth+1)}Starting Equation Substitution:")
 
     # main loop:
-    combined_eqs = LUEqStore(comb_to_idx)
+    combined_eqs = LUEqStore(comb_to_idx, consistent=True)
     for eq_idx in range(num_eqs - len(linear_relation)):
-        coef_vector,const_val = sum_over_linear_relationship(
-            eq_idx, keystream, annihilator_eqs, annihilator_consts, linear_relation
+        coef_vector = sum_over_linear_relationship(
+            eq_idx, keystream, annihilator_eqs, linear_relation
         )
 
         combined_eqs.insert_equation(
-            coef_vector, const_val, identifier=eq_idx
+            coef_vector, identifier=eq_idx
         )
 
         if verbose:
@@ -377,7 +365,6 @@ def FAA_online(
             print(f"{indent(_print_depth)}Online phase complete -- Total time: ", time.time() - start_time)
         return list(base_solution)
 
-
     # otherwise we need to try different guesses
     if verbose:
         print(f"{indent(_print_depth+1)}Initial solution failed, guessing remaining information:")
@@ -385,7 +372,7 @@ def FAA_online(
         
    # first, collect the effects of every guessed bit independently
     effect_collection_start = time.time()
-    guess_vector = combined_eqs.constants.copy()
+    guess_vector = np.zeros(combined_eqs.num_vars, dtype=np.uint8)
     guess_effect_map = {}
     unstable_bits = np.zeros_like(base_solution)
     for t in range(len(guess_bits)):

@@ -2,8 +2,8 @@ from PyPR.BooleanLogic import BooleanFunction
 from PyPR.BooleanLogic.Gates import AND, XOR
 from PyPR.BooleanLogic.FunctionInputs import VAR, CONST
 
-from PyPR.Cryptanalysis.Components.EquationStores.DynamicEqStore import DynamicEqStore
-from PyPR.Cryptanalysis.Components.EquationStores.LUDynamicEqStore import LUDynamicEqStore
+from PyPR.Cryptanalysis.Components.EquationStores.EqStore import EqStore
+from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
 
 from itertools import product,combinations,chain
 import numpy as np
@@ -88,8 +88,8 @@ def build_constraint_data(
     candidate_anns: list[BooleanFunction], 
     verbose: bool = False
 ) -> tuple[int, tuple[
-    np.ndarray[tuple[int,int],np.dtype[np.uint8]], DynamicEqStore,
-    np.ndarray[tuple[int,int],np.dtype[np.uint8]], DynamicEqStore
+    np.ndarray[tuple[int,int],np.dtype[np.uint8]], EqStore,
+    np.ndarray[tuple[int,int],np.dtype[np.uint8]], EqStore
 ]]:
     """Build constraints which specify an annihilator/multiple combination of a certain degree.
      
@@ -126,13 +126,15 @@ def build_constraint_data(
         np.ndarray[tuple[int,int],np.dtype[np.uint8]], DynamicEqStore
     ]]
     """
-    dependence_check = LUDynamicEqStore()
-    anns = DynamicEqStore()
-    mults = DynamicEqStore()
+    dependence_check = LUEqStore()
+    anns = EqStore()
+    mults = EqStore()
 
     # build a matching basis for ann/mult constraints:
     for i,candidate in enumerate(candidate_anns):
-        if verbose: print(f"\rBuilding Constraints: {i+1}/{len(candidate_anns)}",end='')
+        if verbose: 
+            print(f"\rBuilding Constraints: {i+1}/{len(candidate_anns)}",end='')
+
         candidate_anf = candidate.translate_ANF()
         linearly_independent = dependence_check.insert_equation(
             candidate_anf, translate_ANF=False, identifier=i
@@ -160,8 +162,8 @@ def ann_solve(
     ann_degree: int, 
     mult_degree: int,
     constraints: tuple[
-        np.ndarray[tuple[int,int],np.dtype[np.uint8]], DynamicEqStore,
-        np.ndarray[tuple[int,int],np.dtype[np.uint8]], DynamicEqStore
+        np.ndarray[tuple[int,int],np.dtype[np.uint8]], EqStore,
+        np.ndarray[tuple[int,int],np.dtype[np.uint8]], EqStore
     ],
 ) -> tuple[
     list, list,
@@ -202,24 +204,6 @@ def ann_solve(
     ann_rows = [i for c,i in ann_idxs.items() if len(c) > ann_degree]
     mult_rows = [i for c,i in mult_idxs.items() if len(c) > mult_degree]
     
-    if ann_degree == 2 and mult_degree == 0:
-        print(ann_rows)
-        print(ann_constraints[ann_rows])
-        print(ann_constraints[ann_rows].shape)
-        print("\n\n")
-        print(mult_rows)
-        print(mult_constraints[mult_rows])
-        print(mult_constraints[mult_rows].shape)
-        print("\n\n", np.concatenate((
-            mult_constraints[mult_rows],
-            ann_constraints[ann_rows]
-        ),axis=0))
-        print(np.concatenate((
-            mult_constraints[mult_rows],
-            ann_constraints[ann_rows]
-        ),axis=0).shape)
-        print("\n\n\n\n")
-
     reduced_matrix,free_vars = gaussian_elim(np.concatenate((
         mult_constraints[mult_rows],
         ann_constraints[ann_rows]
@@ -347,12 +331,6 @@ def annihilators(
     pivots, free_vars, reduced_matrix = selected[1]
     degrees = selected[0]
 
-    print(degrees)
-    print(pivots)
-    print(free_vars)
-    print(reduced_matrix)
-    print("ann: ", constraints[1].comb_to_idx)
-    print("mul: ", constraints[3].comb_to_idx)
     outputs = []
     for v in free_vars:
         # Free var at index v => use eq_ids to get the original candidate

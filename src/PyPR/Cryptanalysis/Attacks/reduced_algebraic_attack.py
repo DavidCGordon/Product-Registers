@@ -5,8 +5,6 @@ from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile
 
 from PyPR.Cryptanalysis.Components.EquationStores.EqStore import EqStore
 from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
-from PyPR.Cryptanalysis.Components.EquationStores.DynamicEqStore import DynamicEqStore
-from PyPR.Cryptanalysis.Components.EquationStores.LUDynamicEqStore import LUDynamicEqStore
 
 from PyPR.Cryptanalysis.Components.EquationGenerators.CubeEqGenerator import CubeEqGenerator, get_var_map
 from PyPR.Cryptanalysis.Components.EquationGenerators.SubstitutionEqGenerator import SubstitutionEqGenerator
@@ -84,20 +82,22 @@ def RAA_offline(
             print(f"{indent(print_depth+1)}Using monomial profile optimization: False")
 
         # create dynamic storage and generation
-        annihilator_eqs = DynamicEqStore()
-        annihilator_LU = LUDynamicEqStore()
-        multiple_eqs = DynamicEqStore()
-        multiple_LU = LUDynamicEqStore()
+        annihilator_eqs = EqStore()
+        annihilator_LU = LUEqStore()
+        multiple_eqs = EqStore()
+        multiple_LU = LUEqStore()
+
+        # link all eq stores
         multiple_eqs.link(annihilator_eqs)
+        annihilator_eqs.link(multiple_eqs)
         annihilator_LU.link(annihilator_eqs)
+        annihilator_eqs.link(annihilator_LU)
         multiple_LU.link(multiple_eqs)
+        multiple_eqs.link(multiple_LU)
 
         # ensure all variables are in the eq store:
         for v in range(len(feedback_fn)):
-            annihilator_eqs._update_from_linked(tuple([v]))
-            annihilator_LU._update_from_linked(tuple([v]))
-            multiple_eqs._update_from_linked(tuple([v]))
-            multiple_LU._update_from_linked(tuple([v]))
+            annihilator_eqs._update_known_monomials(tuple([v]))
 
         eq_gen = SubstitutionEqGenerator(
             feedback_fn, [annihilator, multiple], 2**feedback_fn.size
@@ -114,20 +114,15 @@ def RAA_offline(
         eq_time = time.time()
 
     # main equation loop
-    for equation_data in eq_gen: # type: ignore
-        equation_data: ( # this is to narrow the types correctly
-            list[tuple[int, np.ndarray[tuple[int],np.dtype[np.uint8]], int]] |
-            list[tuple[int, BooleanFunction                          , int]]
-        )
-        ann_data, mult_data = equation_data
-        t, ann_eq, ann_extra_const = ann_data
-        t, mult_eq, mult_extra_const = mult_data
+    for t, (ann_eq, mult_eq) in enumerate(eq_gen): # type: ignore (to narrow types correctly)
+        ann_eq:  BooleanFunction | np.ndarray[tuple[int],np.dtype[np.uint8]]
+        mult_eq: BooleanFunction | np.ndarray[tuple[int],np.dtype[np.uint8]]
 
         # don't generate equations for initializatipon rounds
         if t < init_rounds: continue
 
-        annihilator_eqs.insert_equation(ann_eq, ann_extra_const, identifier = t)
-        multiple_eqs.insert_equation(mult_eq, mult_extra_const, identifier = t)
+        annihilator_eqs.insert_equation(ann_eq, identifier = t)
+        multiple_eqs.insert_equation(mult_eq, identifier = t)
 
         if verbose: 
             print(f'\r{indent(print_depth+2)}Equations Found: {multiple_eqs.num_eqs} / {multiple_eqs.num_vars + margin}',end='')
@@ -139,8 +134,8 @@ def RAA_offline(
 
         # break step only necessary for dynamic stores
         if check_ranks:
-            ann_indep = annihilator_LU.insert_equation(ann_eq, ann_extra_const, identifier = t)
-            mult_indep = multiple_LU.insert_equation(mult_eq, mult_extra_const, identifier = t)
+            ann_indep = annihilator_LU.insert_equation(ann_eq, identifier = t)
+            mult_indep = multiple_LU.insert_equation(mult_eq, identifier = t)
 
             # continue for margin more steps after both have hit their
             # linear recurrence phase (not perfect but better than nothing)
@@ -160,9 +155,9 @@ def RAA_offline(
     output['idx to comb map'] = multiple_eqs.idx_to_comb
     output['comb to idx map'] = multiple_eqs.comb_to_idx
     output['annihilator equations'] = annihilator_eqs.equations[:annihilator_eqs.num_eqs,:annihilator_eqs.num_vars]
-    output['annihilator consts'] = annihilator_eqs.constants[:annihilator_eqs.num_eqs]
+    #output['annihilator consts'] = annihilator_eqs.constants[:annihilator_eqs.num_eqs]
     output['multiple equations'] = multiple_eqs.equations[:multiple_eqs.num_eqs,:multiple_eqs.num_vars]
-    output['multiple consts'] = multiple_eqs.constants[:multiple_eqs.num_eqs]
+    #output['multiple consts'] = multiple_eqs.constants[:multiple_eqs.num_eqs]
     output['num variables'] =  multiple_eqs.num_vars
     output['keystream needed'] = max(multiple_eqs.equation_ids.values()) + 1
     output['margin'] = margin
@@ -186,9 +181,7 @@ def RAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
     margin = attack_data['margin']
 
     annihilator_eqs = attack_data['annihilator equations']
-    annihilator_consts = attack_data['annihilator consts']
     multiple_eqs = attack_data['multiple equations']
-    multiple_consts = attack_data['multiple consts']
     
     comb_to_idx = attack_data['comb to idx map']
     idx_to_comb = attack_data['idx to comb map']
@@ -201,22 +194,15 @@ def RAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
         print(f"{indent(print_depth+1)}Starting Equation Substitution:")
 
     # main loop:
-    combined_eqs = LUEqStore(comb_to_idx, consistent=True)
+    combined_eqs = LUEqStore(comb_to_idx, consistent=(tuple() in comb_to_idx))
     for eq_idx in range(num_eqs):
         # initialize vector/const:
         coef_vector = np.zeros([num_vars], dtype="uint8")
-        const_val = 0
 
         # use keystream to construct final equation and const:
         coef_vector ^= multiple_eqs[eq_idx]
         coef_vector ^= keystream[eq_idx] * annihilator_eqs[eq_idx]
-        
-        const_val ^= multiple_consts[eq_idx] 
-        const_val ^= keystream[eq_idx] * annihilator_consts[eq_idx]
-
-        combined_eqs.insert_equation(
-            coef_vector, const_val, identifier=eq_idx
-        )
+        combined_eqs.insert_equation(coef_vector, identifier=eq_idx)
 
         if verbose:
             print(
@@ -242,7 +228,7 @@ def RAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
     guess_count = 0
     guess_bits = [
         (v, idx_to_comb[v]) for v in range(num_vars)
-        if v not in combined_eqs.equation_ids
+        if not combined_eqs.solved_for[v]
     ]
 
     # determine base solution:
@@ -250,20 +236,20 @@ def RAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
 
     # data / buffers for testing an candidate initial state
     F = FeedbackRegister(0,feedback_fn)
+    F.set_state(base_solution)
+
     test_length = min(test_length,len(keystream))
     test_keystream = keystream[:test_length]
-
-    # test if this was the correct initial_state
-    F.set_state(base_solution)
     test_seq = [output_fn.eval(state) for state in F.run(test_length)]
+    
+    # test if this was the correct initial_state
     if np.all(test_seq == test_keystream):
         if verbose:
             print(f"{indent(print_depth+1)}Initial matrix solve complete -- correct base solution")
             print(f"{indent(print_depth+1)}Time: {time.time() - initial_guess_start} s")
             print(f"{indent(print_depth)}Online phase complete -- Total time: ", time.time() - start_time)
         return base_solution
-        #return list(base_solution)
-
+    
     # otherwise we need to try different guesses
     if verbose:
         print(f"{indent(print_depth+1)}Initial solution failed, guessing remaining information:")
@@ -271,7 +257,7 @@ def RAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
 
     # first, collect the effects of every guessed bit independently
     effect_collection_start = time.time()
-    guess_vector = np.zeros_like(combined_eqs.constants)
+    guess_vector = np.zeros(combined_eqs.num_vars, dtype = np.uint8)
     unstable_bits = np.zeros_like(base_solution)
     guess_effect_map = {}
     for t in range(len(guess_bits)):

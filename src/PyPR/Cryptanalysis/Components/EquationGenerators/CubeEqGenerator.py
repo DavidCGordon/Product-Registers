@@ -19,7 +19,7 @@ def get_var_map(
     variable_blocks,
     include_variables = True, # include all base variables
     complete_subsets = False, # ensure variable map is closed under subsets
-    include_constant = False, # whether or not to include an empty tuple
+    include_constant = True,  # whether or not to include an empty tuple
     lexicographic = True      # sort monomials lexicographically
 ):
     mons_by_len = {}
@@ -57,19 +57,16 @@ def get_var_map(
     # merging list segments into output maps
     var_idx = 0
     comb_to_idx = {}
-    idx_to_comb = {}
     for segment in list_segments:
-
         # skip the constant segment if needed
         if segment[0] == 0 and not include_constant:
             continue
 
         for monomial in segment[1]:
             comb_to_idx[monomial] = var_idx
-            idx_to_comb[var_idx] = monomial
             var_idx += 1
 
-    return comb_to_idx #, idx_to_comb
+    return comb_to_idx
 
 # small helper function to help pretty-print:
 def indent(n)->str:
@@ -85,8 +82,8 @@ def CubeEqGenerator(
     verbose: bool = False, 
     _print_depth: int = 0
 ) -> Iterator[
-    tuple[int, np.ndarray[tuple[int],np.dtype[np.uint8]], int] |
-    list[tuple[int, np.ndarray[tuple[int],np.dtype[np.uint8]], int]]
+    np.ndarray[tuple[int],np.dtype[np.uint8]] |
+    list[np.ndarray[tuple[int],np.dtype[np.uint8]]]
 ]:
     """Generates the Equations for a given feedback function and output function. Where possible,
     this is by far the fastest of the equation generators.
@@ -160,10 +157,6 @@ def CubeEqGenerator(
             f"Got {type(output_fn)} instead."
         )
 
-    # move constants to the end of the maps / create if it doesnt exist:
-    var_map = {k:v for k,v in var_map.items() if k != tuple()}
-    var_map[tuple()] = len(var_map)
-
     # variable inits
     num_bits = len(feedback_fn)
     feedback_fn = feedback_fn.compile()
@@ -204,12 +197,9 @@ def CubeEqGenerator(
 
         # yield, matching the input format:
         if return_list:
-            yield [
-                (t, eq_vec[i,:-1], eq_vec[i, -1])
-                for i in range(len(output_fn_list))
-            ]
+            yield [eq_vec[i] for i in range(len(output_fn_list))]
         else:
-            yield (t, eq_vec[0,:-1], eq_vec[0, -1])
+            yield eq_vec[0]
            
             
         # update the current states and evaluations:

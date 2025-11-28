@@ -12,7 +12,9 @@ import contextlib
 
 # for compiling to python
 import numpy as np
-from numba import njit
+import numba
+u8 = numba.types.u8
+void = numba.types.void
 
 # For Storing and loading as JSON files.
 import json
@@ -27,11 +29,17 @@ class FeedbackFunction:
         #convert update to a list of ANF<int> objects:
         self.fn_list = fn_list
         self.size = len(fn_list)
+        self._compiled = None
+        self._compiled_inplace = None
     
     def __copy__(self):
         new_obj = object.__new__(type(self))
         new_obj.__dict__ = self.__dict__
         new_obj.fn_list = [f.__copy__() for f in self.fn_list]
+
+        # dont bring over compiled versions:
+        new_obj._compiled = None
+        new_obj._compiled_inplace = None
         return new_obj
 
     #TODO: expand on this
@@ -361,13 +369,11 @@ end run;
 
     # Compilation
     def compile(self):
-        self._compiled = None
-        self._compiled_inplace = None
-
+        exec_locals = {}
+        
         # return a new answer
         overrides = {}
         exec_str = """
-@njit(parallel=True)
 def _compiled(curr_state):
     next_state = np.zeros_like(curr_state)
 """
@@ -385,17 +391,18 @@ def _compiled(curr_state):
                     overrides[node] = f'fn_{i}_{j+1}'
             
         exec_str += "return next_state\n\n"
-        exec_str += "self._compiled = _compiled"
-        exec(exec_str)
+        exec(exec_str, globals(), exec_locals)
+
 
         # write to an existing buffer
         overrides = {}
         exec_str = """
-@njit(parallel=True)
+#@numba.jit(parallel=True)
 def _compiled_inplace(curr_state,output_buffer):
 """
         exec_str += ("    ")
         for i in range(self.size - 1, -1 , -1):
+            # Add the lines to python string
             exec_str += ("\n    ".join(self.fn_list[i].generate_python(
                 output_name = f"output_buffer[{i}]",
                 array_name = "curr_state",
@@ -403,12 +410,25 @@ def _compiled_inplace(curr_state,output_buffer):
                 overrides = overrides
             )) + "\n    ")
 
+            # update the overrides with subfunctions to avoid reuse:
             for j, node in enumerate(self.fn_list[i].subfunctions()):
                 if node not in overrides:
                     overrides[node] = f'fn_{i}_{j+1}'
+
         exec_str += "return\n\n"
-        exec_str += "self._compiled_inplace = _compiled_inplace"
-        exec(exec_str)
+        exec(exec_str, globals(), exec_locals)
+
+        fn = exec_locals["_compiled_inplace"]
+        
+        # u8[:](u8[:])
+        self._compiled = numba.njit()(
+            exec_locals["_compiled"]
+        )
+
+        # void(u8[:],u8[:])
+        self._compiled_inplace = numba.njit()(
+            exec_locals["_compiled_inplace"]
+        )
 
         return self._compiled
 

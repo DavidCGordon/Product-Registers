@@ -4,7 +4,6 @@ from PyPR.BooleanLogic import BooleanFunction
 from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile
 
 from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
-from PyPR.Cryptanalysis.Components.EquationStores.LUDynamicEqStore import LUDynamicEqStore
 
 from PyPR.Cryptanalysis.Components.EquationGenerators.CubeEqGenerator import CubeEqGenerator, get_var_map
 from PyPR.Cryptanalysis.Components.EquationGenerators.SubstitutionEqGenerator import SubstitutionEqGenerator
@@ -54,7 +53,7 @@ def NAA_offline(
 
         # A map with all subsets filled in, to sum over cubes
         variable_indices = get_var_map(
-            feedback_fn, output_mp, variable_blocks, complete_subsets = True
+            feedback_fn, output_mp, variable_blocks, complete_subsets = True, include_constant=True
         )
 
         if verbose:
@@ -76,10 +75,10 @@ def NAA_offline(
         if verbose:
             print(f"{indent(print_depth+1)}Using monomial profile optimization: False")
 
-        eqs = LUDynamicEqStore()
+        eqs = LUEqStore()
         # ensure all variables are in the eq store:
         for v in range(len(feedback_fn)):
-            eqs._update_from_linked(tuple([v]))
+            eqs._update_known_monomials(tuple([v]))
 
         eq_gen = SubstitutionEqGenerator(feedback_fn, output_fn, 2**feedback_fn.size)
 
@@ -88,29 +87,23 @@ def NAA_offline(
         eq_time = time.time()
 
     # main loop:
-    for equation_data in eq_gen: # type: ignore
-        equation_data: ( # this is to narrow the types correctly
-            tuple[int, np.ndarray[tuple[int],np.dtype[np.uint8]], int] |
-            tuple[int, BooleanFunction                          , int] 
-        )
-        t, equation, extra_const = equation_data
+    for t, equation in enumerate(eq_gen): #type: ignore  (to narrow types correctly)
+        equation: BooleanFunction | np.ndarray[tuple[int],np.dtype[np.uint8]]
 
-        if t < init_rounds: continue
-    
+        if t < init_rounds: 
+            continue
+
         linearly_independent = eqs.insert_equation(
-            equation, extra_const,
+            equation,
             identifier = t,
-            
-            # equations are generated in ANF,
-            # don't need to translate again
             translate_ANF = False
         )
 
         if verbose: 
             print(f'\r{indent(print_depth+2)}Equations Found: {eqs.num_eqs} / {eqs.num_vars}',end='')
 
-        # all equations from this point are linearly dependent.
         if not linearly_independent:
+            # all equations from this point are linearly dependent.
             if verbose:
                 print(f"\n{indent(print_depth+2)}\n{indent(print_depth+2)}Linear complexity reached!",end='')
             break
@@ -135,9 +128,7 @@ def NAA_offline(
     output['comb to idx map'] = eqs.comb_to_idx
     output['upper matrix'] = eqs.upper_matrix[:eqs.num_vars,:eqs.num_vars]
     output['lower matrix'] = eqs.lower_matrix[:eqs.num_vars,:eqs.num_vars]
-    output['constant vector'] = eqs.constants[:eqs.num_vars]
     output['keystream needed'] = max(eqs.equation_ids.values()) + 1
-
 
     return output
 
@@ -157,7 +148,6 @@ def NAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
     var_map = attack_data['equation times']
     upper_matrix = attack_data['upper matrix']
     lower_matrix = attack_data['lower matrix']
-    const_vector = attack_data['constant vector']
     num_vars = len(upper_matrix)
 
     variable_indices = [
@@ -172,18 +162,17 @@ def NAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
     # initialize new data:
     initial_guess_start = time.time()
     guess_count = 0
-    keystream_vector = np.zeros([num_vars],dtype=np.uint8)
+    vector_to_solve = np.zeros([num_vars],dtype=np.uint8)
 
-    # determine base solution:
+    # determine base solution (from keystream):
     for v in range(num_vars):
         if v in var_map:
-            keystream_vector[v] = keystream[var_map[v]]
+            vector_to_solve[v] = keystream[var_map[v]]
     
     base_solution = lu_solve(
         lower_matrix,
         upper_matrix,
-        const_vector,
-        keystream_vector
+        vector_to_solve
     )[variable_indices].copy()
 
     # data / buffers for testing an candidate initial state
@@ -220,16 +209,15 @@ def NAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 100
         # fill in the vector with keystream + guesses
         for v in range(num_vars):
             if v in var_map:
-                keystream_vector[v] = keystream[var_map[v]]
-        for i, (v,c) in enumerate(guess_bits):
-            keystream_vector[v] = guess_assignment[i]
+                vector_to_solve[v] = keystream[var_map[v]]
+        for i,(v,comb) in enumerate(guess_bits):
+            vector_to_solve[v] = guess_assignment[i]
 
         # solve the equation.
         solution = lu_solve(
             lower_matrix,
             upper_matrix,
-            const_vector,
-            keystream_vector,
+            vector_to_solve,
         )[variable_indices]
 
         difference = (solution ^ base_solution)

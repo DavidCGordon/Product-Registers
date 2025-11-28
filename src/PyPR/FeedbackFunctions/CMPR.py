@@ -38,29 +38,46 @@ class CMPR(FeedbackFunction):
             None
         """
         self.num_components = len(components)
+
+        self.primitive_polynomials = []
+        self.update_polynomials = []
         self.divisions = [] 
 
         shift_amount = 0
         self.fn_list = []
-
-        for component in components[::-1]:
+        for i,component in enumerate(components[::-1]):
             # merge any CMPRs inside
             if isinstance(component,CMPR):
                 self.divisions += [d + shift_amount for d in component.divisions[:-1]]
+                self.primitive_polynomials += component.primitive_polynomials
+                self.update_polynomials += component.update_polynomials
                 self.num_components += component.num_components-1
                 self.fn_list += [f.shift_indices(shift_amount) for f in component.fn_list]
-            else: 
+            elif isinstance(component,MPR): 
                 self.divisions.append(shift_amount)
+                self.primitive_polynomials += [component.primitive_polynomial]
+                self.update_polynomials += [component.update_polynomial]
                 self.fn_list += [XOR(f.shift_indices(shift_amount)) for f in component.fn_list]
-
+            else:
+                # only allow different types for the first component
+                if i == len(components)-1:
+                    self.divisions.append(shift_amount)
+                    self.primitive_polynomials += [None]
+                    self.update_polynomials += [None]
+                    self.fn_list += [XOR(f.shift_indices(shift_amount)) for f in component.fn_list]
+                else:
+                    raise TypeError(
+                        f"Other than the component at index 0, all CMPR components must be "
+                        f"either MPRs or CMPRs, not {type(component)}"
+                    )
             shift_amount += len(component.fn_list)
-    
+
         self.size = len(self.fn_list)
         self.divisions.append(self.size)
-
-
-
-
+        
+        # reverse polynomials to match block indices
+        self.primitive_polynomials = self.primitive_polynomials[::-1]
+        self.update_polynomials = self.update_polynomials[::-1]
 
     def generateChaining(self,template):
         chaining_logic = template(self)
@@ -68,6 +85,35 @@ class CMPR(FeedbackFunction):
         for bit, fn in chaining_logic.items():
             self.fn_list[bit].add_arguments(fn)
 
+    def update_MPR(self,mpr_index,new_update_poly):
+        if mpr_index == 0 and self.primitive_polynomials[0] == None:
+            raise ValueError(f"Can't update Update Polynomial for block 0, because it is not an MPR.")
+        if len(new_update_poly) != len(self.blocks[mpr_index]):
+            raise ValueError(f"Update polynomial must be {len(self.blocks[mpr_index])} bits.")
+        
+        # create new MPR
+        new_mpr = MPR(
+            len(self.blocks[mpr_index]),
+            self.primitive_polynomials[mpr_index],
+            new_update_poly
+        )
+
+        # update CMPR functions
+        shift = 2
+        cmpr_bits = self.blocks[mpr_index]
+        for cmpr_bit, mpr_bit in zip(cmpr_bits, range(len(cmpr_bits))):
+            self.fn_list[cmpr_bit] = XOR(
+                new_mpr.fn_list[mpr_bit].shift_indices(shift),
+                *self.fn_list[cmpr_bit].args[1:]
+            )
+        
+        # update stored polynomials
+        self.update_polynomials[mpr_index] = new_update_poly
+
+        # refresh cached properties
+        if 'update_matrices' in self.__dict__: del self.update_matrices
+        if 'resolvent_matrices' in self.__dict__: del self.resolvent_matrices
+        if 'propagation_matrices' in self.__dict__: del self.propagation_matrices
 
     @property
     def has_chaining(self):
@@ -219,9 +265,6 @@ class CMPR(FeedbackFunction):
         else:
             return self._mp_default(verbose)
 
-
-
-
     def _mp_default(self, verbose = False):
         if verbose: print("Running default monomial profile algorithm")
         prof_table = [MonomialProfile() for i in range(self.size)] # map: bit -> expression
@@ -371,7 +414,6 @@ class CMPR(FeedbackFunction):
             return self._re_mesh_optimization(locked_list, verbose)
         else:
             return self._re_default(locked_list, verbose)
-
 
     def _re_default(self, locked_list = None, verbose = False):
         if verbose: print("Running default root expression algorithm")

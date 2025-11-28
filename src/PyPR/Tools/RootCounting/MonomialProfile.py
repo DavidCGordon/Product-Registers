@@ -375,20 +375,23 @@ class MonomialProfile:
         for d in range(1,dim):
             rects = sorted(rects, key = safe_get(d))
 
-        # single rollover loop
+        # rollover loop which dynamically switches between the active term/rect
         rect_idx = 0
         curr_vec = [0 for i in range(dim)]
-        while rect_idx < len(rects):
+        
+        # counteract the first incrementto start first yield with all zeroes
+        # this allows the method to yield the constant term:
+        curr_vec[0] -= 1 
 
+        while rect_idx < len(rects):
             # increment degree
             curr_vec[0] += 1
 
-            
             # rollover loop:
             rollover_idx = 0
             rollover_copy = [x for x in curr_vec]
 
-            # as long as any index is too large:
+            # as long as any index is too large for the current rectangle:
             while any((
                 (rollover_copy[i] > rects[rect_idx][i])
                 for i in range(len(rects[rect_idx]))

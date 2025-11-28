@@ -36,9 +36,10 @@ class FeedbackRegister:
         # eat the compilation costs up-front 
         if compile:
             self.fn.compile()
-            self.clock()
-            self.run(1)
             self.period(limit=1)
+            self.clock()
+            for state in self.run(1):
+                pass
             self.reset()
 
     def __len__(self) -> int: return self.size
@@ -168,8 +169,6 @@ class FeedbackRegister:
         branch directly for performance reasons we trust the programmer to know
         what they are doing.
         """
-        # This is here so you can call this branch directly from the object
-        # The main implementation is below, outside of the class
         self._state, self._prev_state = self._prev_state, self._state
         self.fn._compiled_inplace(self._prev_state,self._state)
 
@@ -186,7 +185,6 @@ class FeedbackRegister:
         # overwrite with the new state
         for i in range(len(self.fn.fn_list)):
             self._state[i] = self.fn.fn_list[i].eval(self._prev_state)
-
 
     def run(self, limit=None, compiled = True):
         """Returns an iterator which clocks the register for multiple cycles \
@@ -865,7 +863,7 @@ def _run_compiled_(
             update_fn(prev_state,state)
 
     else:
-        for _ in range(limit):
+        for i in range(limit):
             yield
 
             # XOR swap (can't swap pointers on object so swap values in place)
@@ -874,4 +872,3 @@ def _run_compiled_(
                 prev_state[j] ^= state[j]
                 state[j] ^= prev_state[j]
             update_fn(prev_state,state)
-

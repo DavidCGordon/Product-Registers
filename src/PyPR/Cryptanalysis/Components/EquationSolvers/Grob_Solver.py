@@ -61,7 +61,7 @@ def lead_term(f) -> frozenset[int] | None:
     else:
         return None
 
-def solve()
+def solve():
     lead_terms: list[frozenset[int]]
 
     num_vars = 0
@@ -75,7 +75,7 @@ def solve()
     unknown_vars = set()
     solved_vars = {}
 
-    def reduce(self, poly):
+    def reduce(poly):
         curr_lead = lead_term(poly)
 
         while curr_lead:
@@ -95,7 +95,7 @@ def solve()
             curr_lead = lead_term(poly)
         return poly
 
-    def syzygy(self,i,j):
+    def syzygy(i,j):
         return (
             self.equations[i] * BooleanANF([self.lead_terms[j]-self.lead_terms[i]]) +
             self.equations[j] * BooleanANF([self.lead_terms[i]-self.lead_terms[j]]) 

@@ -70,6 +70,7 @@ class GroebnerEqStore:
             # simplify = substitution
             # simplify = backreduce
             # simplify = None
+        self._simplify_mode = simplify_mode
 
         self.num_vars = 0
         self.num_eqs = 0
@@ -108,12 +109,12 @@ class GroebnerEqStore:
             self.equations[j] * BooleanANF([self.lead_terms[i]-self.lead_terms[j]]) 
         )
     
-    def insert_equation(self, equation, extra_const = 0, identifier=None, translate_ANF = True):
-        self.enqueue_equation(equation, extra_const, identifier, translate_ANF)
+    def insert_equation(self, equation, identifier=None, translate_ANF = True):
+        self.enqueue_equation(equation)
         self.consume_queue()
 
-    def enqueue_equation(self, equation, extra_const = 0, identifier=None, translate_ANF = True):
-        equation = XOR(equation,CONST(extra_const)).compose({
+    def enqueue_equation(self, equation):
+        equation = equation.compose({
             var: CONST(val) for var,val in self.solved_vars.items()
         })
 
@@ -143,10 +144,10 @@ class GroebnerEqStore:
             if reduced_lead == None:
                 continue
 
-            # return false for contradictions:
+            # raise error for contradictions:
             if reduced.terms == frozenset([frozenset()]):
-                return False
-
+                raise ValueError("Inconsistent")
+            
             # add in new eq:
             insert_idx = bisect.bisect(self.lead_terms,reduced_lead)
             self.lead_terms.insert(insert_idx, reduced_lead)

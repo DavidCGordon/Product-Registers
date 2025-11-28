@@ -11,8 +11,8 @@ def SubstitutionEqGenerator(
     verbose: bool = False,
     _print_depth: int = 0
 ) -> Iterator[
-    tuple[int, BooleanFunction, int] |
-    list[tuple[int, BooleanFunction, int]]
+    BooleanFunction |
+    list[BooleanFunction]
 ]:
     """Generates the Equations for a given feedback function and output function. Generally, this is 
     slightly faster than the symbolc equation generator and dramatically slower than the cube generator
@@ -110,12 +110,9 @@ def SubstitutionEqGenerator(
     for t in range(limit+1):
         # yield equation (constant in ANF)
         if not return_list:
-            yield (t, output_fn_list[0].compose(fns).translate_ANF(), 0)
+            yield output_fn_list[0].compose(fns).translate_ANF()
         else:
-            yield [
-                (t, output_fn.compose(fns).translate_ANF(), 0)
-                for output_fn in output_fn_list
-            ]
+            yield [output_fn.compose(fns).translate_ANF() for output_fn in output_fn_list]
 
         # don't do final update if not needed
         if t == (limit):

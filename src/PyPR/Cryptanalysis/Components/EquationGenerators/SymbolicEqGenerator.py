@@ -8,8 +8,8 @@ def SymbolicEqGenerator(
     limit, 
     initialization=None
 ) -> Iterator[
-    tuple[int, list[BooleanFunction], int] |
-    list[tuple[int, list[BooleanFunction], int]]
+    BooleanFunction |
+    list[BooleanFunction]
 ]:
     """Generates the Equations for a given feedback function and output function. Generally this is
     slightly slower than the symbolic equation generator, and dramatically slower than the cube
@@ -122,12 +122,9 @@ def SymbolicEqGenerator(
     for t in range(limit+1):
         # yield equation (constant in ANF
         if not return_list:
-            yield (t, output_fn_list[0].eval_ANF(fns).to_BooleanFunction(), 0)
+            yield output_fn_list[0].eval_ANF(fns).to_BooleanFunction()
         else:
-            yield [
-                (t, output_fn.eval_ANF(fns).to_BooleanFunction(), 0)
-                for output_fn in output_fn_list
-            ]
+            yield [output_fn.eval_ANF(fns).to_BooleanFunction() for output_fn in output_fn_list]
 
         # don't do final update if not needed
         if t == (limit):
