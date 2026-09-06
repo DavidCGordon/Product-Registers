@@ -2,6 +2,8 @@ from PyPR.BooleanLogic.BooleanANF import BooleanANF
 from PyPR.BooleanLogic.FunctionInputs import CONST, VAR
 from PyPR.BooleanLogic.Gates import XOR
 
+from PyPR.Cryptanalysis.Components.EquationStores.BaseEqStore import BaseEqStore
+
 from functools import cmp_to_key
 
 import heapq
@@ -61,15 +63,19 @@ def lead_term(f) -> frozenset[int] | None:
     else:
         return None
 
-class GroebnerEqStore:
+class GroebnerEqStore(BaseEqStore):
     lead_terms: list[frozenset[int]]
     equations: list[BooleanANF]
 
     def __init__(self, simplify_mode):
-            # TODO: Make impl. optional
-            # simplify = substitution
-            # simplify = backreduce
-            # simplify = None
+        super().__init__(consistent=False)
+        self.eager = False
+        self.filtering = True
+
+        # TODO: Make impl. optional
+        # simplify = substitution
+        # simplify = backreduce
+        # simplify = None
         self._simplify_mode = simplify_mode
 
         self.num_vars = 0
@@ -111,7 +117,14 @@ class GroebnerEqStore:
     
     def insert_equation(self, equation, identifier=None, translate_ANF = True):
         self.enqueue_equation(equation)
-        self.consume_queue()
+        self.process_pending()
+
+    def queue_equation(self, equation, identifier=None, translate_ANF=True):
+        self.enqueue_equation(equation)
+
+    @property
+    def is_determined(self):
+        return not (self.unknown_vars - set(self.solved_vars.keys()))
 
     def enqueue_equation(self, equation):
         equation = equation.compose({
@@ -125,16 +138,29 @@ class GroebnerEqStore:
             heapq.heappush(self.queue, pq_node(lead_term(equation), equation))
             self.seen.add(equation)
 
-    def consume_queue(self, num=None, verbose = False):
+    def process_pending(self, *, verbose=False, batch_size=None, _print_depth=0):
+        return self._consume_queue(num=batch_size, verbose=verbose, _print_depth=_print_depth)
+
+    def _consume_queue(self, num=None, verbose=False, _print_depth=0):
         # if no num provided, consume the whole queue
         # (-1) will decrement but never reach 0
         if num == None:
             num = -1
 
+        _indent_1 = '|   ' * (_print_depth + 1)
+        _indent_2 = '|   ' * (_print_depth + 2)
+        _printed_progress = False
+
+        if verbose and self.queue:
+            print(f"{_indent_1}Running Groebner basis reduction:")
+            _printed_progress = True
+
         # main loop
+        consumed = 0
         while self.queue and num:
             candidate = heapq.heappop(self.queue).poly
             num -= 1
+            consumed += 1
 
             # reduce candidate:
             reduced = self.reduce(candidate)
@@ -142,25 +168,35 @@ class GroebnerEqStore:
 
             # don't process 0 equations
             if reduced_lead == None:
+                if verbose:
+                    print(
+                        f"\r\033[K{_indent_2}Processed: {consumed}"
+                        f"  --  Basis: {self.num_eqs}"
+                        f"  --  Queue: {len(self.queue)}"
+                        f"  --  Solved: {len(self.solved_vars)}",
+                        end=''
+                    )
                 continue
 
             # raise error for contradictions:
             if reduced.terms == frozenset([frozenset()]):
+                if verbose:
+                    print(
+                        f"\n{_indent_2}Contradiction found!"
+                        f"  (processed: {consumed}"
+                        f"  --  basis: {self.num_eqs}"
+                        f"  --  solved: {len(self.solved_vars)})"
+                    )
                 raise ValueError("Inconsistent")
-            
+
             # add in new eq:
             insert_idx = bisect.bisect(self.lead_terms,reduced_lead)
             self.lead_terms.insert(insert_idx, reduced_lead)
             self.equations.insert(insert_idx, reduced)
             self.num_eqs += 1
 
-            # self.lead_terms.append(reduced_lead)
-            # self.equations.append(reduced)
-            # self.num_eqs += 1
-
             # unit-propagate solved variables:
             if len(reduced_lead) <= 1:
-                if verbose: print("unit propagation")
                 finished = False
                 while not finished:
                     new_vars = []
@@ -169,39 +205,67 @@ class GroebnerEqStore:
 
                         if reduced == BooleanANF([True]):
                             self.solved_vars[v] = 1
+                            new_vars.append(v)
                         elif reduced == BooleanANF([]):
                             self.solved_vars[v] = 0
+                            new_vars.append(v)
 
                     # update unknown vars:
                     for v in new_vars:
-                        if verbose: print('now known: ', v, '=', self.solved_vars[v])
                         self.unknown_vars.remove(v)
-                    
+
                     if new_vars:
-                        self._simplify()
+                        try:
+                            self._simplify()
+                        except ValueError:
+                            if verbose:
+                                print(
+                                    f"\n{_indent_2}Contradiction found during simplification!"
+                                    f"  (processed: {consumed}"
+                                    f"  --  basis: {self.num_eqs}"
+                                    f"  --  solved: {len(self.solved_vars)})"
+                                )
+                            raise
+                        # _simplify rebuilds the equation/lead_term lists;
+                        # relocate insert_idx in the newly filtered basis.
+                        try:
+                            insert_idx = self.lead_terms.index(reduced_lead)
+                        except ValueError:
+                            insert_idx = None
                     else:
                         finished = True
 
             # compute/add syzygies:
-            count = 0
-            for eq_idx in range(self.num_eqs):
-                if eq_idx == insert_idx:
-                    continue
+            if insert_idx is not None:
+                count = 0
+                for eq_idx in range(self.num_eqs):
+                    if eq_idx == insert_idx:
+                        continue
 
-                # coprime lead terms won't lead to good sysygies
-                if not (self.lead_terms[insert_idx] & self.lead_terms[eq_idx]):
-                    continue
+                    # coprime lead terms won't lead to good sysygies
+                    if not (self.lead_terms[insert_idx] & self.lead_terms[eq_idx]):
+                        continue
 
-                s_poly = self.syzygy(insert_idx, eq_idx)
-                if s_poly.terms and s_poly not in self.seen:
-                    heapq.heappush(self.queue, pq_node(lead_term(s_poly), s_poly))
-                    self.seen.add(s_poly)
-                    count += 1
+                    s_poly = self.syzygy(insert_idx, eq_idx)
+                    if s_poly.terms and s_poly not in self.seen:
+                        heapq.heappush(self.queue, pq_node(lead_term(s_poly), s_poly))
+                        self.seen.add(s_poly)
+                        count += 1
 
-            if verbose: print(f"added {count} to queue. Queue length: {len(self.queue)}")
-        return True
+            if verbose:
+                print(
+                    f"\r\033[K{_indent_2}Processed: {consumed}"
+                    f"  --  Basis: {self.num_eqs}"
+                    f"  --  Queue: {len(self.queue)}"
+                    f"  --  Solved: {len(self.solved_vars)}",
+                    end=''
+                )
+
+        if _printed_progress:
+            print()
+
+        return consumed
     
-    # TODO: Cleanup and justify????
     def _simplify(self):
         seen_set = set()
         new_eqs = []
@@ -223,7 +287,10 @@ class GroebnerEqStore:
                 else:
                     filtered_terms.remove(term)
             
-            new_equation = BooleanANF(filtered_terms,fast_init=True)
+            new_equation = BooleanANF(frozenset(filtered_terms),fast_init=True)
+            if new_equation.terms == frozenset([frozenset()]):
+                raise ValueError("Inconsistent")
+            
             if new_equation.terms and new_equation not in seen_set:
                 seen_set.add(new_equation)
                 new_eqs.append(new_equation)
@@ -328,7 +395,7 @@ class GroebnerEqStore:
 #         self.solved_vars = {}
 
 #     # TODO: variable naming + readability
-#     # TODO: just improve this shit code
+#     # TODO: needs a general cleanup pass
 
 #     def syzygy(self,i,j):
 #         f = self.equations[i]
@@ -373,7 +440,7 @@ class GroebnerEqStore:
 #             heapq.heappush(self.queues[1], pq_node(lead_term(new_equation), new_equation))
 #             #self.seen.add(new_equation)
 
-#     def consume_queue(self, num=None, verbose = False):
+#     def _consume_queue(self, num=None, verbose = False):
 #         # if no num provided, consume the whole queue
 #         # (-1) will decrement but never reach 0
 #         if num == None:

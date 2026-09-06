@@ -2,6 +2,7 @@ from typing import Iterator, Any
 
 from PyPR.BooleanLogic import BooleanFunction
 from PyPR.FeedbackFunctions import FeedbackFunction
+from PyPR.Cryptanalysis.Components.EquationGenerators._utils import normalize_output_fn
 
 import numpy as np
 import time
@@ -144,18 +145,7 @@ def CubeEqGenerator(
         list[tuple[int, np.ndarray[tuple[int],np.dtype[np.uint8]], int]] 
     ]
     """
-    # set flags to match outputs shape to input shape:
-    if type(output_fn) == list:
-        return_list = True
-        output_fn_list = output_fn
-    elif isinstance(output_fn,BooleanFunction):
-        return_list = False
-        output_fn_list = [output_fn]
-    else:
-        raise TypeError(
-            f"output_fn must be a BooleanFunction or list of Boolean functions. " +
-            f"Got {type(output_fn)} instead."
-        )
+    output_fn_list, return_list = normalize_output_fn(output_fn)
 
     # variable inits
     num_bits = len(feedback_fn)

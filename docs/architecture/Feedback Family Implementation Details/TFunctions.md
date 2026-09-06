@@ -1,0 +1,1 @@
+ The binary counter is the default `TFunction` construction, but T-functions (Klimov-Shamir) are a general class — any state-update map where each bit depends nonlinearly only on bits at earlier positions in the dependency order.

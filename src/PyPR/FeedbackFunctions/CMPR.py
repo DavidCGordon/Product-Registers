@@ -1,22 +1,19 @@
-# Documentation:
-from typing import Any
+from __future__ import annotations
+from typing import Any, Iterable
 
-# Simulation Boilerplate
 from PyPR.BooleanLogic import BooleanANF, XOR, AND, CONST, VAR
 from PyPR.FeedbackFunctions import FeedbackFunction
 from PyPR.FeedbackFunctions import MPR
 
-# Linear Complexity and Monomial estimation
-from PyPR.Tools.RootCounting.MonomialProfile import TermSet,MonomialProfile
+from PyPR.Tools.RootCounting.MonomialProfile import TermSet, MonomialProfile
 from PyPR.Tools.RootCounting.JordanSet import JordanSet
 from PyPR.Tools.RootCounting.RootExpression import RootExpression
 import PyPR.Tools.RootCounting.MeshOptimization as mesh_optimization
 
-# Other analysis
 import PyPR.Tools.ResolventSolving as ResolventSolving
+from PyPR.BooleanLogic.BooleanGF import BooleanGF
 from PyPR.Tools.MersenneTools import expected_period, expected_period_ratio, max_period, cycle_lengths
 
-# Other libs
 import random
 import numpy as np
 import galois as gl
@@ -25,17 +22,51 @@ import time
 from functools import cached_property
 
 class CMPR(FeedbackFunction):
-    def __init__(self, components):
-        """
-        Constructor for the CMPR family of Feedbacl Functions
+    """A Composite Mersenne Product Register.
 
-        Args:
-          components: 
-            An iterable of MPR objects to be used as the components of the CMPR. No error will be raised
-            if feedback functions which are not MPRs are used, and this can sometimes be a useful hack.
-            however not all methods are guaranteed to work if non-MPR components are used
-        Returns:
-            None
+    A CMPR couples several MPR components via nonlinear chaining logic.
+    Each component operates on its own block of bits as an independent
+    field multiplier (see :class:`MPR`); chaining functions inject
+    nonlinear dependencies from higher-index blocks into lower-index
+    blocks, breaking the linearity of any single component and increasing
+    the linear complexity of the output sequence.
+
+    The blocks are ordered so that block 0 is the highest-index
+    (rightmost) block and chaining propagates from higher-index blocks
+    toward lower ones.
+
+    :ivar size: Total number of bits across all component blocks.
+    :vartype size: int
+    :ivar num_components: The number of MPR component blocks.
+    :vartype num_components: int
+    :ivar primitive_polynomials: The primitive polynomial of each component
+        block, indexed by block number.
+    :vartype primitive_polynomials: list[list[int] | None]
+    :ivar update_polynomials: The update polynomial of each component
+        block, indexed by block number.
+    :vartype update_polynomials: list[list[int] | None]
+    :ivar divisions: Internal list of bit-index boundaries between blocks.
+    :vartype divisions: list[int]
+    """
+
+    num_components: int
+    primitive_polynomials: list[list[int] | None]
+    update_polynomials: list[list[int] | None]
+    divisions: list[int]
+
+    def __init__(self,
+        components: list["FeedbackFunction | MPR | CMPR"]
+    ) -> None:
+        """Construct a CMPR from a list of MPR (or nested CMPR) components.
+
+        Components are provided in high-to-low order (the first element
+        becomes the highest-index block). Nested CMPRs are flattened
+        automatically. A non-MPR feedback function may be supplied as the
+        first (highest-index) component only this is occasionally useful as a
+        hack, but not all methods will work with non-MPR components.
+
+        :param components: The MPR (or CMPR) components to compose.
+        :type components: list[MPR | CMPR]
         """
         self.num_components = len(components)
 
@@ -79,13 +110,44 @@ class CMPR(FeedbackFunction):
         self.primitive_polynomials = self.primitive_polynomials[::-1]
         self.update_polynomials = self.update_polynomials[::-1]
 
-    def generateChaining(self,template):
+    def generateChaining(self,
+        template: Any
+    ) -> None:
+        """Install chaining logic from a template function.
+
+        The template is a callable that receives this CMPR and returns a
+        dict mapping bit indices to boolean functions. Each returned
+        function is added as an additional argument to the corresponding
+        bit's existing feedback, introducing cross-block dependencies.
+
+        :param template: A chaining template callable. See
+            :mod:`PyPR.BooleanLogic.ChainingGeneration` for built-in
+            templates.
+        :type template: Callable[[CMPR], dict[int, BooleanFunction]]
+        """
         chaining_logic = template(self)
 
         for bit, fn in chaining_logic.items():
             self.fn_list[bit].add_arguments(fn)
 
-    def update_MPR(self,mpr_index,new_update_poly):
+    def update_MPR(self,
+        mpr_index: int,
+        new_update_poly: list[int]
+    ) -> None:
+        """Replace the update polynomial of a single component block.
+
+        Rebuilds the component's feedback functions from the new update
+        polynomial while preserving any chaining logic already installed.
+        Cached matrices (update, resolvent, propagation) are invalidated.
+
+        :param mpr_index: The block index of the component to update.
+        :type mpr_index: int
+        :param new_update_poly: The new update polynomial, of length equal
+            to the block size.
+        :type new_update_poly: list[int]
+        :raises ValueError: If the block at `mpr_index` is not an MPR, or
+            if `new_update_poly` has the wrong length.
+        """
         if mpr_index == 0 and self.primitive_polynomials[0] == None:
             raise ValueError(f"Can't update Update Polynomial for block 0, because it is not an MPR.")
         if len(new_update_poly) != len(self.blocks[mpr_index]):
@@ -94,7 +156,7 @@ class CMPR(FeedbackFunction):
         # create new MPR
         new_mpr = MPR(
             len(self.blocks[mpr_index]),
-            self.primitive_polynomials[mpr_index],
+            self.primitive_polynomials[mpr_index], #type: ignore (None case handled above)
             new_update_poly
         )
 
@@ -116,15 +178,33 @@ class CMPR(FeedbackFunction):
         if 'propagation_matrices' in self.__dict__: del self.propagation_matrices
 
     @property
-    def has_chaining(self):
+    def has_chaining(self) -> list[int]:
+        """The number of chaining terms on each bit (0 if unchained).
+
+        :return: A per-bit list of chaining-term counts.
+        :rtype: list[int]
+        """
         return [len(f.args)-1 for f in self.fn_list]
 
     @property
-    def component_feedback(self):
+    def component_feedback(self) -> list[Any]:
+        """The linear (MPR) portion of each bit's feedback function.
+
+        :return: A per-bit list of the component-only feedback (the first
+            argument of each bit's top-level XOR).
+        :rtype: list[BooleanFunction]
+        """
         return [f.args[0] for f in self.fn_list]
 
     @property
-    def chaining_feedback(self):
+    def chaining_feedback(self) -> list[Any]:
+        """The nonlinear chaining portion of each bit's feedback function.
+
+        For bits with no chaining, returns ``CONST(0)``.
+
+        :return: A per-bit list of the chaining-only feedback.
+        :rtype: list[BooleanFunction]
+        """
         output = []
         for f in self.fn_list:
             if len(f.args) > 1:
@@ -133,8 +213,16 @@ class CMPR(FeedbackFunction):
                 output.append(CONST(0))
         return output
 
-    @cached_property 
-    def blocks(self):
+    @cached_property
+    def blocks(self) -> list[list[int]]:
+        """The bit-index ranges of each component block.
+
+        Block 0 is the highest-index (rightmost) block. Each entry is a
+        list of the bit indices belonging to that block.
+
+        :return: A list of block-index lists, one per component.
+        :rtype: list[list[int]]
+        """
         block_list = []
         for d in range(len(self.divisions)-1):
             bits = list(range(self.divisions[d], self.divisions[d+1]))
@@ -142,14 +230,24 @@ class CMPR(FeedbackFunction):
         return block_list[::-1]
 
     @cached_property
-    def update_matrices(self):
+    def update_matrices(self) -> list[np.ndarray[tuple[int],np.dtype[np.uint8]]]:
+        """The GF(2) update matrix of each component block.
+
+        For block b, the matrix U satisfies ``next_block = U @ block``
+        (over GF(2)) on the linear (component-only) portion of the
+        feedback. Entry ``U[i, j]`` is 1 iff bit i's component feedback
+        references bit j as a VAR leaf.
+
+        :return: A list of square GF(2) matrices, one per block.
+        :rtype: list[numpy.ndarray]
+        """
         matrices = []
         for b in range(len(self.blocks)):
             block = self.blocks[b]
             size = len(block)
             offset = self.divisions[-(b+1)]
 
-            matrix = np.zeros([size,size], dtype = int)
+            matrix = np.zeros([size,size], dtype = np.uint8)
 
             for inpt in block:
                 for outpt in block:
@@ -157,71 +255,112 @@ class CMPR(FeedbackFunction):
                     for leaf in self.component_feedback[outpt].inputs():
                         if leaf.index == inpt:
                             matrix[outpt-offset][inpt-offset] = 1
-            
+
             matrices.append(matrix)
         return matrices
 
     @cached_property
-    def resolvent_matrices(self):
+    def resolvent_matrices(self) -> list[np.ndarray[tuple[int],np.dtype[np.object_]]]:
+        """The resolvent matrix (I + UD)^{-1} for each component block.
+
+        Computed over the formal power series ring GF(2)[[D]], where D is
+        the delay operator. The resolvent captures how an input
+        perturbation at a given bit propagates forward through time within
+        its block.
+
+        :return: A list of resolvent matrices over GF(2)[[D]], one per
+            block.
+        :rtype: list[numpy.ndarray]
+        """
         resolvent_matrices = []
         for update_matrix in self.update_matrices:
 
             # Convert the update matrix to be over the Rational Polynomial Field
-            converted_update_matrix = np.vectorize(ResolventSolving.SequenceTransform.from_int)(update_matrix)
-            converted_update_matrix.dtype = ResolventSolving.SequenceTransform
+            converted_update_matrix = np.vectorize(ResolventSolving.BooleanGF.from_int)(update_matrix)
+            converted_update_matrix.dtype = ResolventSolving.BooleanGF
 
             # (I xor UD)^{-1}):
             # meant to be multiplied by (DC(D) xor B[0])
-            unit = ResolventSolving.SequenceTransform.one()
-            delay = ResolventSolving.SequenceTransform.delay()
-            
+            unit = ResolventSolving.BooleanGF.one()
+            delay = ResolventSolving.BooleanGF.delay()
+
             field_matrix = np.asarray([delay]) * converted_update_matrix
             field_matrix += np.asarray([unit]) * ResolventSolving.field_eye(
-                field = ResolventSolving.SequenceTransform,
+                field = ResolventSolving.BooleanGF,
                 size = update_matrix.shape[0],
             )
 
             # invert the matrix and append
             resolvent_matrices.append(ResolventSolving.field_invert(
-                field = ResolventSolving.SequenceTransform,
+                field = ResolventSolving.BooleanGF,
                 matrix = field_matrix
             ))
 
         return resolvent_matrices
 
     @cached_property
-    def propagation_matrices(self):
+    def propagation_matrices(self) -> list[np.ndarray]:
+        """The support mask of each resolvent matrix.
+
+        Entry (i, j) is 1 if the corresponding resolvent entry is
+        nonzero, indicating that bit j's perturbation eventually affects
+        bit i within the same block.
+
+        :return: A list of binary masks, one per block.
+        :rtype: list[numpy.ndarray]
+        """
         propagation_matrices = []
         for resolvent_matrix in self.resolvent_matrices:
-            mask = np.zeros_like(resolvent_matrix)
-            mask[resolvent_matrix != 0] = 1
-
+            mask = np.zeros_like(resolvent_matrix) # ignoring error cause by dtype being object 
+            mask[resolvent_matrix != resolvent_matrix.dtype.zero] = 1 #type: ignore
             propagation_matrices.append(mask)
         return propagation_matrices
 
 
 
 
-
-
-
     @cached_property
-    def expected_period_ratio(self):
+    def expected_period_ratio(self) -> float:
+        """The expected fraction of the maximum period achieved by a random
+        chaining configuration with these block sizes.
+
+        :return: A probability in [0, 1].
+        :rtype: float
+        """
         sizes = [len(block) for block in self.blocks]
         return expected_period_ratio(sizes)
 
     @cached_property
-    def expected_period(self):
+    def expected_period(self) -> float:
+        """The expected period for a random chaining configuration with
+        these block sizes.
+
+        :return: The expected period.
+        :rtype: int
+        """
         sizes = [len(block) for block in self.blocks]
         return expected_period(sizes)
 
     @cached_property
-    def max_period(self):
+    def max_period(self) -> int:
+        """The maximum achievable period for these block sizes.
+
+        Equal to the LCM of (2^{n_i} - 1) across all component blocks.
+
+        :return: The maximum period.
+        :rtype: int
+        """
         sizes = [len(block) for block in self.blocks]
         return max_period(sizes)
 
     @cached_property
-    def cycle_lengths(self):
+    def cycle_lengths(self) -> list[tuple[int, int]]:
+        """The possible cycle lengths and their multiplicities for these
+        block sizes.
+
+        :return: A list of (cycle_length, count) pairs.
+        :rtype: list[tuple[int, int]]
+        """
         sizes = [len(block) for block in self.blocks]
         return cycle_lengths(sizes)
 
@@ -230,8 +369,31 @@ class CMPR(FeedbackFunction):
 
 
 
+    def monomial_profiles(self,
+        verbose: bool = False,
+        force_default: bool = False
+    ) -> list[MonomialProfile]:
+        """Compute a monomial profile for each bit of the register.
 
-    def monomial_profiles(self, verbose = False, force_default = False):
+        The monomial profile tracks which monomials (products of roots
+        from distinct component blocks) can appear in the exponential
+        representation of each bit's output sequence. This provides an
+        upper bound on the algebraic structure and, in turn, the linear
+        complexity.
+
+        When the block configuration is amenable (no 1-bit blocks, no
+        repeated sizes, simple chaining), a mesh optimization is used for
+        faster computation. Otherwise falls back to the default
+        composition-based algorithm.
+
+        :param verbose: If True, print progress information.
+        :type verbose: bool
+        :param force_default: If True, skip the mesh optimization even
+            when it would be valid.
+        :type force_default: bool
+        :return: A per-bit list of monomial profiles.
+        :rtype: list[MonomialProfile]
+        """
         block_sizes = set()
         use_mesh_optimization = True
 
@@ -265,7 +427,7 @@ class CMPR(FeedbackFunction):
         else:
             return self._mp_default(verbose)
 
-    def _mp_default(self, verbose = False):
+    def _mp_default(self, verbose: bool = False) -> list[MonomialProfile]:
         if verbose: print("Running default monomial profile algorithm")
         prof_table = [MonomialProfile() for i in range(self.size)] # map: bit -> expression
         block_table = [MonomialProfile() for i in range(len(self.blocks))]
@@ -312,7 +474,7 @@ class CMPR(FeedbackFunction):
 
         return prof_table
 
-    def _mp_mesh_optimization(self, verbose = False):
+    def _mp_mesh_optimization(self, verbose: bool = False) -> list[Any]:
         if verbose: print("Running monomial profile algorithm with the mesh optimization")
                 
         expr_table: list[Any] = [None for i in range(self.size)]
@@ -381,7 +543,35 @@ class CMPR(FeedbackFunction):
 
 
 
-    def root_expressions(self, locked_list = None, verbose = False, force_default = False):
+    def root_expressions(self,
+        locked_list: list[int] | None = None,
+        verbose: bool = False,
+        force_default: bool = False
+    ) -> list[RootExpression]:
+        """Compute a root expression for each bit of the register.
+
+        The root expression bounds which roots can appear in the
+        exponential (Binet-style) representation of each bit's output
+        sequence over GF(2). This provides upper and lower bounds on the
+        linear complexity, which measures the shortest LFSR that
+        reproduces the sequence.
+
+        Blocks listed in `locked_list` are treated as fixed (their root
+        contributions are not extended), useful for analyzing the effect of
+        chaining with some components held constant.
+
+        :param locked_list: A list of flags (one per block), where a
+            truthy value means the block is unlocked (contributes roots).
+            If None, all blocks are unlocked.
+        :type locked_list: list[int] | None
+        :param verbose: If True, print progress information.
+        :type verbose: bool
+        :param force_default: If True, skip the mesh optimization even
+            when it would be valid.
+        :type force_default: bool
+        :return: A per-bit list of root expressions.
+        :rtype: list[RootExpression]
+        """
         block_sizes = set()
         use_mesh_optimization = True
 
@@ -415,7 +605,10 @@ class CMPR(FeedbackFunction):
         else:
             return self._re_default(locked_list, verbose)
 
-    def _re_default(self, locked_list = None, verbose = False):
+    def _re_default(self,
+        locked_list: list[int] | None = None,
+        verbose: bool = False
+    ) -> list[RootExpression]:
         if verbose: print("Running default root expression algorithm")
         expr_table = [RootExpression({}) for i in range(self.size)] # map: bit -> expression
         block_table = [RootExpression({}) for i in range(len(self.blocks))]
@@ -473,7 +666,10 @@ class CMPR(FeedbackFunction):
 
         return expr_table
     
-    def _re_mesh_optimization(self, locked_list = None, verbose = False):
+    def _re_mesh_optimization(self,
+        locked_list: list[int] | None = None,
+        verbose: bool = False
+    ) -> list[Any]:
         if verbose: print("Running root expression algorithm with the mesh optimization")
                 
         expr_table: list[Any] = [None for i in range(self.size)]
@@ -539,10 +735,29 @@ class CMPR(FeedbackFunction):
 
                
 
-    def estimate_LC(self, output_bit, locked_list = None, verbose = False):
-        # locked-list is used to cancel effects of the locked registers.
-        # the locked list contains the sizes of the locked MPRs
+    def estimate_LC(self,
+        output_bit: int,
+        locked_list: list[int] | None = None,
+        verbose: bool = False
+    ) -> tuple[int, int]:
+        """Estimate the linear complexity bounds for a single output bit.
 
+        Computes root expressions for the register and evaluates lower and
+        upper bounds on the linear complexity of the specified bit's
+        output sequence. Locked blocks (via `locked_list`) have their root
+        contributions suppressed, which tightens the bound to reflect only
+        the unlocked components' contributions.
+
+        :param output_bit: The bit index to analyze.
+        :type output_bit: int
+        :param locked_list: A list of flags (one per block) indicating
+            which blocks are unlocked. If None, all blocks are unlocked.
+        :type locked_list: list[int] | None
+        :param verbose: If True, print timing information.
+        :type verbose: bool
+        :return: A (lower, upper) pair bounding the linear complexity.
+        :rtype: tuple[int, int]
+        """
         t1 = time.time()
         REs = self.root_expressions(locked_list,verbose = verbose)
         bitRE = REs[output_bit]
@@ -580,7 +795,18 @@ class CMPR(FeedbackFunction):
 
 
     @property
-    def fixpoint(self):
+    def fixpoint(self) -> list[int]:
+        """The unique fixed point of the register (the state s such that
+        F(s) = s).
+
+        Solves (U - I)x = C block by block, where U is the update matrix
+        and C is the chaining contribution from already-solved blocks.
+        Requires that (U - I) is invertible for each block, which holds
+        when the update polynomial has no fixed points.
+
+        :return: The fixed-point state vector.
+        :rtype: list[int]
+        """
         fixed_state = [0] * self.size
         for block_idx in range(self.num_components):
             # compute the matrix (U-I)
@@ -604,7 +830,21 @@ class CMPR(FeedbackFunction):
         return fixed_state
 
 
-    def reverse_clock(self, state):
+    def reverse_clock(self,
+        state: list[int]
+    ) -> list[int]:
+        """Compute the predecessor state (the state that clocks into the
+        given one).
+
+        Solves Ux = target - chaining block by block, where U is the
+        update matrix and the chaining contribution is computed from
+        already-solved blocks.
+
+        :param state: The current state vector.
+        :type state: list[int]
+        :return: The predecessor state vector.
+        :rtype: list[int]
+        """
         prev_state = [0] * self.size
         for block_idx in range(self.num_components):
             update_matrix = gl.GF2(self.update_matrices[block_idx])
@@ -624,9 +864,22 @@ class CMPR(FeedbackFunction):
         return prev_state
 
 
-    # writes a VHDL file (special formatting for CMPRs)
-    # Credit: Anna Hemingway
-    def write_VHDL(self, filename, include_mpr = True):
+    def write_VHDL(self,
+        filename: str,
+        include_mpr: bool = True
+    ) -> None:
+        """Write a VHDL entity implementing this CMPR.
+
+        Generates a synthesizable VHDL file with a clocked state register
+        and combinational next-state logic derived from the component and
+        chaining feedback functions. Credit: Anna Hemingway.
+
+        :param filename: The output file path.
+        :type filename: str
+        :param include_mpr: If True, include the MPR (component) feedback
+            in the output. If False, emit only the chaining logic.
+        :type include_mpr: bool
+        """
         overrides = {}
         vhdl_str = "\n    "
         for i in range(self.size - 1, -1 , -1):

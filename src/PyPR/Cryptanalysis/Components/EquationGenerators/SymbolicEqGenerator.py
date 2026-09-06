@@ -1,6 +1,7 @@
 from typing import Iterator
 from PyPR.BooleanLogic import BooleanANF, BooleanFunction
 from PyPR.FeedbackFunctions import FeedbackFunction
+from PyPR.Cryptanalysis.Components.EquationGenerators._utils import normalize_output_fn
 
 def SymbolicEqGenerator(
     feedback_fn: FeedbackFunction, 
@@ -84,19 +85,8 @@ def SymbolicEqGenerator(
         list[tuple[int, BooleanFunction, int]] 
     ]
     """
-    # set flags to match outputs shape to input shape:
-    if type(output_fn) == list:
-        return_list = True
-        output_fn_list = output_fn
-    elif isinstance(output_fn,BooleanFunction):
-        return_list = False
-        output_fn_list = [output_fn]
-    else:
-        raise TypeError(
-            f"output_fn must be a BooleanFunction or list of Boolean functions. " +
-            f"Got {type(output_fn)} instead."
-        )
-    
+    output_fn_list, return_list = normalize_output_fn(output_fn)
+
     if initialization == None:
         fns = [BooleanANF([[b]]) for b in range(feedback_fn.size)]
     else:

@@ -18,3 +18,14 @@ dependencies = [
 [tool.setuptools]
 packages = ["PyPR"]
 package-dir = {"" = "src"}
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+python_files = ["test_*.py", "*_test.py"]
+python_functions = ["test_*"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]

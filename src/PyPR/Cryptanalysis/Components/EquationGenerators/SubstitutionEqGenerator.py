@@ -3,6 +3,7 @@ from typing import Any, Iterator
 from PyPR.BooleanLogic.FunctionInputs import VAR
 from PyPR.BooleanLogic import BooleanFunction, BooleanANF
 from PyPR.FeedbackFunctions import FeedbackFunction
+from PyPR.Cryptanalysis.Components.EquationGenerators._utils import normalize_output_fn
 
 def SubstitutionEqGenerator(
     feedback_fn: FeedbackFunction, 
@@ -87,18 +88,7 @@ def SubstitutionEqGenerator(
         list[tuple[int, BooleanFunction, int]] 
     ]
     """
-    # set flags to match outputs shape to input shape:
-    if type(output_fn) == list:
-        return_list = True
-        output_fn_list = output_fn
-    elif isinstance(output_fn,BooleanFunction):
-        return_list = False
-        output_fn_list = [output_fn]
-    else:
-        raise TypeError(
-            f"output_fn must be a BooleanFunction or list of Boolean functions. " +
-            f"Got {type(output_fn)} instead."
-        )
+    output_fn_list, return_list = normalize_output_fn(output_fn)
 
     bits = set.union(*(output_fn.idxs_used() for output_fn in output_fn_list))
     fns: list[Any] = [

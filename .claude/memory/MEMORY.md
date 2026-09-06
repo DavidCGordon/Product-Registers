@@ -1,0 +1,1 @@
+All project knowledge lives in `docs/` (theory, architecture, conventions) and behavioral directives live in `CLAUDE.md`. Do not create memory files -- add to the appropriate doc or CLAUDE.md section instead.

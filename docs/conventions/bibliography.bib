@@ -1,0 +1,325 @@
+% ==========================================================================
+% PyPR Bibliography
+% ==========================================================================
+%
+% Canonical bibliography for the PyPR project. All external academic
+% references cited in theory docs, architecture docs, docstrings, or
+% source comments should have an entry here.
+%
+% Format: standard BibTeX, alphabetical by citation key.
+% Keys use AuthorYear style (e.g., Rota1964, KlimovShamir2002).
+%
+% When adding a new entry:
+%   1. Use the same key style.
+%   2. Add a comment noting where in the codebase the reference is used.
+%   3. Include a DOI or URL when available.
+%
+% ==========================================================================
+
+
+% ---------------------------------------------------------------------------
+% Used in: src/PyPR/Tools/RegisterSynthesis/lfsrSynthesis.py
+%          docs/conventions/Polynomial Conventions.md
+%          docs/theory/Root Expressions and LC Estimation.md
+%          src/PyPR/FeedbackFunctions/Fibonacci.py, Galois.py, MPR.py, FCSR.py
+% ---------------------------------------------------------------------------
+@article{Berlekamp1968,
+  author    = {Berlekamp, Elwyn R.},
+  title     = {Algebraic Coding Theory},
+  year      = {1968},
+  publisher = {McGraw-Hill},
+  note      = {Introduces the algorithm later refined by Massey for LFSR
+               synthesis from output sequences.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: (same locations as Berlekamp1968)
+% ---------------------------------------------------------------------------
+@article{Massey1969,
+  author    = {Massey, James L.},
+  title     = {Shift-Register Synthesis and {BCH} Decoding},
+  journal   = {IEEE Transactions on Information Theory},
+  volume    = {15},
+  number    = {1},
+  pages     = {122--127},
+  year      = {1969},
+  doi       = {10.1109/TIT.1969.1054260},
+  note      = {Reformulates Berlekamp's algorithm as iterative LFSR
+               synthesis. The Berlekamp--Massey algorithm is used
+               throughout PyPR for LFSR synthesis and linear complexity
+               computation.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: src/PyPR/FeedbackRegister.py (period detection)
+% ---------------------------------------------------------------------------
+@article{Brent1980,
+  author    = {Brent, Richard P.},
+  title     = {An Improved {Monte Carlo} Factorization Algorithm},
+  journal   = {BIT Numerical Mathematics},
+  volume    = {20},
+  number    = {2},
+  pages     = {176--184},
+  year      = {1980},
+  doi       = {10.1007/BF01933190},
+  note      = {Introduces the cycle-detection algorithm used in
+               FeedbackRegister.period(). PyPR uses a slightly modified
+               version of the Wikipedia pseudocode.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: src/PyPR/FeedbackFunctions/CrossJoin.py
+%          src/PyPR/FeedbackFunctions/Galois.py
+% ---------------------------------------------------------------------------
+@article{Dubrova2009,
+  author    = {Dubrova, Elena},
+  title     = {A Transformation from the {Fibonacci} to the {Galois}
+               {NLFSRs}},
+  journal   = {IEEE Transactions on Information Theory},
+  volume    = {55},
+  number    = {11},
+  pages     = {5263--5271},
+  year      = {2009},
+  doi       = {10.1109/TIT.2009.2030467},
+  note      = {Defines the crossjoin NLFSR construction and the
+               Galois shift representation used in PyPR.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: src/PyPR/Cryptanalysis/Components/EquationSolving/Grob_Solver_2.py
+%          src/PyPR/Cryptanalysis/Components/EquationStores/GrobnerEqStore2.py
+% ---------------------------------------------------------------------------
+@article{GebauerMoller1988,
+  author    = {Gebauer, R\"{u}diger and M\"{o}ller, H. Michael},
+  title     = {On an Installation of {Buchberger's} Algorithm},
+  journal   = {Journal of Symbolic Computation},
+  volume    = {6},
+  number    = {2--3},
+  pages     = {275--286},
+  year      = {1988},
+  doi       = {10.1016/S0747-7171(88)80048-8},
+  note      = {B/F/M criteria for pruning redundant S-polynomial pairs
+               during Gr\"{o}bner basis computation.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: docs/theory/Root Expressions and LC Estimation.md [Key76]
+% ---------------------------------------------------------------------------
+@article{Key1976,
+  author    = {Key, Edwin L.},
+  title     = {An Analysis of the Structure and Complexity of Nonlinear
+               Binary Sequence Generators},
+  journal   = {IEEE Transactions on Information Theory},
+  volume    = {22},
+  number    = {6},
+  pages     = {732--736},
+  year      = {1976},
+  doi       = {10.1109/TIT.1976.1055626},
+  note      = {Establishes the coset weight bound: multiplying two
+               sequences cannot increase coset weight beyond the sum
+               of the individual weights.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: src/PyPR/FeedbackFunctions/TFunction.py
+%          docs/architecture/Feedback Family Implementation Details/TFunctions.md
+% ---------------------------------------------------------------------------
+@inproceedings{KlimovShamir2002,
+  author    = {Klimov, Alexander and Shamir, Adi},
+  title     = {A New Class of Invertible Mappings},
+  booktitle = {Cryptographic Hardware and Embedded Systems -- CHES 2002},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {2523},
+  pages     = {470--483},
+  year      = {2003},
+  publisher = {Springer},
+  doi       = {10.1007/3-540-36400-5_34},
+  note      = {Introduces T-functions --- triangular mappings where each
+               output bit depends only on equal or lower-indexed input
+               bits. PyPR's TFunction class implements this construction.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: src/PyPR/Tools/RegisterSynthesis/fcsrSynthesis.py (primary source)
+% ---------------------------------------------------------------------------
+@article{KlapperGoresky1993,
+  author    = {Klapper, Andrew and Goresky, Mark},
+  title     = {2-Adic Shift Registers},
+  booktitle = {Fast Software Encryption},
+  series    = {Lecture Notes in Computer Science},
+  year      = {1993},
+  publisher = {Springer},
+  url       = {http://cs.engr.uky.edu/~klapper/pdf/fcsr.pdf},
+  note      = {Primary reference for the FCSR synthesis algorithm.
+               The 2-adic Berlekamp--Massey variant in PyPR follows
+               this paper.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: src/PyPR/Tools/RegisterSynthesis/fcsrSynthesis.py (modifications)
+% ---------------------------------------------------------------------------
+@article{KlapperGoresky1997,
+  author    = {Klapper, Andrew and Goresky, Mark},
+  title     = {Feedback Shift Registers, 2-Adic Span, and Combiners
+               with Memory},
+  journal   = {Journal of Cryptology},
+  volume    = {10},
+  number    = {2},
+  pages     = {111--147},
+  year      = {1997},
+  doi       = {10.1007/s001459900024},
+  url       = {https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=1056960},
+  note      = {Extended treatment of FCSR theory. Some modifications
+               to the synthesis algorithm in PyPR are taken from this
+               paper.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: src/PyPR/Tools/RegisterSynthesis/fcsrSynthesis.py:149
+%          (corrected D() helper)
+% ---------------------------------------------------------------------------
+@article{ArnaultBergerMinier2005,
+  author    = {Arnault, Fran\c{c}ois and Berger, Thierry P. and
+               Minier, Marine},
+  title     = {Some Results on {FCSR} Automata with Applications to
+               the Security of {FCSR}-Based Pseudorandom Generators},
+  journal   = {IEEE Transactions on Information Theory},
+  volume    = {54},
+  number    = {2},
+  pages     = {836--840},
+  year      = {2008},
+  doi       = {10.1109/TIT.2007.913506},
+  url       = {https://core.ac.uk/download/pdf/82034673.pdf},
+  note      = {Contains a corrected version of the D() helper function
+               from the original Klapper--Goresky FCSR paper.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: docs/theory/Interleaving and Clock-Controlled Registers.md
+% ---------------------------------------------------------------------------
+@inproceedings{MeierStaffelbach1994,
+  author    = {Meier, Willi and Staffelbach, Othmar},
+  title     = {The Self-Shrinking Generator},
+  booktitle = {Advances in Cryptology -- EUROCRYPT '94},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {950},
+  pages     = {205--214},
+  year      = {1995},
+  publisher = {Springer},
+  doi       = {10.1007/BFb0053436},
+  note      = {Establishes the bound $L(\text{SSG}) \leq 2^{n-1}$ for
+               the linear complexity of the self-shrinking generator.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: docs/theory/Moebius Inversion on the Bit-Subset Lattice.md
+% ---------------------------------------------------------------------------
+@article{Rota1964,
+  author    = {Rota, Gian-Carlo},
+  title     = {On the Foundations of Combinatorial Theory {I}. {Theory}
+               of {M\"{o}bius} Functions},
+  journal   = {Zeitschrift f\"{u}r Wahrscheinlichkeitstheorie und
+               verwandte Gebiete},
+  volume    = {2},
+  number    = {4},
+  pages     = {340--368},
+  year      = {1964},
+  doi       = {10.1007/BF00531932},
+  note      = {Generalizes classical M\"{o}bius inversion from number
+               theory to arbitrary locally finite partially ordered sets.
+               The Boolean-lattice specialization is the basis for the
+               ANF / truth-table transform used throughout PyPR's
+               cryptanalysis components.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: src/PyPR/Tools/RootCounting/JordanPartition.py
+% ---------------------------------------------------------------------------
+@article{SalamonSimon2006,
+  author    = {Salamon, Peter and Simon, Andr\'{a}s},
+  title     = {On Partitions of {$\mathbb{F}_q$} into Arithmetic
+               Progressions and Generalized {Jordan} Forms},
+  year      = {2006},
+  eprint    = {math/0612437},
+  archiveprefix = {arXiv},
+  primaryclass  = {math.CO},
+  url       = {https://arxiv.org/pdf/math/0612437.pdf},
+  note      = {The algorithm implemented in JordanPartition.py for
+               computing Jordan block multiplicities in
+               characteristic~$p$.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: docs/theory/Dihedral Symmetries of the Boolean Transform.md,
+%          docs/theory/Division Property.md
+% ---------------------------------------------------------------------------
+@inproceedings{Todo2015,
+  author    = {Todo, Yosuke},
+  title     = {Structural Evaluation by Generalized Integral Property},
+  booktitle = {Advances in Cryptology -- EUROCRYPT 2015},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {9056},
+  pages     = {287--314},
+  year      = {2015},
+  publisher = {Springer},
+  doi       = {10.1007/978-3-662-46800-5_12},
+  note      = {Introduces the division property for block ciphers,
+               which tracks propagation of monomial degrees through
+               cipher rounds. Related to the set-complement duality
+               exposed by the antidiagonal symmetry of the Boolean
+               transform.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: src/PyPR/Tools/RegisterSynthesis/fcsrSynthesis.py
+% ---------------------------------------------------------------------------
+@article{HuSha2019,
+  author    = {Hu, Zhi and Sha, Min},
+  title     = {2-Adic Complexity of {T}-Functions},
+  journal   = {International Journal of Network Security},
+  volume    = {21},
+  number    = {1},
+  pages     = {1--6},
+  year      = {2019},
+  url       = {http://ijns.jalaxy.com.tw/contents/ijns-v21-n1/ijns-2019-v21-n1-p1-6.pdf},
+  note      = {Bounds on 2-adic complexity of T-function output
+               sequences. Referenced in fcsrSynthesis.py as a
+               benchmark that PyPR's approach can improve upon.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: docs/theory/Binomial Decimation Identity.md
+%          docs/theory/Algebraic Normal Form.md
+%          docs/theory/Moebius Inversion on the Bit-Subset Lattice.md
+%          (and throughout, implicitly)
+% ---------------------------------------------------------------------------
+@article{Lucas1878,
+  author    = {Lucas, \'{E}douard},
+  title     = {Th\'{e}orie des Fonctions Num\'{e}riques Simplement
+               P\'{e}riodiques},
+  journal   = {American Journal of Mathematics},
+  volume    = {1},
+  number    = {2},
+  pages     = {184--196},
+  year      = {1878},
+  doi       = {10.2307/2369308},
+  note      = {Establishes Lucas' theorem: $\binom{m}{n} \bmod p$ is
+               the product of $\binom{m_i}{n_i} \bmod p$ over the
+               base-$p$ digits. The $p = 2$ case identifies binomial
+               coefficients mod 2 with the bit-subset relation and
+               underpins the ANF--binomial connection.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: src/PyPR/Cryptanalysis/Components/Annihilators/SparseAnnihilator.py
+%          docs/architecture/Components_Architecture.md
+% ---------------------------------------------------------------------------
+@inproceedings{MollerBierbrauer2006,
+  author    = {M\"{o}ller, Nele},
+  title     = {On the Annihilators of Boolean Functions},
+  year      = {2006},
+  note      = {Symbolic annihilator algorithm. The SparseAnnihilator
+               implementation in PyPR follows this paper's pseudocode.
+               TODO: locate exact publication venue and complete this
+               entry.},
+}

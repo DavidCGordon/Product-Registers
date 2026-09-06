@@ -1,4 +1,5 @@
 from PyPR.BooleanLogic import XOR, CONST
+from PyPR.BooleanLogic.BooleanGF import BooleanGF
 from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey, berlekamp_massey_iterator
 
 import numpy as np
@@ -6,114 +7,6 @@ import galois as gal
 
 from itertools import product
 import re
-
-# Rational Polynomial class for the entries of the matrix. Uses Galois GF(2) matrixrices.
-class SequenceTransform:
-
-    #several useful elements:
-    @classmethod
-    def one(cls):
-        return SequenceTransform([1],[1])
-    @classmethod
-    def zero(cls):
-        return SequenceTransform([0],[1])
-    @classmethod
-    def delay(cls):
-        return SequenceTransform([0,1],[1])
-    
-    # useful for broadcasting across arrays
-    @classmethod
-    def from_int(cls,value):
-        return SequenceTransform([value],[1])
-    
-    @classmethod
-    def from_seq(cls,seq):
-        L,polynomial = berlekamp_massey(seq)
-        arr = np.convolve(seq,polynomial)[:L+1] % 2
-        return SequenceTransform(arr,polynomial)
-    
-    def __init__(self,n,d):
-        if type(n) != gal.Poly:
-            try:
-                n = gal.Poly(n[::-1])
-            except:
-                print(n)
-                raise ValueError(f"could not parse numerator input of type {type(n)} as a polynomial")
-            
-        if type(d) != gal.Poly:
-            try:
-                d = gal.Poly(d[::-1])
-            except:
-                print(d)
-                raise ValueError(f"could not parse denominator input of type {type(d)} as a polynomial")
-
-        self.n = n
-        self.d = d
-
-
-    def __add__(self,other):
-        if type(other) != SequenceTransform:
-            raise ValueError(f"argument must be SequenceTransform, not {type(other)}")
-        out_n = self.d * other.n + self.n * other.d
-        out_d = self.d * other.d
-        return SequenceTransform(out_n,out_d).simplify()
-
-    def __mul__(self,other):
-        if type(other) != SequenceTransform:
-            raise ValueError(f"argument must be SequenceTransform, not {type(other)}")
-        out_n = self.n * other.n
-        out_d = self.d * other.d
-        return SequenceTransform(out_n,out_d).simplify()
-    
-    def __pow__(self,power):
-        if type(power) != int:
-            raise ValueError(f"power must be int, not {type(power)}")
-        acc = SequenceTransform.one()
-        for _ in range(power):
-            acc *= self
-        return acc
-
-    def __truediv__(self,other):
-        if type(other) != SequenceTransform:
-            raise ValueError(f"argument must be SequenceTransform, not {type(other)}")
-        out_n = self.n * other.d
-        out_d = self.d * other.n
-        return SequenceTransform(out_n,out_d).simplify()
-
-    def simplify(self):
-        g = gal.gcd(self.n,self.d)
-        return SequenceTransform(self.n//g, self.d//g)
-    
-    # string formatting for z-transform is a bit of a pain :(
-    def z_string(self):
-        s = self.__str__().replace('D','z^(-1)')
-        return re.sub(
-            pattern = "\\(-1\\)\\^(\\d+)",
-            repl = lambda x:  '(-' + x.group(1) + ')',
-            string = s
-        )
-    
-    def __str__(self):
-        return (
-            "(" + str(self.n).replace('x','D') + " / " + str(self.d).replace('x','D') + ")"
-        )
-
-    # so that it displays nicely in vectors
-    def __repr__(self):
-        return str(self)
-
-    def __eq__(self,other):
-        if type(other) != SequenceTransform:
-            raise ValueError(f'Expected type SequenceTransform, not {type(other)}')
-        return self.n == other.n and self.d == other.d
-    
-    def __copy__(self):
-        return SequenceTransform(
-            gal.Poly(self.n.coefficients()),
-            gal.Poly(self.d.coefficients())
-        )
-
-
 
 # Methods for solving for the resolvent:
 
@@ -123,8 +16,7 @@ def field_eye(field, size):
     for i,j in product(range(size),repeat=2):
         if i == j: entry_list.append(field.one())
         else: entry_list.append(field.zero())
-
-    return np.asarray(entry_list,dtype=SequenceTransform).reshape([size,size])
+    return np.asarray(entry_list,dtype=BooleanGF).reshape([size,size])
 
 # Gaussian Elimination matrix inversion:
 def field_invert(field, matrix):
@@ -166,12 +58,11 @@ def field_invert(field, matrix):
 
     return (matrix[:, size:])
 
-
 # initialize useful variables:
 def generate_resolvent_example(cmpr, use_z_convention = False):
     # Define variables
-    D = SequenceTransform.delay()
-    z = SequenceTransform.one() / SequenceTransform.delay()
+    D = BooleanGF.delay()
+    z = BooleanGF.one() / BooleanGF.delay()
 
     # collect information about CMPR:
     prev_state = cmpr._prev_state.copy()
@@ -189,13 +80,13 @@ def generate_resolvent_example(cmpr, use_z_convention = False):
         'combined vector': None,
         'update matrices': cmpr.fn.update_matrices,
         'resolvent matrices': cmpr.fn.resolvent_matrices,
-        'computed transforms':  np.array([None for i in range(cmpr.size)],dtype=SequenceTransform),
+        'computed transforms': np.array([None for i in range(cmpr.size)],dtype=BooleanGF),
     }
     
     # fill in initial state transforms
     initial_vector = np.array(
-        [SequenceTransform([cmpr[bit]],[1]) for bit in range(cmpr.size)],
-        dtype=SequenceTransform
+        [BooleanGF([cmpr[bit]],[1]) for bit in range(cmpr.size)],
+        dtype=BooleanGF
     )
 
     # iterate register to compute state/chaining sequences:
@@ -204,13 +95,13 @@ def generate_resolvent_example(cmpr, use_z_convention = False):
     chaining_fns = [XOR(CONST(0),*(bit_fn.args[1:])).compile() for bit_fn in cmpr.fn]
 
     cmpr.fn.compile()
-    for t, state in enumerate(cmpr.run_compiled(2*LC_bound + 4)):
+    for t, state in enumerate(cmpr.run(2*LC_bound + 4)):
         for bit in range(cmpr.size):
             register_values[bit][t] = state[bit]
             chaining_values[bit][t] = chaining_fns[bit](state._state)
 
-    register_vector = np.array([SequenceTransform.from_seq(seq) for seq in register_values])
-    chaining_vector = np.array([SequenceTransform.from_seq(seq) for seq in chaining_values])
+    register_vector = np.array([BooleanGF.from_seq(seq) for seq in register_values])
+    chaining_vector = np.array([BooleanGF.from_seq(seq) for seq in chaining_values])
 
     outputs['sequence transforms'] = register_vector
     outputs['chaining transforms'] = chaining_vector

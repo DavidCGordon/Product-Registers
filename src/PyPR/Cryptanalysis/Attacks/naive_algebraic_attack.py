@@ -1,4 +1,3 @@
-from PyPR import FeedbackRegister
 from PyPR.BooleanLogic import BooleanFunction
 
 from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile
@@ -8,11 +7,10 @@ from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
 from PyPR.Cryptanalysis.Components.EquationGenerators.CubeEqGenerator import CubeEqGenerator, get_var_map
 from PyPR.Cryptanalysis.Components.EquationGenerators.SubstitutionEqGenerator import SubstitutionEqGenerator
 
-from PyPR.Cryptanalysis.Components.EquationSolvers.LU_Solver import lu_solve
+from PyPR.Cryptanalysis.Components.EquationSolving.LU_Solver import LUSolver
+from PyPR.Cryptanalysis.Components.EquationSolving.Grob_Solver import GrobnerSolver
 
-from itertools import product
 import numpy as np
-import numba
 import time
 
 # small helper function to help pretty-print:
@@ -134,168 +132,66 @@ def NAA_offline(
 
 
 
-# Dont need known bits: this is because each equation is cheap (relative to cube attacks)
-# and the known bits doesnt /really/ help with the monomials (without a big loop), so it
-# doesnt shrink the system that much, but does introduce a lot of overhead.
+def NAA_online(
+    feedback_fn, output_fn, keystream, attack_data,
+    test_length=1000, time_limit=None, verbose=False, print_depth=0,
+    solver=None,
+):
+    if isinstance(solver, GrobnerSolver):
+        raise ValueError(
+            "NAA with GrobnerSolver is not supported: NAA's offline phase produces "
+            "LU matrices with separate constants, which Gröbner solving cannot use. "
+            "Use LUSolver or GaussElimSolver instead."
+        )
 
-def NAA_online(feedback_fn, output_fn, keystream, attack_data, test_length = 1000, verbose = False,print_depth=0):
     if verbose:
         print(f"{indent(print_depth)}Starting online phase (Naive Algebraic Attack):")
     start_time = time.time()
 
     # unpack attack_data
-    guess_bits = attack_data['guess vars']
     var_map = attack_data['equation times']
     upper_matrix = attack_data['upper matrix']
     lower_matrix = attack_data['lower matrix']
     num_vars = len(upper_matrix)
+    comb_to_idx = attack_data['comb to idx map']
 
-    variable_indices = [
-        attack_data['comb to idx map'][(v,)] 
-        for v in range(feedback_fn.size)
-    ]
-
-
-    if verbose:    
-        print(f"{indent(print_depth+1)}Starting initial matrix solve:")
-
-    # initialize new data:
-    initial_guess_start = time.time()
-    guess_count = 0
-    vector_to_solve = np.zeros([num_vars],dtype=np.uint8)
-
-    # determine base solution (from keystream):
+    # reconstruct an LUEqStore from the stored matrices
+    solved_store = LUEqStore(comb_to_idx)
+    solved_store.upper_matrix[:num_vars,:num_vars] = upper_matrix
+    solved_store.lower_matrix[:num_vars,:num_vars] = lower_matrix
     for v in range(num_vars):
         if v in var_map:
-            vector_to_solve[v] = keystream[var_map[v]]
-    
-    base_solution = lu_solve(
-        lower_matrix,
-        upper_matrix,
-        vector_to_solve
-    )[variable_indices].copy()
+            solved_store.solved_for[v] = 1
+    solved_store.num_eqs = sum(1 for v in range(num_vars) if v in var_map)
+    solved_store.equation_ids = {v: var_map[v] for v in var_map}
 
-    # data / buffers for testing an candidate initial state
-    F = FeedbackRegister(0,feedback_fn)
-    test_length = min(test_length,len(keystream))
-    test_keystream = keystream[:test_length]
+    # build constant vector from keystream
+    additional_constants = np.zeros([num_vars], dtype=np.uint8)
+    for v in range(num_vars):
+        if v in var_map:
+            additional_constants[v] = keystream[var_map[v]]
 
-    # test if this was the correct initial_state
-    F._state = base_solution.copy()
-    test_seq = [output_fn.eval(state) for state in F.run(test_length)]
-    if np.all(test_seq == test_keystream):
+    if solver is None:
+        solver = LUSolver(additional_constants=additional_constants)
+    else:
+        solver.additional_constants = additional_constants
+
+    if time_limit and (time.time() - start_time >= time_limit):
         if verbose:
-            print(f"{indent(print_depth+1)}Initial matrix solve complete -- correct base solution")
-            print(f"{indent(print_depth+1)}Time: {time.time() - initial_guess_start} s")
-            print(f"{indent(print_depth)}Online phase complete -- Total time: ", time.time() - start_time)
-        return list(base_solution)
-
-    # otherwise we need to try different guesses
-    if verbose:
-        print(f"{indent(print_depth+1)}Initial solution failed, guessing remaining information:")
-        print(f"{indent(print_depth+2)}Collecting guess effect vectors:")
-
-    # first, collect the effects of every guessed bit independently
-    effect_collection_start = time.time()
-    guess_effect_map = {}
-    unstable_bits = np.zeros_like(base_solution)
-    for t in range(len(guess_bits)):
-        if verbose:
-            print(f"\r{indent(print_depth+3)}Matrix Solves: {t+1}/{len(guess_bits)}",end='')
-
-        guess_assignment = [0]*len(guess_bits)
-        guess_assignment[t] = 1
-
-        # fill in the vector with keystream + guesses
-        for v in range(num_vars):
-            if v in var_map:
-                vector_to_solve[v] = keystream[var_map[v]]
-        for i,(v,comb) in enumerate(guess_bits):
-            vector_to_solve[v] = guess_assignment[i]
-
-        # solve the equation.
-        solution = lu_solve(
-            lower_matrix,
-            upper_matrix,
-            vector_to_solve,
-        )[variable_indices]
-
-        difference = (solution ^ base_solution)
-        guess_effect_map[guess_bits[t]] = difference
-        unstable_bits |= difference
+            print(f"{indent(print_depth)}Online phase timed out -- Total time: {time.time() - start_time} s")
+        return None
 
     if verbose:
-        print(f"\n{indent(print_depth+2)}Finished collecting guess effect vectors:")
-        print(f"{indent(print_depth+2)}Time: {time.time() - effect_collection_start} s")
-        print(f"{indent(print_depth+2)}\n{indent(print_depth+2)}Starting effect pruning:")
+        print(f"{indent(print_depth+1)}Starting solve:")
 
-    # prune guesses by removing impossible and dependent guesses:
-    effect_pruning_time = time.time()
-    pruned_guesses = []
-    already_solved = set()
-    reduced_matrix = np.zeros([feedback_fn.size,feedback_fn.size], dtype = np.uint8)
-    for (v,comb), effect_vector in guess_effect_map.items():
-        # don't guess a monomial which contains a known 0
-        impossible_comb = False
-        for var in comb:
-            if (not unstable_bits[var]) and (base_solution[var] == 0):
-                impossible_comb = True
-        
-        if impossible_comb:
-            continue
+    initial_state, _, _ = solver.solve(
+        solved_store, feedback_fn, output_fn, keystream,
+        test_length=test_length,
+        verbose=verbose, _print_depth=print_depth+1,
+    )
 
-        # check that this effect vector is linearly independent:
-        # note that this is a slightly simplified LU build-up, with
-        # reduced_mat = upper_matrix, and already_solved = var_map
-        effect_vector_copy = effect_vector.copy()
-        for idx in range(len(effect_vector)):
-            if effect_vector[idx] == 1:
-                if idx in already_solved:
-                    effect_vector ^= reduced_matrix[idx]
-                else:
-                    already_solved.add(idx) 
-                    pruned_guesses.append(effect_vector_copy)
-                    reduced_matrix[idx] = effect_vector
-                    break
-        
-        if verbose:
-            print(f"\r{indent(print_depth+3)}Vectors Pruned: {i+1}/{len(guess_effect_map)}",end='')
+    if verbose:
+        print(f"{indent(print_depth)}Online phase complete -- Total time: {time.time() - start_time} s")
 
-    if verbose: 
-        print(f"\n{indent(print_depth+2)}Pruning finished:")
-        print(f"{indent(print_depth+2)}Max number of guesses (original): 2^{len(guess_bits)}")
-        print(f"{indent(print_depth+2)}Max number of guesses (pruned): 2^{len(pruned_guesses)}")
-        print(f"{indent(print_depth+2)}Time: {time.time() - effect_pruning_time} s")
-        print(f"{indent(print_depth+2)}\n{indent(print_depth+2)}Starting to Guess:")
-
-    # Now test using the pruned guesses:
-    guess_count = 0
-    guess_start_time = time.time()
-    for guess_assignment in product((0,1), repeat = len(pruned_guesses)):
-        guess_count += 1
-
-        if verbose:
-            print(f"\r{indent(print_depth+3)}Guess count: {guess_count}",end='')
-
-        F.set_state(base_solution)
-        for idx, assigned in enumerate(guess_assignment):
-            if assigned:
-                F._state ^= pruned_guesses[idx]
-        F.seed(F._state.copy())
-
-        mismatch = False
-        for t,state in enumerate(F.run(test_length)):
-            if output_fn.eval(state) != test_keystream[t]:
-                mismatch = True
-                break
-        
-        if not mismatch:
-            if verbose:
-                print(f"\n{indent(print_depth+2)}Guessing Finished:")
-                print(f"{indent(print_depth+2)}Time: {time.time() - guess_start_time} s")
-                print(f"{indent(print_depth+1)}Solution Found!")
-                print(f"{indent(print_depth)}Online phase complete -- Total time: ", time.time() - start_time)
-            F.reset()
-            return list(F)
-    return None
+    return initial_state
  

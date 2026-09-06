@@ -50,12 +50,7 @@ def _berlekamp_massey(N,seq):
 
     #return the linear complexity and connection polynomial
     return (L, curr_guess[:L+1])
-
-
-
-
-    
-
+   
 @njit
 def _bm_iterator_core(
     start_idx,yield_rate,

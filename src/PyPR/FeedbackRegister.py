@@ -302,13 +302,13 @@ class FeedbackRegister:
         if type(limit) == int:
             for _ in range(limit):
                 yield self
-                self.clock()
+                self._clock_uncompiled()
                 
         #no limit
         elif limit == None:
             while True:
                 yield self
-                self.clock()
+                self._clock_uncompiled()
 
 
     # PERIOD CALCULATION:
@@ -435,11 +435,11 @@ class FeedbackRegister:
         :rtype: tuple[int,int] | None
         """
         first_state = self._state.copy()
-        self.clock()
+        self._clock_uncompiled()
         count = 1
 
         while not(all(self._state == first_state)):
-            self.clock()
+            self._clock_uncompiled()
             count += 1
 
             if count > limit:
@@ -468,7 +468,7 @@ class FeedbackRegister:
         # implementation of Brent's algorithm
         slow = FeedbackRegister(self._state.copy(),self.fn)
         fast = FeedbackRegister(self._state.copy(),self.fn)
-        fast.clock()
+        fast._clock_uncompiled()
 
         period = 1
         power = 1
@@ -479,7 +479,7 @@ class FeedbackRegister:
                 period = 0
                 power *= 2
 
-            fast.clock()
+            fast._clock_uncompiled()
             period += 1
 
             if period > limit: 
@@ -489,13 +489,13 @@ class FeedbackRegister:
         slow.reset()
         fast.reset()
         for i in range(period):
-            fast.clock()
+            fast._clock_uncompiled()
         # The distance between the hare and tortoise is now lambda.
         # Next, the hare and tortoise move at same speed until they agree
         preperiod = 0
         while not np.all(slow._state == fast._state):
-            slow.clock()
-            fast.clock()
+            slow._clock_uncompiled()
+            fast._clock_uncompiled()
             preperiod += 1
     
         return period, preperiod

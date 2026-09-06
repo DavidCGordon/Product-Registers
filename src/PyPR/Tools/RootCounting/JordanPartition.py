@@ -49,4 +49,3 @@ def JP_solve(s,t,p):
         length, degree, idx = update(idx,s,t,p)
         out.append((length,degree))
     return out
-

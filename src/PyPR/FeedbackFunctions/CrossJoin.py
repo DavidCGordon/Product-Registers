@@ -1,39 +1,62 @@
+from typing import Any, Iterable
+import numpy as np
+
 from PyPR import FeedbackRegister
 from PyPR.FeedbackFunctions import FeedbackFunction, Fibonacci, CMPR
 from PyPR.BooleanLogic import BooleanFunction, BooleanANF, AND, XOR, VAR, CONST
 
-from PyPR.Tools.RootCounting.MonomialProfile import TermSet,MonomialProfile
+from PyPR.Tools.RootCounting.MonomialProfile import TermSet, MonomialProfile
 from PyPR.Tools.RootCounting.JordanSet import JordanSet
 from PyPR.Tools.RootCounting.RootExpression import RootExpression
 
 from random import randint, sample
 
-# The CrossJoin bitfunction implements the concepts outlined in Elena Dubrova's papers
-# (https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=6290394) and 
-# (https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=5290281) 
-# to create a scalable sequence generator
 
-
-# implementation detail: tau is the last bit of the nonlinearity:
-# i.e. tau may not recieve any nonlinear effects. but may not be read from
-
-# For Now: ONLY SUPPORTS ANF TERMS:
 class CrossJoin(FeedbackFunction):
-    def __init__(self, size, primitive_poly):
-        """
-        Constructor for the CrossJoin family of function families.
+    """A crossjoin nonlinear feedback shift register.
 
-        Args:
-          size: 
-            the number of bits in the feedback register
-          primitive_poly:
-            the primitive polynomial of the base LFSR. This can be either in koopman string format,
-            or given as a list with 0/1 entries, where p[i] is the coeffient of x^i in the primitive polynomial.
-        Returns:
-            None
+    Implements the crossjoin construction of Dubrova, which begins with a
+    Fibonacci LFSR and introduces nonlinear (AND) terms that each appear
+    at two distinct shifted positions in the feedback. The paired
+    placement ensures that the nonlinear contributions cancel in a
+    specific algebraic sense, preserving the period of the underlying
+    LFSR while increasing linear complexity.
+
+    The parameter tau delimits the nonlinear region: bits at index tau and
+    above may carry nonlinear terms, while bits below tau remain purely
+    linear. Currently only supports ANF (algebraic normal form) terms.
+
+    :ivar size: The number of bits in the register.
+    :vartype size: int
+    :ivar primitive_polynomial: The coefficient list of the base LFSR's
+        primitive polynomial, with index i holding the coefficient of x^i.
+    :vartype primitive_polynomial: list[int]
+    :ivar tau: The index of the lowest bit that may carry nonlinear terms.
+    :vartype tau: int
+    """
+
+    primitive_polynomial: list[int]
+    tau: int
+
+    def __init__(self,
+        size: int,
+        primitive_poly: str | list[int]
+    ) -> None:
+        """Construct a crossjoin register from a Fibonacci LFSR base.
+
+        Builds the linear Fibonacci shift from the given primitive
+        polynomial. Nonlinear terms are not added until
+        :meth:`generateNonlinearity` is called.
+
+        :param size: The number of bits in the register.
+        :type size: int
+        :param primitive_poly: The primitive polynomial of the base LFSR.
+            May be given as a coefficient list of length n+1 (with index i
+            holding the coefficient of x^i) or as a Koopman hex string.
+        :type primitive_poly: str | list[int]
         """
         # convert koopman string into polynomial:
-        if type(primitive_poly) == str:
+        if isinstance(primitive_poly, str):
             primitive_poly = [int(x) for x in format(int(primitive_poly,16), f"0>{size}b")] + [1]
             
         self.primitive_polynomial = primitive_poly
@@ -49,7 +72,26 @@ class CrossJoin(FeedbackFunction):
         self.size = size
         self.tau = self.size-1
 
-    def shiftTerms(self, terms, idxA, idxB):
+    def shiftTerms(self,
+        terms: list[Any],
+        idxA: int,
+        idxB: int
+    ) -> None:
+        """Move nonlinear terms from one bit position to another.
+
+        Each term is shifted by (idxB - idxA) positions: all VAR indices
+        are adjusted accordingly. The term is removed from position idxA's
+        nonlinear node and added to position idxB's.
+
+        :param terms: The AND terms to move.
+        :type terms: list[BooleanFunction]
+        :param idxA: The source bit position.
+        :type idxA: int
+        :param idxB: The destination bit position.
+        :type idxB: int
+        :raises ValueError: If a term contains non-VAR leaves, or if the
+            shift would produce negative indices.
+        """
         for term in terms:
             valid = True
             for var in term.args:
@@ -64,14 +106,38 @@ class CrossJoin(FeedbackFunction):
             self.fn_list[idxA].args[-1].remove_arguments(term)
             self.fn_list[idxB].args[-1].add_arguments(newTerm)
 
-    def getMinDestination(self, term):
+    def getMinDestination(self, term: Any) -> int:
+        """The lowest bit index to which this term can be shifted.
+
+        :param term: An AND term.
+        :type term: BooleanFunction
+        :return: The minimum valid destination index.
+        :rtype: int
+        """
         return max((self.size - 1) - min(value.index for value in term.args), self.tau)
 
-    def getMaxDestination(self, term):
+    def getMaxDestination(self, term: Any) -> int:
+        """The highest bit index to which this term can be shifted.
+
+        :param term: An AND term.
+        :type term: BooleanFunction
+        :return: The maximum valid destination index.
+        :rtype: int
+        """
         return min((self.size + self.tau) - (max(value.index for value in term.args)+1), self.size - 1)
 
 
-    def addNonLinearTerm(self,maxAnds):
+    def addNonLinearTerm(self, maxAnds: int) -> None:
+        """Add a random nonlinear AND term at two valid shifted positions.
+
+        Randomly generates a product of 2 to `maxAnds` variables, then
+        places it at two randomly chosen positions within the valid shift
+        range. This paired placement is the core of the crossjoin
+        construction.
+
+        :param maxAnds: The maximum number of variables in the AND term.
+        :type maxAnds: int
+        """
         minDest = maxDest = 0
 
         while not (minDest < maxDest):
@@ -91,7 +157,22 @@ class CrossJoin(FeedbackFunction):
         self.shiftTerms([newTerm], self.size-1, idx2)
 
 
-    def generateNonlinearity(self, maxAnds = 4, tapDensity = .75):
+    def generateNonlinearity(self,
+        maxAnds: int = 4,
+        tapDensity: float = .75
+    ) -> None:
+        """Populate the register with random nonlinear crossjoin terms.
+
+        Adds paired AND terms until every bit below tau is referenced by
+        at least one nonlinear term. The parameter `tapDensity` controls
+        how much of the register is designated as the nonlinear region
+        (tau = tapDensity * size).
+
+        :param maxAnds: The maximum number of variables per AND term.
+        :type maxAnds: int
+        :param tapDensity: The fraction of bits in the nonlinear region.
+        :type tapDensity: float
+        """
         self.tau = min(self.tau,int(tapDensity * self.size))
 
         # add a set of nodes for nonlinear terms:
@@ -124,11 +205,23 @@ class CrossJoin(FeedbackFunction):
         return
 
     @property
-    def linear_feedback(self):
+    def linear_feedback(self) -> list[Any]:
+        """The linear (LFSR) portion of each bit's feedback function.
+
+        :return: A per-bit list of the linear feedback component.
+        :rtype: list[BooleanFunction]
+        """
         return [f.args[0] for f in self.fn_list]
 
     @property
-    def monomial_feedback(self):
+    def monomial_feedback(self) -> list[Any]:
+        """The nonlinear portion of each bit's feedback function.
+
+        For bits with no nonlinear terms, returns ``CONST(0)``.
+
+        :return: A per-bit list of the nonlinear feedback component.
+        :rtype: list[BooleanFunction]
+        """
         output = []
         for f in self.fn_list:
             if len(f.args) > 1:
@@ -136,11 +229,18 @@ class CrossJoin(FeedbackFunction):
             else:
                 output.append(CONST(0))
         return output
-    
 
-    # produces a set of filters which produce the same output
-    # when applied to the base LFSR used to build the crossjoin
-    def compensation_list(self):
+    def compensation_list(self) -> list[BooleanFunction]:
+        """Compute compensation filters for each bit.
+
+        Each filter, when applied to the base Fibonacci LFSR's state,
+        produces the same output as the corresponding crossjoin bit.
+        This decomposes the crossjoin into a linear LFSR plus a set of
+        nonlinear filter functions, which is useful for algebraic analysis.
+
+        :return: A per-bit list of compensation filter functions.
+        :rtype: list[BooleanFunction]
+        """
         comp_list = []
         curr_fn = CONST(0)
         for fn in self.monomial_feedback[::-1]:
@@ -159,10 +259,20 @@ class CrossJoin(FeedbackFunction):
         # list is buit in reverse, so reverse when returning:
         return comp_list[::-1]
         
-    def root_expressions(self):
+    def root_expressions(self) -> list[RootExpression]:
+        """Compute a root expression for each bit of the register.
+
+        Derived from the compensation filters: the degree of the largest
+        AND term in each filter determines how many roots from the base
+        LFSR's field appear in the exponential representation, bounding
+        the linear complexity.
+
+        :return: A per-bit list of root expressions.
+        :rtype: list[RootExpression]
+        """
         REs = []
         comp_list = self.compensation_list()
-        
+
         for bit in range(self.size):
             term_lengths = [len(term.args) for term in comp_list[bit].args if type(term) != CONST]
             count = max(term_lengths, default = 1)
@@ -174,10 +284,18 @@ class CrossJoin(FeedbackFunction):
             )
         return REs
 
-    def monomial_profiles(self):
+    def monomial_profiles(self) -> list[MonomialProfile]:
+        """Compute a monomial profile for each bit of the register.
+
+        Analogous to :meth:`root_expressions` but tracking the monomial
+        structure rather than the root structure.
+
+        :return: A per-bit list of monomial profiles.
+        :rtype: list[MonomialProfile]
+        """
         MPs = []
         comp_list = self.compensation_list()
-        
+
         for bit in range(self.size):
             term_lengths = [len(term.args) for term in comp_list[bit].args if type(term) != CONST]
             count = max(term_lengths, default = 1)
@@ -188,20 +306,46 @@ class CrossJoin(FeedbackFunction):
         return MPs
 
     @property
-    def blocks(self):
+    def blocks(self) -> list[list[int]]:
+        """The block decomposition of the register.
+
+        A crossjoin has a single block spanning all bits.
+
+        :return: A single-element list containing all bit indices.
+        :rtype: list[list[int]]
+        """
         return [list(range(self.size))]
 
+    def filter_generator(self) -> tuple[Fibonacci, tuple[BooleanFunction,...]]:
+        """Decompose this crossjoin into a base LFSR and filter functions.
 
-    def filter_generator(self):
+        Returns the underlying Fibonacci LFSR and a tuple of per-bit filter
+        functions. Applying filter[i] to the LFSR state produces the same
+        output as bit i of the crossjoin.
+
+        :return: A (base_lfsr, filters) pair.
+        :rtype: tuple[Fibonacci, tuple[BoleanFunction,...]]
+        """
         feedback_fn = Fibonacci(self.size, self.primitive_polynomial)
         comp_list = self.compensation_list()
-        filter_fn = [XOR(VAR(bit),comp_list[bit]) for bit in range(self.size)]
+        filter_fn = tuple([XOR(VAR(bit),comp_list[bit]) for bit in range(self.size)])
 
-        # due to module load order reasons, you have to use the FeedbackRegister module here instead of the class
-        # this is an annoyance, but I couldn't refactor everything to fix this one line.
         return (feedback_fn,filter_fn)
-    
-    def convert_state(self, state):
+
+    def convert_state(self,
+        state: list[int] | np.ndarray[tuple[int],np.dtype[np.uint8]]
+    ) -> list[int]:
+        """Convert a crossjoin state to the equivalent base LFSR state.
+
+        Applies the compensation filters to map a crossjoin state into the
+        state of the underlying Fibonacci LFSR that would produce the same
+        future output sequence.
+
+        :param state: The crossjoin state vector.
+        :type state: list[int]
+        :return: The equivalent Fibonacci LFSR state.
+        :rtype: list[int]
+        """
         comp_list = self.compensation_list()
         return [
             (state[bit] ^ comp_list[bit].eval(state))

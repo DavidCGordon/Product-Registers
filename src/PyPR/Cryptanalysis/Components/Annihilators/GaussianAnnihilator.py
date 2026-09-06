@@ -4,6 +4,7 @@ from PyPR.BooleanLogic.FunctionInputs import VAR, CONST
 
 from PyPR.Cryptanalysis.Components.EquationStores.EqStore import EqStore
 from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
+from PyPR.Cryptanalysis.Components.EquationSolving.GaussElim import reduce_matrix
 
 from itertools import product,combinations,chain
 import numpy as np
@@ -33,55 +34,55 @@ def _generate_monomials(bits, degree=None, verbose=False):
     print("\n")
     return output
 
-u8 = numba.types.uint8
-@numba.njit(numba.types.Tuple((u8[:,:],u8[:]))(u8[:,:]))
-def gaussian_elim(
-    matrix: np.ndarray[tuple[int,int],np.dtype[np.uint8]]
-) -> tuple[
-    np.ndarray[tuple[int,int],np.dtype[np.uint8]],
-    np.ndarray[tuple[int],np.dtype[np.uint8]]
-]:
-    """Generic GF(2) gaussian elimination method which row reduces and identifies the free variables.
+# u8 = numba.types.uint8
+# @numba.njit(numba.types.Tuple((u8[:,:],u8[:]))(u8[:,:]))
+# def gaussian_elim(
+#     matrix: np.ndarray[tuple[int,int],np.dtype[np.uint8]]
+# ) -> tuple[
+#     np.ndarray[tuple[int,int],np.dtype[np.uint8]],
+#     np.ndarray[tuple[int],np.dtype[np.uint8]]
+# ]:
+#     """Generic GF(2) gaussian elimination method which row reduces and identifies the free variables.
 
-    reduces in place and returns a view of the reduced matrics, so copy the matrix beforehand if you
-    dont want it changed by this method. The vector returned for free variables is 1 if the variable
-    is free, and 0 otherwise.
+#     reduces in place and returns a view of the reduced matrics, so copy the matrix beforehand if you
+#     dont want it changed by this method. The vector returned for free variables is 1 if the variable
+#     is free, and 0 otherwise.
 
-    :param matrix: an NxM matrix of uint8's
-    :type matrix: np.ndarray[tuple[int,int],np.dtype[np.uint8]]
-    :return: A pair containing a view of the reduced matrix, an an array indicating which variables are free
-    :rtype: tuple[np.ndarray[tuple[int,int],np.dtype[np.uint8]],np.ndarray[tuple[int],np.dtype[np.uint8]]]
-    """
-    rows, cols = matrix.shape
-    p_row, p_col = 0, 0
-    free_vars = np.zeros((cols,),dtype='uint8')
+#     :param matrix: an NxM matrix of uint8's
+#     :type matrix: np.ndarray[tuple[int,int],np.dtype[np.uint8]]
+#     :return: A pair containing a view of the reduced matrix, an an array indicating which variables are free
+#     :rtype: tuple[np.ndarray[tuple[int,int],np.dtype[np.uint8]],np.ndarray[tuple[int],np.dtype[np.uint8]]]
+#     """
+#     rows, cols = matrix.shape
+#     p_row, p_col = 0, 0
+#     free_vars = np.zeros((cols,),dtype='uint8')
     
-    while p_row < rows and p_col < cols:
-        # Find the pivot element/swap rows
-        for i in range(p_row + 1, rows):
-            if matrix[i,p_col] > matrix[p_row,p_col]:
-                matrix[np.array([p_row, i])] = matrix[np.array([i, p_row])]
-                break
+#     while p_row < rows and p_col < cols:
+#         # Find the pivot element/swap rows
+#         for i in range(p_row + 1, rows):
+#             if matrix[i,p_col] > matrix[p_row,p_col]:
+#                 matrix[np.array([p_row, i])] = matrix[np.array([i, p_row])]
+#                 break
 
-        # Normalize the pivot row
-        if matrix[p_row,p_col] == 0:
-            free_vars[p_col] = 1
-            p_col += 1
-            continue
+#         # Normalize the pivot row
+#         if matrix[p_row,p_col] == 0:
+#             free_vars[p_col] = 1
+#             p_col += 1
+#             continue
 
-        # Eliminate other rows
-        for i in range(rows):
-            if i != p_row and matrix[i,p_col]:
-                matrix[i] ^= matrix[p_row]
+#         # Eliminate other rows
+#         for i in range(rows):
+#             if i != p_row and matrix[i,p_col]:
+#                 matrix[i] ^= matrix[p_row]
 
-        p_row += 1
-        p_col += 1
+#         p_row += 1
+#         p_col += 1
 
-    # make sure the last columns are counted as free:
-    for i in range(p_col,cols):
-        free_vars[i] = 1
+#     # make sure the last columns are counted as free:
+#     for i in range(p_col,cols):
+#         free_vars[i] = 1
  
-    return matrix[:p_row], free_vars, 
+#     return matrix[:p_row], free_vars, 
 
 def build_constraint_data(
     input_fn: BooleanFunction, 
@@ -204,7 +205,7 @@ def ann_solve(
     ann_rows = [i for c,i in ann_idxs.items() if len(c) > ann_degree]
     mult_rows = [i for c,i in mult_idxs.items() if len(c) > mult_degree]
     
-    reduced_matrix,free_vars = gaussian_elim(np.concatenate((
+    reduced_matrix, free_vars = reduce_matrix(np.concatenate((
         mult_constraints[mult_rows],
         ann_constraints[ann_rows]
     ),axis=0))
