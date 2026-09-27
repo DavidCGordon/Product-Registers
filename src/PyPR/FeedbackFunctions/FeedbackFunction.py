@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Any, Self
 
 from PyPR.BooleanLogic import BooleanFunction, VAR
@@ -84,8 +85,22 @@ class FeedbackFunction:
 
     # Convenient Manipulations
     def flip(self):
+        """Reverse the bit labelling: bit i becomes bit size-1-i.
+
+        This relabels the register rather than changing what it computes, but it
+        does replace `fn_list`, so anything derived from that list is discarded
+        along with it. Note it does **not** touch `is_inverted`: flipping is not
+        inversion, and a subclass whose `invert` reads that flag to decide which
+        end the shift discards (see `Fibonacci._inverse_feedback`) will read it
+        as describing the pre-flip layout.
+        """
         new_indices = {i: self.size-1-i for i in range(self.size)}
         self.fn_list = [f.remap_indices(new_indices) for f in self.fn_list][::-1]
+
+        # derived caches are computed from fn_list, which was just replaced
+        for name in list(self.__dict__):
+            if isinstance(getattr(type(self), name, None), cached_property):
+                del self.__dict__[name]
 
 
     # Storage
@@ -158,12 +173,20 @@ class FeedbackFunction:
         # fn_list:
         if 'fn_list' in JSON_data:
             JSON_data['fn_list'] = [ids[fn] for fn in self.fn_list]
-        # ignore the compiled version (not serializable)
+                # ignore the compiled version (not serializable)
         if '_compiled' in JSON_data:
             del JSON_data['_compiled']
         if '_compiled_inplace' in JSON_data:
             del JSON_data['_compiled_inplace']
-            
+
+        # cached_property results are stored in __dict__ alongside real
+        # attributes, and several are ndarrays or other non-JSON types
+        # (update_matrix, CMPR's matrix caches). They are all derived from
+        # fn_list, so dropping them costs nothing but a recomputation.
+        for name in list(JSON_data):
+            if isinstance(getattr(type(self), name, None), cached_property):
+                del JSON_data[name]
+
         return JSON_data
 
     @classmethod

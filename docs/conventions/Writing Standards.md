@@ -36,6 +36,22 @@ Give a self-contained definition at the point of first use, even when another do
 
 The definition is complete, sits where it is needed, and does not require the reader to leave the page.
 
+### Order that follows dependency, not discovery
+
+A document is read once, linearly, by someone who does not yet know what is coming. Its sections should appear in the order its objects become definable — each one using only what precedes it.
+
+The order in which material was worked out is almost never that order. Investigation jumps to whichever question is live, doubles back when an answer changes an earlier assumption, and appends the hard case last. A document that keeps that shape still looks organized: it has headings, and each section is coherent read on its own. That is what makes the problem hard to see from inside — the reader who struggles blames the material rather than the sequence.
+
+The check is mechanical. For each section, list what a reader must already hold to follow it: definitions, notation, prior results. If anything on that list is introduced later in the document, either move it earlier or discharge it in place with a one-sentence definition. Repeat until every list is satisfied by what precedes it.
+
+Where the order of discovery genuinely is the subject — a document about how a result was found — say so at the top and give the dependencies separately. A reader can follow a narrative order they have been warned about. They cannot follow one they are expected to infer.
+
+### The same object keeps the same name
+
+A reader moving between documents should not have to deduce that two names denote one thing. Fix the name in [Notation and Terminology](Notation%20and%20Terminology.md) and use it everywhere; where a document needs a local abbreviation, define it against the canonical name rather than alongside it.
+
+Where two names genuinely coexist in the literature, say so once at first use and then pick one for the rest of the document. Alternating between them silently is the same failure as a bare forward reference: it asks the reader to carry a correspondence the author has not written down.
+
 ### Multiple equivalent definitions, with the equivalence shown
 
 When a concept has several standard characterizations, giving more than one is valuable — different definitions make different properties obvious. This is encouraged, with one requirement: **state that they are equivalent and show why**, or point to where the equivalence is proved.
@@ -222,11 +238,23 @@ An internal forward reference to a later section of the same document is differe
 
 **To discharge:** Say what kind of statement it is. "Restating this in terms of $\ldots$ makes $\ldots$ immediate" is honest and equally informative.
 
+### Structure inherited from how the work happened
+
+**Pattern:** Sections ordered by the sequence of questions that produced them rather than by what depends on what. The symptoms look local and unrelated to each other: a bare "above" or "below" pointing the wrong way; a section that opens by re-deriving something so it can stand alone; a late section answering a question the reader formed on the first page; the same object under two names in two sections because they were written at different times.
+
+**Why it misleads:** Each symptom reads as a small editing slip, so each gets fixed where it appears and the cause survives untouched. And the document looks organized — the headings are real and each section is coherent by itself — so a reader who struggles attributes the difficulty to the material.
+
+> **Real instance** — an architecture document in this repository wrote "in the sampling experiment above," where the experiment was sixty lines *below*. A reader sent upward finds a different table measuring a different quantity. The sentence was accurate when it was written, because that section was then the last one; a later section was inserted in front of it and the pointer was never revisited.
+
+**To discharge:** Fix the order, not the pointer. A reference that points the wrong way is evidence about the sequence, not a typo — correcting the word "above" to "below" leaves the document still requiring the reader to hold a forward dependency. Apply the dependency check in §Order that follows dependency, not discovery.
+
 ## Part 3 — Applying These Standards
 
 ### For authors
 
 Write the mathematics first and the framing second. Most debts are incurred in summary sentences written to introduce or conclude a section — the technical body is usually fine. When revising, read only the topic sentences and the closing sentences of each section, and apply the core test to each one.
+
+That pass catches debts within a sentence. It will not catch a document whose *order* is wrong, because every sentence in such a document can be locally sound. Make a second pass for that one, and make it last, once the content has stopped moving: read the section headings alone, in order, and ask what the reader knows by the time each one begins. This is the pass that is easiest to skip and hardest to do on your own draft, because the author already holds the whole dependency graph and cannot un-know it. A document assembled over many sittings has almost certainly drifted toward the order it was written in rather than the order it should be read in.
 
 ### The agents
 

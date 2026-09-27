@@ -6,8 +6,13 @@ the core contracts:
 - SymbolicEqStore: accepts all inputs, accumulates without reduction
 - EqStore: bag of coefficient vectors
 - Cross-store linking propagates monomials
+- LUEqStore.rank matches an independently computed GF(2) rank
 """
+import random
+
 import numpy as np
+import pytest
+
 from PyPR.BooleanLogic import BooleanANF, VAR, XOR, AND, CONST
 from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
 from PyPR.Cryptanalysis.Components.EquationStores.EqStore import EqStore
@@ -236,3 +241,44 @@ def test_link_symbolic_to_lu_store():
     sym.insert_equation(XOR(AND(VAR(0), VAR(1)), VAR(2)))
     assert (0, 1) in lu.comb_to_idx
     assert (2,) in lu.comb_to_idx
+
+
+# ── Store rank against an independent GF(2) rank ──────────────────────────────
+
+@pytest.mark.parametrize("trial", range(10))
+def test_store_rank_equals_the_rank_of_the_system_it_holds(trial):
+    """`LUEqStore.rank` is the GF(2) rank of every equation inserted so far.
+
+    The store maintains an LU-style factorization incrementally, accepting an
+    equation only when it is independent of the ones already held.  The running
+    rank must therefore match the rank of the whole batch computed offline --
+    if it drifts, an attack will believe it has enough equations to solve when
+    it does not.
+    """
+    rng = random.Random(600 + trial)
+
+    def gf2_rank(rows):
+        """Rank over GF(2) of rows given as integer bitmasks."""
+        rows, pivot_row = [int(r) for r in rows], 0
+        for bit in range(max((r.bit_length() for r in rows), default=0)):
+            pivot = next((i for i in range(pivot_row, len(rows)) if (rows[i] >> bit) & 1), None)
+            if pivot is None:
+                continue
+            rows[pivot_row], rows[pivot] = rows[pivot], rows[pivot_row]
+            for i in range(len(rows)):
+                if i != pivot_row and (rows[i] >> bit) & 1:
+                    rows[i] ^= rows[pivot_row]
+            pivot_row += 1
+        return pivot_row
+
+    variables = rng.randint(2, 6)
+    store, masks = LUEqStore(), []
+    for _ in range(rng.randint(1, 10)):
+        support = [i for i in range(variables) if rng.random() < 0.5]
+        store.insert_equation(XOR(*[VAR(i) for i in support]) if support else CONST(0))
+        masks.append(sum(1 << i for i in support))
+
+    assert store.rank == gf2_rank(masks), (
+        f"trial {trial}: store reports rank {store.rank} for a system of rank "
+        f"{gf2_rank(masks)}"
+    )

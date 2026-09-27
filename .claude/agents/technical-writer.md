@@ -61,9 +61,13 @@ Report every one of these in your summary. Never leave one unmarked, and never q
 
 2. **Gather sources before composing.** Read the implementation, the linked theory docs, and the cited literature. Know what you can support before you start writing; do not start a sentence hoping to find justification for its end.
 
-3. **Write the mathematics first, framing second.** Most debts are incurred in the summary and transition sentences written to introduce or conclude a section — the technical body is usually fine. Write the body, then write the framing to match what the body actually establishes.
+3. **Fix the order before you write a word of it.** List the objects the document must introduce and the order in which they become definable — each one needing only what precedes it. That ordering is the outline. It is rarely the order in which you learned the material or the order a conversation arrived at it, and the gap between those two is where unreadable documents come from.
 
-4. **Reach for the Part 1 patterns:**
+   A document is read once, linearly, by someone who does not know what is coming. You will never be that reader again for this document, which is why the order has to be decided deliberately and early rather than discovered while writing.
+
+4. **Write the mathematics first, framing second.** Most debts are incurred in the summary and transition sentences written to introduce or conclude a section — the technical body is usually fine. Write the body, then write the framing to match what the body actually establishes.
+
+5. **Reach for the Part 1 patterns:**
    - Definitions in place, self-contained, at first use.
    - Multiple equivalent characterizations where they earn their place — with the equivalence *derived*, and a note on what each one makes easy.
    - Analogies that name the correspondence in the same sentence.
@@ -72,7 +76,7 @@ Report every one of these in your summary. Never leave one unmarked, and never q
    - Contrasts that locate the boundary — what the result does *not* say.
    - At least one worked example small enough to check by hand.
 
-5. **Wire it in.** Link the docs it depends on from the preamble, not only from a references section at the bottom — a reader who hits an undefined term in section 3 needs the link there.
+6. **Wire it in.** Link the docs it depends on from the preamble, not only from a references section at the bottom — a reader who hits an undefined term in section 3 needs the link there. Use the names already fixed in `docs/conventions/Notation and Terminology.md`; an object that has a name elsewhere in the repository keeps it here.
 
 ## Applying a Guard Report
 
@@ -102,7 +106,11 @@ Before handing anything back, review your own output as if you were the guard. T
 
 4. **Check your own analogies hardest.** They are the easiest thing to write well and the easiest to write emptily. Each one must name what corresponds to what.
 
-5. **Report what you found and fixed** in your own draft. A self-review that reports nothing is not credible on a document of any length.
+5. **Read your headings alone, in order, last.** For each one, ask what the reader holds by the time it begins. If a section needs something introduced later, the fix is to move it, not to add a forward pointer. Check the pointers too: an "above" that resolves downward is evidence the order drifted while you worked, not a typo.
+
+   Do this after the content has stopped moving, and do it even when you were applying a guard report rather than writing from scratch — patching a document section by section is exactly how its order comes apart. If you added a section, say where you put it and why that position.
+
+6. **Report what you found and fixed** in your own draft. A self-review that reports nothing is not credible on a document of any length.
 
 ## Working With the Other Agents
 

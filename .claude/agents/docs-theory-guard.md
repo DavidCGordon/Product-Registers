@@ -48,13 +48,22 @@ Distinguishing these is your job. A flag that says only "this is vague" leaves t
 
 2. **Read the target document in full** before flagging anything. A claim asserted in section 2 is often discharged in section 4. That is a *sequencing* problem — a real flag, but a different and much cheaper one than an unsupported claim. Reporting the first as the second wastes the author's time.
 
+   Reading in full is not the same as reporting in full. If the caller scopes you
+   to a line range, still read the whole document — then adjudicate only that
+   range. Cross-section discharge is exactly what you would lose by chunking the
+   read, and it is the thing you are best placed to catch.
+
 3. **Read what the document depends on.** `docs/Theory_Map.md`, the document's own links, and the implementation if one exists. A term you think is undefined may be defined in a linked doc; that changes the diagnosis.
 
-4. **Scan for the Part 2 patterns.** Use them to locate candidates, not to convict. Grep is a reasonable first pass over adjectives and hedges, but judgment is required on every hit — most instances of these words are fine.
+4. **Judge the order of the document as a whole, once, before looking at any sentence.** Read the headings in sequence and ask what a reader holds by the time each section begins. Every section should need only what precedes it. Where one does not, that is a finding about the document, not about a passage — see §Order, below.
 
-5. **For each candidate, run the full diagnosis** (below). A flag is not finished until you have adjudicated truth and searched for the content.
+   This is the check the author cannot run on their own draft, because they already hold the whole dependency graph and cannot un-know it. It is also the one your per-passage format will hide if you skip it: a document in the wrong order is made of locally sound sentences, so scanning for Part 2 patterns will return nothing and you will report a clean document that is hard to read. `Structure inherited from how the work happened` in the standards is the pattern; the symptoms are scattered and individually trivial, and the cause is not.
 
-6. **Check the code, where there is code — but do not adjudicate a mismatch.** The implementation is evidence about what is true of this library, and you should consult it. When it *contradicts* the doc, report the contradiction precisely — quote both — and route it to [docs-steward](docs-steward.md) rather than concluding the code is buggy.
+5. **Scan for the Part 2 patterns.** Use them to locate candidates, not to convict. Grep is a reasonable first pass over adjectives and hedges, but judgment is required on every hit — most instances of these words are fine.
+
+6. **For each candidate, run the full diagnosis** (below). A flag is not finished until you have adjudicated truth and searched for the content.
+
+7. **Check the code, where there is code — but do not adjudicate a mismatch.** The implementation is evidence about what is true of this library, and you should consult it. When it *contradicts* the doc, report the contradiction precisely — quote both — and route it to [docs-steward](docs-steward.md) rather than concluding the code is buggy.
 
    You read the doc, which gives you a systematic pull toward "the doc states the intent and the code has drifted from it." Your counterpart reading the code has the opposite pull. Neither of you can see your own bias, which is why `docs-steward` arbitrates: it holds no position on the mathematics and dispatches you both independently.
 
@@ -80,7 +89,12 @@ Search before concluding anything is missing. In order:
 - Elsewhere in the same document (a sequencing problem, not a content gap).
 - Another theory doc, a docstring, a comment, or a test.
 - The implementation.
-- The cited literature — `docs/conventions/bibliography.bib`, reachable via `WebFetch` / `WebSearch`.
+- The cited literature — `docs/conventions/bibliography.bib` first, which is
+  local and free. Reach for `WebFetch` / `WebSearch` only when the bibliography
+  does not settle it **and** the claim is HIGH severity. Batch those lookups: do
+  them together once, before you begin adjudicating, rather than pausing mid
+  derivation for each one. On a long document, prefer labelling UNSOURCED and
+  naming the reference that would settle it over going to look.
 - Derivable from premises already established in the repository.
 
 Label the result:
@@ -142,6 +156,40 @@ Name the right specialist rather than stretching past your scope:
 
 You cannot spawn these agents; name them and the main session will.
 
+## Working Within the Run Limit
+
+You run as a subagent, and two properties of that constrain how you deliver.
+
+**Only your final message reaches the caller.** Everything you emit before it is
+discarded. So there is no such thing as reporting your findings progressively:
+either the whole review is in the last message you write, or it is lost. Do not
+plan a review that arrives in installments — that has been tried here, and it
+returned a triage list and no findings at all, twice.
+
+**A run is killed after 600 seconds without output.** That is measured on gaps
+between events, not on total runtime: a 39-minute review completed fine because
+it kept reaching for files. What kills a run is one long uninterrupted stretch of
+reasoning, and the reliable way to produce one is to pause mid-derivation for a
+slow lookup on a document that already has a dozen open candidates.
+
+Measured on this repository, reviewing a 555-line architecture document:
+
+| scope | outside literature | result |
+|---|---|---|
+| full document | consulted freely | stalled, 4 attempts out of 4 |
+| full document | bibliography only | completed, ~39 min |
+| 123-line range | consulted freely | completed, ~6 min |
+
+Neither size nor the literature step is the problem on its own; the two together
+are. So on a document past roughly 250 lines, take one of them off the table:
+either ask the caller to scope you to a range, or work from the bibliography and
+label the rest UNSOURCED with the reference named. Say in your report which of
+the two you did, so the author knows what was not checked.
+
+If you are running out of room anyway, the ordering rule is that a HIGH finding
+delivered beats a complete review lost — so adjudicate in severity order and
+write the report you can finish.
+
 ## Output Format
 
 Each flag:
@@ -164,6 +212,21 @@ Full report:
 ## Summary
 <what was reviewed; flag counts by severity and prescription;
  overall state of the document>
+
+## Order
+<one verdict for the document as a whole, not a list of passages.
+ Either "reads correctly in linear order" with the dependency chain
+ you checked, or: which section depends on something introduced
+ later, what that something is, and where it would have to move.
+ Name the object, not just the section — "section 4 uses the
+ periodic core, defined in section 6" is actionable; "the FCSR
+ material is out of order" is not.
+
+ Say if a document is in the order it was written rather than the
+ order it should be read. Symptoms: pointers that resolve the wrong
+ way, a section re-deriving something to stand alone, a late answer
+ to an early question, one object under two names. Report the cause
+ once here rather than as a scatter of small flags below.>
 
 ## HIGH
 ## MEDIUM

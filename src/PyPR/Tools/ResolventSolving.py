@@ -1,3 +1,23 @@
+"""Resolvent computation for CMPRs over the field of rational polynomials in D.
+
+Matrices in this module are NumPy arrays of ``dtype=object`` holding ``BooleanGF``
+instances. NumPy resolves any Python class passed as ``dtype`` to plain ``object``,
+so the dtype is not a type declaration and enforces nothing -- it records no field
+identity at all. That identity travels by two other routes: the explicit ``field``
+parameter, which supplies ``one()`` and ``zero()``, and the entries themselves,
+whose operators NumPy dispatches to element by element.
+
+Two consequences. Nothing prevents a non-field value from being stored in one of
+these arrays, so callers are responsible for passing well-formed field matrices.
+And because every operation is a Python-level dispatch, these arrays get no
+vectorized kernels and cannot be JIT-compiled; NumPy contributes only indexing,
+slicing, and broadcasting.
+
+Do not reintroduce ``array.dtype = field``. It is a no-op on an array that is
+already object dtype, and in-place dtype assignment is deprecated as of NumPy 2.5.
+
+See docs/theory/Resolvent Analysis.md for the mathematical background.
+"""
 from PyPR.BooleanLogic import XOR, CONST
 from PyPR.BooleanLogic.BooleanGF import BooleanGF
 from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey, berlekamp_massey_iterator
@@ -16,7 +36,8 @@ def field_eye(field, size):
     for i,j in product(range(size),repeat=2):
         if i == j: entry_list.append(field.one())
         else: entry_list.append(field.zero())
-    return np.asarray(entry_list,dtype=BooleanGF).reshape([size,size])
+    # dtype=object, not `field`: the dtype carries no field identity (see module docstring)
+    return np.asarray(entry_list,dtype=object).reshape([size,size])
 
 # Gaussian Elimination matrix inversion:
 def field_invert(field, matrix):
@@ -28,7 +49,6 @@ def field_invert(field, matrix):
     #append the identity, to be transformed into the inverse
     appended = field_eye(field, size)
     matrix = np.concatenate([matrix,appended], axis = 1)
-    matrix.dtype = field #type: ignore
 
     #gaussian reduction:
     for pivot in range(size):
@@ -80,13 +100,13 @@ def generate_resolvent_example(cmpr, use_z_convention = False):
         'combined vector': None,
         'update matrices': cmpr.fn.update_matrices,
         'resolvent matrices': cmpr.fn.resolvent_matrices,
-        'computed transforms': np.array([None for i in range(cmpr.size)],dtype=BooleanGF),
+        'computed transforms': np.array([None for i in range(cmpr.size)],dtype=object),
     }
     
     # fill in initial state transforms
     initial_vector = np.array(
         [BooleanGF([cmpr[bit]],[1]) for bit in range(cmpr.size)],
-        dtype=BooleanGF
+        dtype=object
     )
 
     # iterate register to compute state/chaining sequences:

@@ -114,7 +114,8 @@ class FeedbackRegister:
         else:
             raise ValueError(f'Unexpected state type {type(state)}')
 
-    def __getitem__(self, key: int) -> int: return self._state[key].copy()
+    # key forwards to the state array, so a slice is valid and yields an ndarray
+    def __getitem__(self, key: int | slice) -> Any: return self._state[key].copy()
     def __setitem__(self, key: int, val: int): self._state[key] = val
     
     #ITERATION THROUGH REGISTER BITS:

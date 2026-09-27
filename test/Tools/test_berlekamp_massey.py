@@ -6,12 +6,23 @@ tests here verify:
   - The linear-complexity / recurrence relationship.
   - The iterator variant yields non-decreasing LC values and agrees with
     the batch version on the full sequence.
+  - The primal/dual convention the library commits to: BM returns the
+    polynomial that convolves the sequence to zero (the dual), reversal of
+    the sequence reverses the polynomial, and the result divides x^T + 1.
+
+See docs/conventions/Polynomial Conventions.md for the primal/dual framework;
+keeping BM's dual output is what makes the register constructors round-trip
+without a manual reversal.
 """
+import random
+
 import numpy as np
+import pytest
 
 from PyPR.FeedbackRegister import FeedbackRegister
-from PyPR.FeedbackFunctions import MPR
+from PyPR.FeedbackFunctions import MPR, Fibonacci, Galois
 from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey, berlekamp_massey_iterator
+from PyPR.Tools.RegisterSynthesis.nlfsrSynthesis import BM_NL, BM_NL_iterator
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -131,3 +142,356 @@ def test_bm_iterator_yields_multiple_chunks():
     seq = _mpr_seq(5, "12", 40)
     results = list(berlekamp_massey_iterator(iter(seq), yield_rate=10))
     assert len(results) >= 2, "Expected multiple iterator yields"
+
+
+# ── Primal/dual conventions ───────────────────────────────────────────────────
+
+PRIMITIVE = {
+    3: [1, 1, 0, 1],
+    4: [1, 1, 0, 0, 1],
+    5: [1, 0, 1, 0, 0, 1],
+    6: [1, 1, 0, 0, 0, 0, 1],
+}
+
+
+@pytest.mark.parametrize("n", sorted(PRIMITIVE))
+@pytest.mark.parametrize("family", [Fibonacci, Galois, MPR])
+def test_berlekamp_massey_returns_the_dual_polynomial(n, family):
+    """BM's output convolves the sequence to zero: (P * S)[k] = 0 for k >= deg P.
+
+    This is the definition of the dual relationship.  Polynomial Conventions.md
+    keeps BM's natural output rather than reversing it, precisely so that the
+    register constructors round-trip; if this ever returned the primal
+    (reversed) polynomial instead, `Fibonacci(*Fibonacci.fromSeq(seq))` would
+    stop reproducing `seq`.
+    """
+    reg = FeedbackRegister(1, family(n, PRIMITIVE[n]))
+    seq = [int(state[0]) for state in reg.run(compiled=False, limit=4 * n + 20)]
+
+    complexity, polynomial = berlekamp_massey(seq)
+    poly = [int(c) for c in polynomial]
+    assert complexity == len(poly) - 1, "linear complexity should be the polynomial's degree"
+
+    for k in range(len(poly) - 1, len(seq)):
+        convolution = sum(poly[i] * seq[k - i] for i in range(len(poly))) % 2
+        assert convolution == 0, (
+            f"{family.__name__}(n={n}): P * S is nonzero at index {k}"
+        )
+
+
+@pytest.mark.parametrize("n", sorted(PRIMITIVE))
+def test_reversing_the_sequence_reverses_the_polynomial(n):
+    """BM(reverse(S)) is the reverse of BM(S), for S a full periodic orbit.
+
+    Polynomial Conventions.md derives this from two facts: reversing a
+    polynomial inverts its roots, and reversing a sequence inverts its roots
+    likewise.  The four-way equivalence it states collapses here to the
+    checkable case -- a sequence taken over a whole period, so that reversal
+    is a genuine reversal of the orbit rather than of an arbitrary window.
+    """
+    fn = MPR(n, PRIMITIVE[n])
+    fn.compile()
+    reg = FeedbackRegister(1, fn)
+    result = reg.period(limit=2 ** 16)
+    assert result is not None, f'n={n}: no period found'
+    period, _ = result
+
+    reg.reset()
+    orbit = [int(state[0]) for state in reg.run(compiled=False, limit=period)]
+    # BM needs at least 2L symbols; repeat the orbit to supply a long enough window
+    repeats = -(-(4 * n + 20) // period)
+    forward = (orbit * repeats)[: 4 * n + 20]
+    backward = (orbit[::-1] * repeats)[: 4 * n + 20]
+
+    _, forward_poly = berlekamp_massey(forward)
+    _, backward_poly = berlekamp_massey(backward)
+    assert [int(c) for c in forward_poly][::-1] == [int(c) for c in backward_poly], (
+        f"n={n}: reversing the orbit did not reverse the minimal polynomial"
+    )
+
+
+@pytest.mark.parametrize("n", sorted(PRIMITIVE))
+def test_minimal_polynomial_divides_x_to_the_period_plus_one(n):
+    """The minimal polynomial of a period-T sequence divides x^T + 1 over GF(2).
+
+    Polynomial Conventions.md builds the existence/uniqueness argument on the
+    ideal I = {P : P * S = 0}, which is nontrivial because 1 + x^T lies in it
+    whenever S has period T.  The minimal polynomial is the monic generator of
+    I, so it must divide that witness.
+    """
+    fn = MPR(n, PRIMITIVE[n])
+    fn.compile()
+    reg = FeedbackRegister(1, fn)
+    result = reg.period(limit=2 ** 16)
+    assert result is not None, f'n={n}: no period found'
+    period, _ = result
+
+    reg.reset()
+    seq = [int(state[0]) for state in reg.run(compiled=False, limit=4 * n + 20)]
+    _, polynomial = berlekamp_massey(seq)
+    divisor = [int(c) for c in polynomial]
+
+    remainder = [1] + [0] * (period - 1) + [1]        # x^T + 1
+    degree = len(divisor) - 1
+    for i in range(len(remainder) - 1, degree - 1, -1):
+        if remainder[i]:
+            for j in range(degree + 1):
+                remainder[i - degree + j] ^= divisor[j]
+    while len(remainder) > 1 and remainder[-1] == 0:
+        remainder.pop()
+
+    assert remainder == [0], (
+        f"n={n}: minimal polynomial does not divide x^{period} + 1 "
+        f"(remainder {remainder})"
+    )
+
+
+# ── BM_NL: the bijective fit ──────────────────────────────────────────────────
+
+@pytest.mark.parametrize("trial", range(6))
+def test_bm_nl_bijective_register_generates_the_sequence(trial):
+    """The bijective fit still reproduces the sequence it was recovered from.
+
+    Constraining the feedback to s[0] XOR B removes most of the search space, so
+    the first thing to check is that what survives still does the job it was
+    fitted for.
+    """
+    random.seed(400 + trial)
+    seq = [random.randint(0, 1) for _ in range(28)]
+
+    size, feedback = BM_NL(seq, bijective=True)
+    register = Fibonacci(size, [])
+    register[size - 1].add_arguments(feedback)
+
+    produced = [int(state[0]) for state
+                in FeedbackRegister(seq[:size], register).run(compiled=False, limit=len(seq))]
+    assert produced == seq, f"trial {trial}: the bijective fit does not reproduce the sequence"
+
+
+@pytest.mark.parametrize("trial", range(6))
+def test_bm_nl_bijective_register_is_actually_a_bijection(trial):
+    """Every state has a distinct successor, checked by enumerating the map.
+
+    This is the property the option exists to provide, so it is tested directly
+    against the state map rather than through the s[0] XOR B condition that the
+    construction guarantees by design -- otherwise the test would only be
+    restating the implementation.
+    """
+    random.seed(500 + trial)
+    seq = [random.randint(0, 1) for _ in range(24)]
+
+    size, feedback = BM_NL(seq, bijective=True)
+    if size > 13:
+        pytest.skip(f"register of {size} bits is too large to enumerate here")
+
+    register = Fibonacci(size, [])
+    register[size - 1].add_arguments(feedback)
+
+    images = set()
+    for value in range(2 ** size):
+        state = [(value >> k) & 1 for k in range(size)]
+        images.add(tuple(bit_fn.eval(state) for bit_fn in register.fn_list))
+
+    assert len(images) == 2 ** size, (
+        f"trial {trial}: {2 ** size - len(images)} of {2 ** size} states collide"
+    )
+
+
+@pytest.mark.parametrize("trial", range(8))
+def test_bm_nl_bijective_is_never_shorter_than_the_default_fit(trial):
+    """Requiring a bijection cannot reduce the register length.
+
+    The bijective feedbacks are a subset of the ones the default search ranges
+    over, so the shortest bijective register is at least as long as the shortest
+    register of any kind.  Concluding that it also bounds BM_NL's output below
+    needs BM_NL to *attain* that minimum, which is not obvious -- its growth rule
+    fires whenever the current frame recurs, without checking whether the
+    successors actually disagree, so it could in principle overshoot.  It does
+    not: BM_NL was checked against the brute-force minimum (the smallest m with
+    no two positions sharing an m-frame while demanding different next bits)
+    over all binary sequences of length <= 16 and 400 random sequences of length
+    20-48, with no disagreement.
+    """
+    random.seed(600 + trial)
+    seq = [random.randint(0, 1) for _ in range(32)]
+
+    assert BM_NL(seq, bijective=True)[0] >= BM_NL(seq)[0], (
+        f"trial {trial}: the constrained fit came out shorter than the unconstrained one"
+    )
+
+
+@pytest.mark.parametrize("trial", range(4))
+def test_bm_nl_default_fit_is_unchanged_by_the_new_option(trial):
+    """`bijective=False` is the original algorithm, untouched.
+
+    The option is additive: the default path must keep returning exactly what it
+    returned before, since existing callers depend on that fit.
+    """
+    random.seed(700 + trial)
+    seq = [random.randint(0, 1) for _ in range(32)]
+
+    size, feedback = BM_NL(seq)
+    assert (size, feedback.anf_str()) == (BM_NL(seq, bijective=False)[0],
+                                          BM_NL(seq, bijective=False)[1].anf_str())
+
+    register = Fibonacci(size, [])
+    register[size - 1].add_arguments(feedback)
+    produced = [int(state[0]) for state
+                in FeedbackRegister(seq[:size], register).run(compiled=False, limit=len(seq))]
+    assert produced == seq, "the default fit should still reproduce the sequence"
+
+
+# ── The purely-periodic precondition ─────────────────────────────────────────
+
+@pytest.mark.parametrize("synthesize", [
+    lambda seq: berlekamp_massey(seq, bijective=True)[0],
+    lambda seq: BM_NL(seq, bijective=True)[0],
+], ids=["linear", "nonlinear"])
+def test_bijective_fit_is_stable_on_a_purely_periodic_sequence(synthesize):
+    """On a purely periodic input the constrained length converges.
+
+    A bijection puts every state on a cycle, so a bijective register emits a
+    sequence with no transient.  A purely periodic input is therefore consistent
+    with one, and feeding more of it should not change the answer.
+    """
+    period = [0, 1, 1, 0, 1]
+    lengths = {synthesize((period * 40)[:n]) for n in (20, 40, 60, 80)}
+    assert len(lengths) == 1, (
+        f"length should not depend on how much of a periodic sequence is supplied, got {lengths}"
+    )
+
+
+@pytest.mark.parametrize("synthesize", [
+    lambda seq: berlekamp_massey(seq, bijective=True)[0],
+    lambda seq: BM_NL(seq, bijective=True)[0],
+], ids=["linear", "nonlinear"])
+def test_bijective_fit_degenerates_on_a_sequence_with_a_transient(synthesize):
+    """With a genuine transient the constrained length tracks the input length.
+
+    No bijective register reproduces a sequence that is not purely periodic, but
+    the search does not fail -- it degenerates.  With least period rho and minimal
+    preperiod tau, positions tau-1 and tau-1+rho carry equal windows but opposite
+    targets, so every length up to N - tau - rho is inconsistent and the answer is
+    N - tau - rho + 1: slope 1 in the input length.  That
+    silent degeneration is the reason `bijective=True` carries a precondition,
+    and comparing two prefix lengths is the cheapest way to detect it.
+    """
+    base = [1, 1, 1] + [0, 1, 1, 0, 1] * 40          # 3-bit transient, then period 5
+
+    short, long = synthesize(base[:30]), synthesize(base[:70])
+    assert long - short >= 30, (
+        f"expected the length to track the input (got {short} at N=30, {long} at N=70); "
+        "if this fails the degeneration described in the docs no longer happens"
+    )
+
+
+def test_unconstrained_fit_is_unaffected_by_the_transient():
+    """The default searches converge on the same input, which isolates the cause.
+
+    Both unconstrained fits stay bounded on the sequence that makes the
+    constrained ones degenerate, so the growth is a consequence of demanding
+    bijectivity rather than of the sequence being hard to synthesize.
+    """
+    base = [1, 1, 1] + [0, 1, 1, 0, 1] * 40
+
+    assert berlekamp_massey(base[:30])[0] == berlekamp_massey(base[:70])[0]
+    assert BM_NL(base[:30])[0] == BM_NL(base[:70])[0]
+
+
+@pytest.mark.parametrize("trial", range(5))
+def test_linear_bijective_fit_reproduces_and_is_a_bijection(trial):
+    """`berlekamp_massey(bijective=True)` returns an invertible LFSR for the sequence.
+
+    The constrained system forces bit 0 to be tapped, which by the
+    characterization in `_BM_NL_bijective` is exactly invertibility for a linear
+    feedback (all its monomials are singletons, so the coefficient of the
+    discarded bit is the constant 1 whenever it appears at all).
+    """
+    random.seed(1100 + trial)
+    seq = [random.randint(0, 1) for _ in range(22)]
+
+    size, polynomial = berlekamp_massey(seq, bijective=True)
+    register = Fibonacci(size, polynomial[:size + 1].tolist())
+
+    produced = [int(state[0]) for state
+                in FeedbackRegister(seq[:size], register).run(compiled=False, limit=len(seq))]
+    assert produced == seq, f"trial {trial}: constrained linear fit does not reproduce the sequence"
+
+    if size <= 12:
+        images = set()
+        for value in range(2 ** size):
+            state = [(value >> k) & 1 for k in range(size)]
+            images.add(tuple(bit_fn.eval(state) for bit_fn in register.fn_list))
+        assert len(images) == 2 ** size, f"trial {trial}: the fit is not a bijection"
+
+
+@pytest.mark.parametrize("trial", range(6))
+def test_linear_bijective_fit_is_never_shorter_than_the_default(trial):
+    """Constraining the tap set cannot shorten the register.
+
+    The bijective polynomials are those with a nonzero leading coefficient, a
+    subset of what the unconstrained recurrence search ranges over.
+    """
+    random.seed(1200 + trial)
+    seq = [random.randint(0, 1) for _ in range(28)]
+
+    assert berlekamp_massey(seq, bijective=True)[0] >= berlekamp_massey(seq)[0]
+
+
+# -- Iterator parity with the batch fits ------------------------------------
+#
+# Each iterator must agree with its batch counterpart on the full sequence, in
+# both modes. For bijective=True the iterator cannot reuse its streaming core
+# (the fit is a rescan over m, not an incremental update), so this is the test
+# that keeps the two implementations from drifting apart.
+
+def test_bm_nl_iterator_final_matches_batch():
+    """The last value from BM_NL_iterator matches BM_NL on the same sequence."""
+    random.seed(42)
+    seq = [random.randint(0, 1) for _ in range(40)]
+    m_batch, f_batch = BM_NL(seq)
+
+    last_m = last_f = None
+    for m_iter, f_iter in BM_NL_iterator(iter(seq), yield_rate=10):
+        last_m, last_f = m_iter, f_iter
+
+    assert last_m == m_batch, f"Iterator m {last_m} != batch m {m_batch}"
+    # Same length and same truth table means the same feedback function; the
+    # DAGs need not be structurally identical.
+    assert last_f is not None
+    for n in range(2 ** m_batch):
+        state = [(n >> i) & 1 for i in range(m_batch)]
+        assert last_f.eval(state) == f_batch.eval(state), (
+            f"iterator and batch feedback disagree on state {state}"
+        )
+
+def test_bm_iterator_bijective_final_matches_batch():
+    """berlekamp_massey_iterator(bijective=True) agrees with the batch fit."""
+    # Purely periodic, so a bijective fit exists at every prefix length used.
+    seq = ([1, 0, 1, 1, 0, 0, 1] * 6)[:36]
+    lc_batch, poly_batch = berlekamp_massey(seq, bijective=True)
+
+    last_lc = last_poly = None
+    for lc_iter, poly_iter in berlekamp_massey_iterator(iter(seq), yield_rate=12,
+                                                        bijective=True):
+        last_lc, last_poly = lc_iter, poly_iter
+
+    assert last_lc == lc_batch, f"Iterator LC {last_lc} != batch LC {lc_batch}"
+    assert list(last_poly) == list(poly_batch), "Iterator polynomial != batch polynomial"
+
+def test_bm_nl_iterator_bijective_final_matches_batch():
+    """BM_NL_iterator(bijective=True) agrees with the batch fit."""
+    seq = ([1, 0, 1, 1, 0, 0, 1] * 6)[:36]
+    m_batch, f_batch = BM_NL(seq, bijective=True)
+
+    last_m = last_f = None
+    for m_iter, f_iter in BM_NL_iterator(iter(seq), yield_rate=12, bijective=True):
+        last_m, last_f = m_iter, f_iter
+
+    assert last_m == m_batch, f"Iterator m {last_m} != batch m {m_batch}"
+    assert last_f is not None
+    for n in range(2 ** m_batch):
+        state = [(n >> i) & 1 for i in range(m_batch)]
+        assert last_f.eval(state) == f_batch.eval(state), (
+            f"iterator and batch feedback disagree on state {state}"
+        )

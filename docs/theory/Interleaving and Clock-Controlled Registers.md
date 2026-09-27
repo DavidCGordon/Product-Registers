@@ -22,7 +22,7 @@ In the D-transform ($S(D) = \sum_t s[t] D^t$):
 
 $$\boxed{Y(D) = \sum_{r=0}^{d-1} D^r\, S_r(D^d)}$$
 
-Each $S_r(D^d)$ is the [expansion](Decimation%20Expansion%20and%20Linear%20Complexity.md#definition-1) of phase $r$ by $d$ — samples placed at every $d$-th position, zeros elsewhere. The shift $D^r$ slides it into the correct slot. Summing fills all positions.
+Each $S_r(D^d)$ is the [expansion](Decimation%20Expansion%20and%20Linear%20Complexity.md#expansion) of phase $r$ by $d$ — samples placed at every $d$-th position, zeros elsewhere. The shift $D^r$ slides it into the correct slot. Summing fills all positions.
 
 This identity says: **interleaving = sum of expansions with phase offsets**. Every construction below reduces to specifying what the phase sequences $s_r$ are.
 
@@ -39,7 +39,7 @@ $$R_Y \subseteq \bigcup_{r=0}^{d-1} \bigcup_{\rho \in R_r} F_{d'}(\rho)$$
 
 This is an upper bound — roots from different phases can cancel in the sum. The shift $D^r$ changes coefficients but does not introduce new roots.
 
-**Frobenius orbits are preserved.** The fan of a complete Frobenius orbit is a union of complete orbits at the expanded level ([proof](Decimation%20Expansion%20and%20Linear%20Complexity.md#frobenius-closure-of-fan-unions)), so the LC is always a sum of orbit sizes.
+**Frobenius orbits are preserved.** The fan of a complete Frobenius orbit is a union of complete orbits at the expanded level ([proof](Decimation%20Expansion%20and%20Linear%20Complexity.md#odd-expansion-root-fans)), so the LC is always a sum of orbit sizes.
 
 ### Phase Cancellation
 
@@ -101,7 +101,7 @@ Each phase $s_j$ samples $b$ at a fixed offset $t_j$ within each control period,
 
 $$s_j[k] = \sum_{\rho \in R_B} \underbrace{c_\rho \rho^{t_j}}_{\text{coefficient}} \cdot \underbrace{(\rho^{q_A})^k}_{\text{slow-time root}}$$
 
-The slow-time roots are $\{\rho^{q_A} : \rho \in R_B\}$ — the data roots [decimated](Decimation%20Expansion%20and%20Linear%20Complexity.md#how-decimation-transforms-roots) by $q_A$. When $\gcd(q_A, q_B) = 1$, this decimation is a bijection (distinct roots stay distinct), so each phase has $L_B$ roots.
+The slow-time roots are $\{\rho^{q_A} : \rho \in R_B\}$ — the data roots [decimated](Decimation%20Expansion%20and%20Linear%20Complexity.md#root-rule) by $q_A$. When $\gcd(q_A, q_B) = 1$, this decimation is a bijection (distinct roots stay distinct), so each phase has $L_B$ roots.
 
 The interleaving of these $w$ phases then fans/scales each root according to the odd–even decomposition of $w$, giving the LC formula.
 
@@ -155,7 +155,7 @@ The SSG shrinks a sequence by itself: pair consecutive bits, use the first as co
 
 $$c[t] = a[2t], \qquad x[t] = a[2t+1], \qquad y[j] = x[\tau(j)] \text{ where } c[\tau(j)] = 1.$$
 
-Both $c$ and $x$ are [decimations](Decimation%20Expansion%20and%20Linear%20Complexity.md#how-decimation-transforms-roots) of $a$ by 2 with different phase offsets. Since $q = 2^n - 1$ is odd, $\gcd(2, q) = 1$, so both have period $q$ and LC $n$. The control has $w = 2^{n-1}$ ones (balance property).
+Both $c$ and $x$ are [decimations](Decimation%20Expansion%20and%20Linear%20Complexity.md#root-rule) of $a$ by 2 with different phase offsets. Since $q = 2^n - 1$ is odd, $\gcd(2, q) = 1$, so both have period $q$ and LC $n$. The control has $w = 2^{n-1}$ ones (balance property).
 
 The SG formula gives $L \leq 2^{n-1} \cdot n$, but this overestimates because the control and data are **correlated** — both derived from one LFSR. The $w$ phase sequences are $w$ correlated views of the same $n$-dimensional state, not $w$ independent observations.
 

@@ -1,9 +1,16 @@
-"""Cross-representation solver tests.
+"""Cross-representation solver tests, plus the GF(2) elimination underneath them.
 
 Verifies that each solver accepts stores of different types via
 automatic conversion, producing consistent results across
 representations.
+
+The final section tests `GaussElim.reduce_matrix` directly against the
+definition of a reduced row echelon form: the row space and rank are
+determined by the input, so they cannot depend on elimination order or pivot
+choice.  Each property is recomputed with an independent rank routine.
 """
+import random
+
 import numpy as np
 import pytest
 
@@ -17,6 +24,7 @@ from PyPR.Cryptanalysis.Components.EquationStores.GrobnerEqStore import Groebner
 import PyPR.Cryptanalysis.Components.EquationSolving.LU_Solver as LU_Solver
 import PyPR.Cryptanalysis.Components.EquationSolving.GaussElim as GaussElim
 import PyPR.Cryptanalysis.Components.EquationSolving.Grob_Solver as Grob_Solver
+from PyPR.Cryptanalysis.Components.EquationSolving.GaussElim import reduce_matrix
 
 
 _COMB_TO_IDX = {
@@ -187,3 +195,103 @@ def test_grob_from_lu_store():
     assert gb.solved_vars.get(0) == 1
     assert gb.solved_vars.get(1) == 0
     assert gb.solved_vars.get(2) == 1
+
+
+# ── reduce_matrix as a GF(2) reduced row echelon form ─────────────────────────
+
+@pytest.mark.parametrize("trial", range(10))
+def test_reduce_matrix_returns_one_row_per_pivot_and_preserves_the_row_space(trial):
+    """The RREF has exactly `rank` rows and spans the same space as the input.
+
+    Row reduction is a change of basis for the row space, so stacking the input
+    and its RREF must not raise the rank.  Combined with the row count, this
+    says the returned matrix is a basis of the original row space -- the
+    property every solver downstream depends on.
+    """
+    rng = random.Random(700 + trial)
+
+    def gf2_rank(rows):
+        rows, pivot_row = [int(r) for r in rows], 0
+        for bit in range(max((r.bit_length() for r in rows), default=0)):
+            pivot = next((i for i in range(pivot_row, len(rows)) if (rows[i] >> bit) & 1), None)
+            if pivot is None:
+                continue
+            rows[pivot_row], rows[pivot] = rows[pivot], rows[pivot_row]
+            for i in range(len(rows)):
+                if i != pivot_row and (rows[i] >> bit) & 1:
+                    rows[i] ^= rows[pivot_row]
+            pivot_row += 1
+        return pivot_row
+
+    height, width = rng.randint(2, 7), rng.randint(2, 7)
+    matrix = np.array(
+        [[rng.randint(0, 1) for _ in range(width)] for _ in range(height)], dtype=np.uint8
+    )
+    as_masks = [sum(int(matrix[i][j]) << j for j in range(width)) for i in range(height)]
+    rank = gf2_rank(as_masks)
+
+    reduced, _ = reduce_matrix(matrix.copy())
+    reduced_masks = [
+        sum(int(reduced[i][j]) << j for j in range(width)) for i in range(reduced.shape[0])
+    ]
+
+    assert reduced.shape[0] == rank, (
+        f"trial {trial}: RREF has {reduced.shape[0]} rows for a rank-{rank} matrix"
+    )
+    assert gf2_rank(as_masks + reduced_masks) == rank, (
+        f"trial {trial}: row reduction changed the row space"
+    )
+
+
+@pytest.mark.parametrize("trial", range(10))
+def test_reduce_matrix_output_is_in_reduced_row_echelon_form(trial):
+    """Pivots advance strictly left to right, and each pivot column is a unit vector.
+
+    These two conditions are what makes the form *reduced* rather than merely
+    triangular, and they are what lets a caller read a solution straight off
+    the rows.  A repeated or out-of-order pivot column would silently produce
+    wrong back-substitutions.
+    """
+    rng = random.Random(800 + trial)
+    height, width = rng.randint(2, 7), rng.randint(2, 7)
+    matrix = np.array(
+        [[rng.randint(0, 1) for _ in range(width)] for _ in range(height)], dtype=np.uint8
+    )
+
+    reduced, _ = reduce_matrix(matrix.copy())
+    pivots = [int(np.argmax(reduced[i])) for i in range(reduced.shape[0])]
+
+    assert pivots == sorted(pivots) and len(set(pivots)) == len(pivots), (
+        f"trial {trial}: pivot columns {pivots} are not strictly increasing"
+    )
+    for pivot in pivots:
+        assert int(reduced[:, pivot].sum()) == 1, (
+            f"trial {trial}: pivot column {pivot} is not a unit column"
+        )
+
+
+@pytest.mark.parametrize("trial", range(10))
+def test_free_variables_are_exactly_the_non_pivot_columns(trial):
+    """`free_vars` marks a column iff no row pivots there.
+
+    The free/pivot split is the dimension count of the solution space: with
+    `rank` pivot columns out of `width`, the system has `width - rank` free
+    variables and 2^(width-rank) solutions.  Miscounting here would make a
+    solver report the wrong number of candidate keys.
+    """
+    rng = random.Random(900 + trial)
+    height, width = rng.randint(2, 7), rng.randint(2, 7)
+    matrix = np.array(
+        [[rng.randint(0, 1) for _ in range(width)] for _ in range(height)], dtype=np.uint8
+    )
+
+    reduced, free_vars = reduce_matrix(matrix.copy())
+    pivots = {int(np.argmax(reduced[i])) for i in range(reduced.shape[0])}
+
+    assert len(free_vars) == width, "free_vars should carry one flag per column"
+    assert [j for j in range(width) if free_vars[j]] == [
+        j for j in range(width) if j not in pivots
+    ], f"trial {trial}: free_vars does not complement the pivot columns"
+    assert int(free_vars.sum()) == width - reduced.shape[0], (
+        f"trial {trial}: free variable count should be width - rank"
+    )

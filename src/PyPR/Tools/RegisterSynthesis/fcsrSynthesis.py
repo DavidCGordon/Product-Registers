@@ -1,3 +1,13 @@
+"""2-adic rational approximation: recovering p/q from an observed sequence.
+
+An FCSR emits the 2-adic expansion of a rational p/q with q odd, one bit per
+clock. This module runs that backwards -- given a prefix, find the fraction.
+
+See `docs/theory/2-adic Integers and Rational Sequences.md` for the arithmetic
+(the shift on numerators, which fractions are purely periodic, cycle structure),
+and `docs/architecture/FCSR Implementation.md` for how a fraction is realized as
+a register.
+"""
 from math import ceil, copysign
 
 # May be very optimiseable, but nicely leans on pythons integer
@@ -166,6 +176,13 @@ def phi(num,den):
 
 # Determine the FCSR size for this numerator and denominator
 def FCSR_size(num,den):
+    # 1/1 needs two value cells, not the one the log gives: a positive
+    # numerator has a terminating expansion, which needs the feedback left
+    # open (den < 2**size - 1), and at size 1 with den == 1 the loop closes.
+    # Matches the same case in FCSR.state_from_frac.
+    if den == 1 and num == 1:
+        return 2
+
     if  num > 0:
         size = 1 + ceil(log2(max(abs(num),abs(den))))
     else:

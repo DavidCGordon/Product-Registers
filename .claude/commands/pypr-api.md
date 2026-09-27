@@ -115,13 +115,27 @@ Fibonacci(size: int, primitive_polynomial: str | list[int])
 Galois(size: int, primitive_polynomial: str | list[int])
 ```
 
-| Class method | Notes |
-|-------------|-------|
-| `fromSeq(seq, nonlinear=False)` | `→ (seed, register)` from output sequence (BM internally) |
-| `fromReg(F, bit=0, numIters=None, nonlinear=False)` | `→ (seed, register)` from running register |
-| `invert()` | Toggle time-reversed mode |
+| Class method | Class | Notes |
+|-------------|-------|-------|
+| `fromSeq(seq, nonlinear=False, bijective=False)` | Fibonacci | `→ (seed, register)` from output sequence (BM internally) |
+| `fromSeq(seq)` | Galois | `→ (seed, register)` from output sequence |
+| `fromReg(F, bit=0, numIters=None, nonlinear=False)` | Fibonacci | `→ (seed, register)` from running register |
+| `fromReg(F, bit=0, numIters=None)` | Galois | `→ (seed, register)` from running register |
+| `invert()` | both | Toggle time-reversed mode |
 
-**Attribute:** `update_matrix: @cached_property ndarray`
+`bijective=True` restricts the search to registers whose update map is a
+bijection, on both the linear and nonlinear paths. It raises `ValueError` when
+no such register shorter than `len(seq)` exists, and degenerates (returning a
+length that grows with `len(seq)`) on sequences that are not purely periodic.
+See `docs/architecture/Nonlinear Register Synthesis.md`.
+
+`Fibonacci.invert()` raises `ValueError` when the register is not a bijection
+— the discarded bit must enter the feedback as a lone linear term. Registers
+from `fromSeq(..., nonlinear=True)` generally fail this unless `bijective=True`
+was also passed.
+
+**Attribute:** `update_matrix: @cached_property ndarray` (on both `Fibonacci`
+and `Galois`; discarded by `invert()`, which rebuilds `fn_list`)
 
 ### CrossJoin
 
@@ -157,7 +171,7 @@ FCSR(diadic_complexity: int, q: int)   # q must be odd positive
 
 | Class method | Notes |
 |-------------|-------|
-| `fromSeq(seq)` | `→ (seed, register)` from sequence (2-adic BM) |
+| `fromSeq(seq, bijective=False)` | `→ (seed, register)` from sequence (2-adic BM) |
 | `fromReg(F, bit=0, numIters=None)` | `→ (seed, register)` from running register |
 | `state_from_frac(num, den)` | `→ (size, state)` from 2-adic fraction |
 
@@ -501,15 +515,34 @@ from PyPR.Cryptanalysis.Attacks.reduced_algebraic_attack import RAA_offline, RAA
 
 ## Tools
 
-### Berlekamp-Massey
+### Register Synthesis (Berlekamp-Massey and variants)
 
 ```python
-from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey
+from PyPR.Tools.RegisterSynthesis.lfsrSynthesis  import berlekamp_massey
+from PyPR.Tools.RegisterSynthesis.nlfsrSynthesis import BM_NL, KMP_table
+from PyPR.Tools.RegisterSynthesis.fcsrSynthesis  import BM_FCSR
 
-lc, poly = berlekamp_massey(seq)  # seq: list[int] or np.ndarray
-# lc: linear complexity (int)
-# poly: coefficient array of minimal polynomial
+lc, poly  = berlekamp_massey(seq, bijective=False)  # seq: list[int] or np.ndarray
+# lc:   linear complexity (int)
+# poly: coefficient array (ndarray) of the minimal polynomial, dual convention
+
+m, f      = BM_NL(seq, bijective=False)
+# m: register length (int); f: BooleanFunction feedback on the top bit
+
+size, p, q = BM_FCSR(seq, bijective=False)
+# size: 2-adic complexity (int); p/q: the fraction matching the prefix
 ```
+
+`bijective=True` restricts each search to registers whose update map is a
+bijection (for `BM_FCSR`, to numerators with `-q <= p <= 0`, which makes the
+*emitted sequence* purely periodic). It raises `ValueError` when no such fit
+exists below `len(seq)`. Read the precondition before using it: on a sequence
+with a genuine transient the search degenerates silently rather than failing.
+See `docs/architecture/Nonlinear Register Synthesis.md`.
+
+Streaming variants: `berlekamp_massey_iterator(seq, yield_rate=1000)`,
+`BM_NL_iterator(seq, yield_rate=1000, yield_corrected=True)`,
+`BM_FCSR_iterator(seq, yield_rate)` — none take `bijective`.
 
 ### RootExpression
 

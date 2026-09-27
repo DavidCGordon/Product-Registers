@@ -275,9 +275,13 @@ class CMPR(FeedbackFunction):
         resolvent_matrices = []
         for update_matrix in self.update_matrices:
 
-            # Convert the update matrix to be over the Rational Polynomial Field
-            converted_update_matrix = np.vectorize(ResolventSolving.BooleanGF.from_int)(update_matrix)
-            converted_update_matrix.dtype = ResolventSolving.BooleanGF
+            # Convert the update matrix to be over the Rational Polynomial Field.
+            # otypes pins the result to object dtype, which skips NumPy's inference
+            # call on the first element and keeps this valid for size-0 input.
+            converted_update_matrix = np.vectorize(
+                ResolventSolving.BooleanGF.from_int,
+                otypes = [object],
+            )(update_matrix)
 
             # (I xor UD)^{-1}):
             # meant to be multiplied by (DC(D) xor B[0])
@@ -321,10 +325,23 @@ class CMPR(FeedbackFunction):
 
     @cached_property
     def expected_period_ratio(self) -> float:
-        """The expected fraction of the maximum period achieved by a random
-        chaining configuration with these block sizes.
+        """The expected period as a fraction of the register's state-space size.
 
-        :return: A probability in [0, 1].
+        The normalizer is 2^(sum of block sizes) -- the total number of states
+        the register can occupy -- not `max_period`. A state is drawn uniformly
+        from the whole space, and the cycle it lands on has length equal to the
+        product of (2^s - 1) over the blocks that are nonzero in it, so the
+        weights sum to prod(2^s) and the ratio is exactly
+        `expected_period / 2^size`.
+
+        Normalizing against the state space rather than the longest cycle makes
+        this an efficiency metric that is comparable across register families
+        and sizes: it answers "what fraction of the bits I paid for am I
+        getting period out of", independent of how the sizes factor. It is also
+        the cheaper quantity, since the denominator is a power of two rather
+        than an lcm.
+
+        :return: A ratio in (0, 1].
         :rtype: float
         """
         sizes = [len(block) for block in self.blocks]
@@ -332,20 +349,35 @@ class CMPR(FeedbackFunction):
 
     @cached_property
     def expected_period(self) -> float:
-        """The expected period for a random chaining configuration with
-        these block sizes.
+        """The expected period of a uniformly random state, over these block sizes.
 
-        :return: The expected period.
-        :rtype: int
+        A state lands on the cycle whose length is the product of (2^s - 1)
+        over the blocks that are nonzero in it, and a cycle of length c is
+        reached by c of the 2^size states, so the expectation is
+        sum(c^2) / sum(c) over all 2^k subset products. That sum factors into
+        the closed form prod((2^s - 1)^2 + 1) / prod(2^s), which is what is
+        computed here; `MersenneTools.expected_period_brute_force` evaluates
+        the defining sum directly and the two agree.
+
+        :return: The expected period. Not an integer -- it is an expectation.
+        :rtype: float
         """
         sizes = [len(block) for block in self.blocks]
         return expected_period(sizes)
 
     @cached_property
     def max_period(self) -> int:
-        """The maximum achievable period for these block sizes.
+        """The longest cycle reachable by this register.
 
-        Equal to the LCM of (2^{n_i} - 1) across all component blocks.
+        Each block of size s contributes 2^s - 1 when its period is coprime to
+        what the other blocks supply, which for Mersenne exponents (prime, hence
+        pairwise coprime) is every distinct size. Blocks that cannot contribute
+        a fresh factor -- a repeated size, or a size-1 block whose own period is
+        1 -- contribute a factor of 2 instead. See
+        :func:`PyPR.Tools.MersenneTools.max_period` for the full statement.
+
+        This coincides with the lcm of the component periods when the sizes are
+        distinct, pairwise coprime, and none is 1.
 
         :return: The maximum period.
         :rtype: int

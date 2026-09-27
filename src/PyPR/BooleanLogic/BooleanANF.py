@@ -1,5 +1,5 @@
 from typing import Optional, Any
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 
 from PyPR.BooleanLogic.BooleanFunction import BooleanFunction
 from PyPR.BooleanLogic.Gates import XOR, AND
@@ -231,7 +231,7 @@ class BooleanANF:
         :rtype: int
         """
         return self.terms.__hash__()
-    def __iter__(self) -> Iterable[frozenset[Any]]: 
+    def __iter__(self) -> Iterator[frozenset[Any]]: 
         """Expose an iterator to the underlying term set.
 
         Because frozensets are unordered, there is no guarantee for order in the returned
@@ -239,7 +239,7 @@ class BooleanANF:
         pass BooleanANFs to `sorted` (or other functions expecting an iterable)
         
         :return: An iterator for the underlying term set.
-        :rtype: Iterable[frozenset[Any]]
+        :rtype: Iterator[frozenset[Any]]
         """
         return iter(self.terms)
     def __contains__(self, term: Iterable[Any] | int | bool) -> bool: 

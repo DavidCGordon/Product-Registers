@@ -15,17 +15,29 @@ dependencies = [
     "python-sat"
 ]
 
-[tool.setuptools]
-packages = ["PyPR"]
-package-dir = {"" = "src"}
-
 [project.optional-dependencies]
 dev = ["pytest"]
+# Advisory only -- the CI job that uses these never blocks a merge.
+lint = ["pyright", "ruff"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+# Subpackages are discovered rather than listed. An explicit `packages =
+# ["PyPR"]` ships only the top-level modules, so a non-editable `pip install .`
+# builds a wheel whose `import PyPR` raises ModuleNotFoundError on
+# PyPR.FeedbackFunctions. Editable installs mask this by putting all of src/ on
+# sys.path, so the failure only shows up for consumers.
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
 python_files = ["test_*.py", "*_test.py"]
 python_functions = ["test_*"]
+# Fail on an unregistered marker instead of silently ignoring it, so a typo in
+# @pytest.mark.slow cannot quietly un-mark a slow test.
+addopts = "--strict-markers"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]

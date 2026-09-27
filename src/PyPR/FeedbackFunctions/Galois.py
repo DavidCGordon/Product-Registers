@@ -1,6 +1,9 @@
+from functools import cached_property
 from typing import Self, TYPE_CHECKING
 
-from PyPR.BooleanLogic import BooleanANF, BooleanFunction, CONST
+import numpy as np
+
+from PyPR.BooleanLogic import BooleanANF, BooleanFunction, CONST, VAR
 from PyPR.FeedbackFunctions import FeedbackFunction
 from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey
 
@@ -134,33 +137,55 @@ class Galois(FeedbackFunction):
         the inverted configuration realizes the inverse map, so that
         clocking the inverted register undoes a single clock of the original.
         Both configurations traverse the same orbit but in opposite directions.
+
+        Calling this twice returns the register to its original configuration,
+        since `is_inverted` selects which construction to rebuild from.
         """
         #remake current anf based on the is_inverted attribute
         if not self.is_inverted:
             self._inverted_from_poly(self.primitive_polynomial)
+            self.is_inverted = True
         else:
             self._fn_from_poly(self.primitive_polynomial)
+            self.is_inverted = False
+
+        # update_matrix is derived from fn_list, which was just rebuilt
+        if 'update_matrix' in self.__dict__: del self.update_matrix
 
     @classmethod
     def fromSeq(cls,
-        seq: list[int]
+        seq: list[int],
+        bijective: bool = False
     ) -> tuple[list[int], "Galois"]:
         """Recover the Galois LFSR which generates a given binary sequence.
 
         Applies Berlekamp-Massey to recover the minimal characteristic
         polynomial of the sequence, then back-solves for the initial state
         of the Galois realization. The returned `(seed, register)` pair
-        satisfies: clocking `register` from `seed` reproduces `seq` in the 
+        satisfies: clocking `register` from `seed` reproduces `seq` in the
         values of bit 0 over time.
+
+        Bijectivity is a property of the polynomial, not of the realization:
+        the Galois and Fibonacci registers built from the same polynomial have
+        update matrices that are transposes of one another, so one is invertible
+        exactly when the other is. `bijective=True` therefore delegates to the
+        same constrained search the Fibonacci path uses, and the register it
+        returns satisfies the same guarantee.
 
         :param seq: A prefix of a binary sequence, of length at least 2L,
             where L is the linear complexity of the sequence.
         :type seq: list[int]
+        :param bijective: If True, constrain the search to polynomials whose
+            update map is a bijection, so the register has an inverse and every
+            seed lies on a cycle. This can return a longer register.
+        :type bijective: bool
         :return: The initial state and the recovered Galois LFSR.
         :rtype: tuple[list[int], Galois]
+        :raises ValueError: If bijective is True and no bijective register
+            shorter than the sequence generates it.
         """
         #run berlekamp massey to determine primitive polynomial
-        L, c = berlekamp_massey(seq)
+        L, c = berlekamp_massey(seq, bijective = bijective)
 
         # calculate inital state:
         s = []
@@ -203,4 +228,44 @@ class Galois(FeedbackFunction):
             numIters = 2*F.size + 4
         seq = [state[bit] for state in F.run(numIters)]
         return Galois.fromSeq(seq)
+
+    @cached_property
+    def update_matrix(self) -> np.ndarray:
+        """The GF(2) update matrix of the register's linear feedback.
+
+        The matrix M satisfies `next_state = M @ current_state` over GF(2):
+        entry `M[i, j]` is 1 iff bit i's update function references bit j as a
+        `VAR` leaf. For the Galois layout that is the downward shift
+        (`M[i, i+1] = 1` for i < n-1) together with the taps that redistribute
+        the departing bit, so column 0 carries the polynomial's nonzero
+        coefficients -- the transpose-like mirror of the Fibonacci layout,
+        where the polynomial occupies a row instead.
+
+        The characteristic polynomial of M is the reverse of
+        `primitive_polynomial`. The stored polynomial is the dual (it convolves
+        the output sequence to zero), whereas the characteristic polynomial of
+        a transition map is the primal, whose roots are the roots of the state
+        sequence; the primal and dual of a sequence are reverses of each other.
+        See `docs/conventions/Polynomial Conventions.md`. Fibonacci and Galois
+        built from the same polynomial realize the same recurrence through
+        similar matrices, so they share this characteristic polynomial even
+        though the matrices themselves differ.
+
+        Any nonlinear gates in `fn_list` are ignored, so for a register that is
+        not purely linear this describes only the linear part. This is a cached
+        property; `invert` discards it, since it rebuilds `fn_list`.
+
+        :return: The size x size GF(2) update matrix.
+        :rtype: numpy.ndarray
+        """
+        matrix = np.zeros([self.size, self.size], dtype = 'uint8')
+
+        for inpt in range(self.size):
+            for outpt in range(self.size):
+                #iterate through the VAR objects in the linear function portion
+                for leaf in self.fn_list[outpt].inputs():
+                    if isinstance(leaf, VAR) and leaf.index == inpt:
+                        matrix[outpt][inpt] = 1
+
+        return matrix
 

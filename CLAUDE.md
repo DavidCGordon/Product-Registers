@@ -47,12 +47,30 @@ Requires Python 3.12+. Key dependencies: `numba` (JIT), `numpy`, `galois` (finit
 
 ## Running Tests
 
-There is no formal test framework. Tests are ad-hoc scripts in `test/` mirroring the `src/` structure. Run them directly:
+The suite is **pytest**-based — 359 tests across `test/`, mirroring the `src/` structure.
 
 ```bash
-python test/script.py
-python test/Cryptanalysis/...
+pip install -e ".[dev]"        # installs pytest
+pytest                         # whole suite (~50s)
+pytest test/Cryptanalysis      # one subtree
+pytest -k monomial_profile     # by name
+pytest -m "not slow"           # skip tests marked @pytest.mark.slow
 ```
+
+Both `test_*.py` and `*_test.py` are collected; see `[tool.pytest.ini_options]` in
+`pyproject.toml` for the collection rules and the registered markers.
+
+Tests are plain `def test_*()` functions using bare `assert`. They carry no
+`__main__` block and are not runnable as standalone scripts — do not add one.
+Tests that need randomness seed it explicitly (`random.seed(42)`) inside the test
+body, so every test is reproducible on its own.
+
+Mark anything long-running with `@pytest.mark.slow` so it can be deselected with
+`-m "not slow"`. CI runs the full suite; the marker exists to keep local
+iteration fast.
+
+CI runs this same suite on every push and PR to `master` and `dev` — see
+`.github/workflows/tests.yml`.
 
 ## Architecture
 
@@ -134,6 +152,18 @@ The test to apply to any framing sentence: *if I deleted this, would the reader 
 
 This is not a vocabulary restriction. Words like *natural*, *canonical*, and *analogous* are correct in many places — the requirement is that the construction, correspondence, or map they refer to is written down nearby. Read the standards doc before writing theory content; the `docs-theory-guard` agent enforces it, and `technical-writer` writes to it.
 
+### Code Style
+
+Prefer explicit control flow over clever dictionary idioms. In particular, do not
+use `dict.setdefault` to combine a lookup and an insert — write the membership
+test and the assignment separately, so the two things it does are both visible:
+
+```python
+if window in table and table[window] != d:
+    ...          # the conflict case
+table[window] = d
+```
+
 ### Docstring Style
 
 Sphinx format (per `.vscode/settings.json`, which is local-only and not checked in — the convention below is the authoritative statement of it). Always use the **split style**:
@@ -152,7 +182,7 @@ Frame docstrings in mathematical/theoretical language — refer to the underlyin
 
 ### Test Style
 
-No single-use helpers. Inline helper functions rather than extracting them unless they are used in 5+ places. Tests should be readable without scrolling to a helper definition. Code that depends on non-obvious theory (polynomial conventions, field arithmetic, Jordan partitions) must carry inline comments explaining the invariant being tested.
+No single-use helpers. Inline helper functions rather than extracting them unless they are used in 5+ places. Tests should be readable without scrolling to a helper definition. Code that depends on non-obvious theory (polynomial conventions, field arithmetic, Jordan partitions) must carry inline comments explaining the invariant being tested. This applies to pytest fixtures too: prefer explicit setup in the test body over a `conftest.py` fixture. There is deliberately no `conftest.py` — `pyproject.toml` carries the collection rules and markers, and tests seed their own randomness, so nothing needs to live out of sight of the test that depends on it.
 
 ## Agents and Skills
 

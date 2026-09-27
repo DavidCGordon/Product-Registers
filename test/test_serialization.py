@@ -136,3 +136,40 @@ def test_feedbackfunction_file_round_trip():
         assert seq1 == seq2
     finally:
         os.unlink(path)
+
+
+# ── Round-trip equality on the whole state space ─────────────────────────────
+
+def test_json_round_trip_agrees_on_every_state():
+    """A deserialized feedback function agrees with the original on all 2^n states.
+
+    The sequence comparisons above follow one orbit from one seed, so they only
+    exercise the bits that orbit happens to visit.  Comparing every bit's update
+    function at every state is the full contract: it catches a bit whose DAG was
+    dropped or rewired during serialization even when the bit-0 sequence is
+    unaffected, which a single-orbit check cannot distinguish from success.
+
+    Sizes are kept small because the comparison is exhaustive in the state space.
+    """
+    cases = [
+        MPR(5, "12"),
+        Fibonacci(5, "12"),
+        Galois(5, "12"),
+        FCSR(4, 13),
+        TFunction(5),
+        CMPR([MPR(3, [1, 1, 0, 1]), MPR(4, [1, 1, 0, 0, 1])]),
+    ]
+
+    for fn in cases:
+        restored = type(fn).from_JSON(fn.to_JSON())
+        size = len(fn)
+        assert len(restored) == size, f"{type(fn).__name__}: round-trip changed the size"
+
+        for value in range(2 ** size):
+            state = [(value >> k) & 1 for k in range(size)]
+            original_bits = [bit_fn.eval(state) for bit_fn in fn.fn_list]
+            restored_bits = [bit_fn.eval(state) for bit_fn in restored.fn_list]
+            assert original_bits == restored_bits, (
+                f"{type(fn).__name__}: round-trip differs at state {state} "
+                f"({original_bits} vs {restored_bits})"
+            )

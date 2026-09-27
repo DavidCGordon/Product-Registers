@@ -1,9 +1,19 @@
 """Tests for FeedbackRegister simulation: clock, run, reset, seed, period.
 
 Derived from ProductRegisters.ipynb (Library Basics > Simulating a Function in a Register).
+
+The final section checks the redundant execution paths against each other.
+`FeedbackRegister` carries four period algorithms (compiled x safe) and two
+clocking paths (numba-compiled vs. interpreted ANF evaluation).  These are
+performance variants of one mathematical object, so any disagreement between
+them is a bug in one of them -- there is no design freedom there.
 """
+import pytest
+
 from PyPR.FeedbackRegister import FeedbackRegister
-from PyPR.FeedbackFunctions import MPR, CMPR, Fibonacci, Galois
+from PyPR.FeedbackFunctions import (
+    MPR, CMPR, Fibonacci, Galois, FCSR, TFunction, CrossJoin,
+)
 from PyPR.BooleanLogic import AND, VAR
 from PyPR.BooleanLogic.ChainingGeneration.Templates import fast_template
 
@@ -112,3 +122,105 @@ def test_period_mpr():
     reg = FeedbackRegister(1, M)
     period, _ = reg.period(compiled=False)
     assert period == 7, f"Expected period 7, got {period}"
+
+
+# ── Agreement between the redundant execution paths ───────────────────────────
+
+PRIMITIVE = {
+    3: [1, 1, 0, 1],
+    4: [1, 1, 0, 0, 1],
+    5: [1, 0, 1, 0, 0, 1],
+    6: [1, 1, 0, 0, 0, 0, 1],
+}
+
+
+def every_feedback_family():
+    """One instance of each concrete FeedbackFunction, paired with a usable seed.
+
+    A function rather than a module constant because CrossJoin has to be mutated
+    after construction, and a function rather than two inline lists because both
+    tests below parametrize over the same set -- duplicating a seven-entry
+    construction would be the less readable option.
+    """
+    crossjoin = CrossJoin(6, PRIMITIVE[6])
+    crossjoin.generateNonlinearity(2)
+    return [
+        ("MPR", MPR(5, PRIMITIVE[5]), 31),
+        ("Fibonacci", Fibonacci(5, "12"), 31),
+        ("Galois", Galois(5, "12"), 31),
+        ("FCSR", FCSR(5, 37), 100),
+        ("TFunction", TFunction(6), 21),
+        ("CMPR", CMPR([MPR(3, PRIMITIVE[3]), MPR(4, PRIMITIVE[4])]), 100),
+        ("CrossJoin", crossjoin, 21),
+    ]
+
+
+@pytest.mark.parametrize("name,fn,seed", every_feedback_family(), ids=lambda v: v if isinstance(v, str) else "")
+def test_compiled_and_uncompiled_runs_agree(name, fn, seed):
+    """The numba path and the ANF-evaluation path produce identical state sequences.
+
+    `_clock_compiled` swaps state pointers and writes through a numba kernel,
+    while `_clock_uncompiled` evaluates each bit's BooleanFunction DAG.  A
+    divergence means the compiled kernel and the DAG disagree about the
+    feedback function -- e.g. a stale compile, or an aliasing error in the
+    pointer swap.
+    """
+    fn.compile()
+    interpreted = [int(s) for s in FeedbackRegister(seed, fn).run(compiled=False, limit=60)]
+    compiled = [int(s) for s in FeedbackRegister(seed, fn).run(compiled=True, limit=60)]
+    assert interpreted == compiled, f"{name}: compiled and uncompiled runs diverged"
+
+
+@pytest.mark.parametrize("name,fn,_seed", every_feedback_family(), ids=lambda v: v if isinstance(v, str) else "")
+@pytest.mark.parametrize("seed_kind", ["one", "all_ones", "arbitrary"])
+def test_period_variants_agree_where_the_unsafe_search_is_valid(name, fn, _seed, seed_kind):
+    """The four period algorithms obey the contract their docstring states.
+
+    `safe=True` runs Brent's cycle-finding, which handles a state that sits on
+    a transient leading into the cycle.  `safe=False` is a naive search for a
+    repeat of the *initial* state, so it cannot terminate when that state is
+    not itself on the cycle -- exactly the non-bijective case the docstring
+    warns about.  The contract is therefore three claims, not one equality:
+
+      1. compiling changes speed, never the answer, on both algorithms;
+      2. the unsafe search returns None precisely when the preperiod is
+         nonzero (the limit below is orders of magnitude above every period
+         here, which is what lets a None be read as "the start state is not on
+         the cycle" rather than "ran out of iterations");
+      3. whenever it does return, it agrees with Brent's answer.
+
+    FCSR is the register that exercises the None branch: its carry bits make
+    the update non-bijective, so most seeds land on a transient.
+    """
+    fn.compile()
+    size = len(fn)
+    seed = {"one": 1, "all_ones": (1 << size) - 1, "arbitrary": 100 % (1 << size)}[seed_kind]
+
+    reg = FeedbackRegister(seed, fn)
+    results = {}
+    for compiled in (True, False):
+        for safe in (True, False):
+            reg.reset()
+            results[(compiled, safe)] = reg.period(compiled=compiled, safe=safe, limit=2 ** 12)
+
+    safe_compiled, safe_plain = results[(True, True)], results[(False, True)]
+    unsafe_compiled, unsafe_plain = results[(True, False)], results[(False, False)]
+
+    assert safe_compiled == safe_plain, (
+        f"{name}/{seed_kind}: compiling changed the safe period: {results}"
+    )
+    assert unsafe_compiled == unsafe_plain, (
+        f"{name}/{seed_kind}: compiling changed the unsafe period: {results}"
+    )
+
+    assert safe_compiled is not None, f"{name}/{seed_kind}: Brent's algorithm found no cycle"
+    period, preperiod = safe_compiled
+
+    assert (unsafe_compiled is None) == (preperiod != 0), (
+        f"{name}/{seed_kind}: preperiod is {preperiod} but the unsafe search "
+        f"returned {unsafe_compiled}"
+    )
+    if unsafe_compiled is not None:
+        assert unsafe_compiled == (period, preperiod), (
+            f"{name}/{seed_kind}: unsafe {unsafe_compiled} != safe {safe_compiled}"
+        )

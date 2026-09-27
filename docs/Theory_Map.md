@@ -8,7 +8,7 @@ Paths are relative to `docs/`.
 ## Documentation Categories
 
 - **`theory/`** — Pure mathematical foundations: roots and the algebraic closure, polynomial types, root expressions, root multiplicities and Jordan decomposition, decimation/expansion and LC, monomial profiles, division property, resolvent analysis, cube equation generation, algebraic attack theory, trajectory vs column LC
-- **`architecture/`** — Library structure and implementation details: component interactions, store/solver/generator compatibility, attack implementation specifics, mesh optimization
+- **`architecture/`** — Library structure and implementation details: component interactions, store/solver/generator compatibility, attack implementation specifics, mesh optimization, nonlinear register synthesis
 - **`conventions/`** — Style, terminology, patterns: notation, matrix indexing, bit ordering, coefficient representation, vocabulary, polynomial conventions, coset region diagrams, writing standards
 
 ## Writing Documentation
@@ -39,6 +39,9 @@ Tools/RootCounting/*            → theory/Roots and the Algebraic Closure.md, t
 Tools/RootCounting/MeshOptimization.py → architecture/Mesh Optimization.md
 Tools/ResolventSolving.py       → theory/Resolvent Analysis.md
 Tools/RegisterSynthesis/*       → conventions/Polynomial Conventions.md (Berlekamp-Massey section)
+Tools/RegisterSynthesis/lfsrSynthesis.py  → architecture/Bijective Register Synthesis.md
+Tools/RegisterSynthesis/nlfsrSynthesis.py → architecture/Bijective Register Synthesis.md
+Tools/RegisterSynthesis/fcsrSynthesis.py  → theory/2-adic Integers and Rational Sequences.md, architecture/FCSR Implementation.md
 Tools/AlgClosure/*              → theory/Roots and the Algebraic Closure.md, theory/Algebraic Closure.md, theory/Decimation Expansion and Linear Complexity.md
 Tools/CostEstimation.py         → theory/Cube Equation Generation.md
 ```
@@ -46,8 +49,9 @@ Tools/CostEstimation.py         → theory/Cube Equation Generation.md
 ## FeedbackFunctions
 
 ```
-FeedbackFunctions/Fibonacci.py  → conventions/Polynomial Conventions.md
-FeedbackFunctions/Galois.py     → conventions/Polynomial Conventions.md
+FeedbackFunctions/Fibonacci.py  → conventions/Polynomial Conventions.md, architecture/Bijective Register Synthesis.md (for fromSeq / invert / _inverse_feedback)
+FeedbackFunctions/Galois.py     → conventions/Polynomial Conventions.md, architecture/Bijective Register Synthesis.md (for fromSeq / invert)
+FeedbackFunctions/FCSR.py       → architecture/FCSR Implementation.md, theory/2-adic Integers and Rational Sequences.md
 FeedbackFunctions/MPR.py        → conventions/Polynomial Conventions.md (MPR section)
 FeedbackFunctions/CMPR.py       → conventions/Notation and Terminology.md, theory/Root Expressions and LC Estimation.md, theory/Root Multiplicities and Jordan Decomposition.md, architecture/Mesh Optimization.md
 FeedbackFunctions/TFunction.py  → conventions/Notation and Terminology.md (T-Function Bit Order section), theory/Root Multiplicities and Jordan Decomposition.md

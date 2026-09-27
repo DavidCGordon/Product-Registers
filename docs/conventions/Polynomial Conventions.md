@@ -161,7 +161,7 @@ The conventions below are the particular choices this library makes — other im
 
 The Berlekamp-Massey algorithm builds a polynomial by iteratively correcting it until it convolves with the input sequence to produce zero. Its output therefore naturally satisfies the **dual** relationship with the input sequence: `convolve(BKM_output, seq) = 0`.
 
-The library preserves this dual output rather than reversing it, for two reasons: it matches the historical LFSR literature's convention, and it makes the register constructors round-trip cleanly — since both Fibonacci and Galois also expect the dual polynomial as input, `Fibonacci(*Fibonacci.fromSeq(seq))` and `Galois(*Galois.fromSeq(seq))` reproduce `seq` with no manual reversal.
+The library preserves this dual output rather than reversing it, for two reasons: it matches the historical LFSR literature's convention, and it makes the register constructors round-trip cleanly — since both Fibonacci and Galois also expect the dual polynomial as input, `FeedbackRegister(*Fibonacci.fromSeq(seq))` and `FeedbackRegister(*Galois.fromSeq(seq))` reproduce `seq` with no manual reversal.
 
 ### Fibonacci LFSR
 
@@ -203,12 +203,21 @@ $x^{-1}$ modulo $P$
 
 The intended behavior of this convention set is:
 
-- Galois and Fibonacci generate the same sequence from bit 0 when constructed with the same polynomial.
-- `Fibonacci(*Fibonacci.fromSeq(seq))` and `Galois(*Galois.fromSeq(seq))` reproduce `seq`.
+- Galois and Fibonacci generate the same *set* of sequences from bit 0 when constructed with the same polynomial — the same cyclic orbit, reached at a seed-dependent phase.
+- `FeedbackRegister(*Fibonacci.fromSeq(seq))` and `FeedbackRegister(*Galois.fromSeq(seq))` reproduce `seq`.
 - `convolve(BKM_output, seq)` yields a finite sequence.
 
-The MPR identities above are exact transition-map identities. The current
-Fibonacci implementation still has an indexing defect for the ordinary
-degree-3 example, so its runtime equivalence requires that constructor issue
-to be fixed separately.
+The MPR identities above are exact transition-map identities.
+
+**On seeds and phase.** The first item is about sequences, not about seeds: the
+same numeric seed generally does *not* give the same sequence in both layouts,
+because the seed means different things. A Fibonacci state is the sliding window
+$(s_t, \ldots, s_{t+n-1})$; a Galois state is an element of
+$\mathbb{F}_2[x]/P$. For the degree-3 example $P = 1 + x + x^3$, enumerating all
+seven nonzero seeds: each Galois orbit is a cyclic shift of the Fibonacci one,
+the seven shifts are all distinct, and the two sets of emitted sequences are
+equal. Berlekamp-Massey recovers exactly $P$ from either. So the layouts realize
+the same recurrence and differ only in which seed selects which phase — the
+expected consequence of the two state encodings, not a defect in either
+constructor.
 

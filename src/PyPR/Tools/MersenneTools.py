@@ -177,6 +177,38 @@ def assert_no_repeats(sizes):
         already_seen.add(s)
 
 def max_period(sizes):
+    """The longest cycle reachable by a CMPR with these component block sizes.
+
+    Each block of size s contributes its own period 2^s - 1, and blocks running
+    together repeat only when all of them do at once. Two contributions combine
+    multiplicatively exactly when they are coprime, and since
+    gcd(2^a - 1, 2^b - 1) = 2^gcd(a, b) - 1, that holds precisely when the sizes
+    are coprime. The intended domain is Mersenne exponents (2, 3, 5, 7, 13, ...),
+    which are prime and therefore pairwise coprime, so the coprime portion of
+    the register contributes the product -- equal to the lcm there.
+
+    The remaining blocks cannot contribute a fresh factor, because their period
+    already divides what the earlier blocks supply. They instead contribute a
+    factor of 2 each. This covers two cases:
+
+    - a **repeated size**, whose period is identical to one already counted;
+    - a **size-1 block**, whose own period 2^1 - 1 = 1 contributes nothing,
+      and which behaves as a T-function-style bit driven by its chaining input.
+
+    So the result is prod(2^s - 1) over the first occurrence of each size other
+    than 1, times 2 for every repeat and every size-1 block. It equals the plain
+    lcm of the component periods exactly when the sizes are distinct, pairwise
+    coprime, and none is 1; for sizes that are distinct but share a factor (for
+    example [2, 4], where gcd(3, 15) = 3) the product exceeds that lcm.
+
+    Unlike the other configuration-based functions in this module, this one does
+    not call `assert_no_repeats` -- repeats are meaningful input here.
+
+    :param sizes: The component block sizes.
+    :type sizes: list[int]
+    :return: The longest achievable period.
+    :rtype: int
+    """
     period = 1
     already_seen = set()
     for s in sizes:
@@ -227,6 +259,16 @@ def expected_period_brute_force(sizes):
 
 # faster calculation proved in the paper:
 def expected_period(sizes):
+    """The expected period of a uniformly random state, for these block sizes.
+
+    Closed form of sum(c^2) / sum(c) taken over the 2^k subset-product cycle
+    lengths; `expected_period_brute_force` evaluates that sum directly.
+
+    :param sizes: The component block sizes, which must be distinct.
+    :type sizes: list[int]
+    :return: The expected period.
+    :rtype: float
+    """
     assert_no_repeats(sizes)
     numerator = 1
     for s in sizes: numerator *= (((2**s)-1)**2 + 1)
@@ -235,6 +277,18 @@ def expected_period(sizes):
     return numerator/denominator
 
 def expected_period_ratio(sizes):
+    """The expected period divided by the state-space size 2^(sum of sizes).
+
+    The denominator is the total number of states, not `max_period`. Because
+    the subset-product cycle lengths sum to prod(2^s), this equals
+    `expected_period(sizes) / prod(2**s)` -- an efficiency metric comparable
+    across register families and sizes, and cheaper than normalizing by an lcm.
+
+    :param sizes: The component block sizes, which must be distinct.
+    :type sizes: list[int]
+    :return: A ratio in (0, 1].
+    :rtype: float
+    """
     assert_no_repeats(sizes)
     numerator = 1
     for s in sizes: numerator *= (((2**s)-1)**2 + 1)

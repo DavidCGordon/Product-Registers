@@ -30,11 +30,30 @@ class FCSR(FeedbackFunction):
     the 2-adic complexity (there are d value positions and d - 1 carry
     positions).
 
+    The state encodes the numerator, and how it is read depends on whether
+    the feedback reaches the top value cell. Write a for the value word and
+    c for the carry word. When q >= 2^d - 1 the loop is closed, every weight
+    is positive, and a register in that state emits the expansion of
+    -(a + 2c) / q, so the numerator is non-positive. When q < 2^d - 1 the
+    loop is open: the top value cell holds its own value, which forces its
+    weight to be -2^(d-1) rather than +2^(d-1). The reading is then
+    a + 2c - 2^d * v_{d-1}, which is the value word taken as a
+    two's-complement integer at width d, plus 2c -- the carry word is not
+    part of that pattern -- so the numerator may have either sign.
+    FCSR(2, 1) is open, and its state [0, 0, 1] has a = 2, c = 0, giving a
+    reading of 2 - 4 = -2 and hence numerator +2. See
+    `docs/architecture/FCSR Implementation.md` for the layout, the tap
+    derivation and the encoding, and
+    `docs/theory/2-adic Integers and Rational Sequences.md` for the arithmetic.
+
     :ivar size: The total number of bits in the register (values + carries),
         equal to 2 * diadic_complexity - 1.
     :vartype size: int
     :ivar connection_int: The connection integer q (an odd positive integer),
-        which plays the role that the primitive polynomial plays in an LFSR.
+        which plays the role that the connection polynomial plays in an LFSR:
+        the tap positions are the set bits of (q + 1) / 2. Primitivity is an
+        extra property q may or may not have; the constructor does not
+        require it.
     :vartype connection_int: int
     """
 
@@ -172,14 +191,33 @@ class FCSR(FeedbackFunction):
 
         Given a fraction p/q (where q is the connection integer), computes
         the register size and the interleaved value/carry state vector that
-        realizes that fraction. The fraction is intentionally not simplified,
-        so that the resulting state is valid for a larger FCSR if desired.
+        realizes that fraction. The fraction is intentionally not simplified:
+        a fraction and its reduction generate the same sequence but name
+        different registers, since q is the connection integer and reducing
+        it changes the taps. Keeping p/q as given is what lets `fromSeq`
+        hand the same den to this method and to the constructor, so that
+        state and register are built for one q.
 
-        For negative numerators, each (value, carry) pair contributes
-        value + 2 * carry to the total, so the natural partition of
-        |num| distributes by thirds: the quotient |num| // 3 is split
-        between values and carries, with the remainder allocated to
-        whichever component absorbs the extra unit.
+        For non-positive numerators, each (value, carry) pair contributes
+        value + 2 * carry, and |num| is split by thirds: the quotient
+        |num| // 3 goes to each of the value word a and the carry word c,
+        with the remainder allocated to a (remainder 1) or c (remainder 2).
+        The split is a choice among those with a + 2c = |num|, and the one
+        made here is the one guaranteeing a < 2^(size-1) and c < 2^(size-1):
+        the value word leaves the top cell -- the open loop's sign bit --
+        clear, so the state reads the same in either regime, and the carry
+        word fits its size - 1 cells. See
+        `docs/architecture/FCSR Implementation.md` §Encoding a fraction for
+        the residue argument and for a split that fails.
+
+        A positive numerator takes the other route. Its expansion terminates,
+        which a register can only produce with its feedback left open, so the
+        size is chosen to put den below 2^size - 1 and the value word is set to
+        2^size - num -- the two's complement pattern of -num at that width, its
+        top cell being the sign bit the open loop reads as -2^(size-1). The
+        carry word is empty. 0/1 and 1/1 are special-cased: the first needs no
+        register, and the second is the one fraction where the logarithmic
+        sizing would close the loop.
 
         :param num: The numerator p of the 2-adic fraction.
         :type num: int
@@ -188,14 +226,19 @@ class FCSR(FeedbackFunction):
         :return: The 2-adic complexity and the interleaved initial state.
         :rtype: tuple[int, list[int]]
         """
-        # fraction is not simplified in order to
-        # create valid states for larger FCSRs
+        # fraction is not simplified: reducing it changes the denominator,
+        # hence the taps, hence which register the state belongs to
         # but this does assume no negative denominators
 
-        # handle 0/1 and 1/1 edge case (undefined log)
-        if den == 1 and num in (0,1):
-            return (1,[num])
+        # handle 0/1 edge case (undefined log)
+        if den == 1 and num == 0:
+            return (1,[0])
 
+        # to handle the 1/1 edge case, we need an extra bit to
+        # turn off the feedback (to get the all zeros state) 
+        if den == 1 and num == 1:
+            return (2,[1,0,1])
+        
         if  num > 0:
             size = 1 + ceil(log2(max(den,abs(num))))
             values = 2**size - num
