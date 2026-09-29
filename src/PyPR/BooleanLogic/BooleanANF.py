@@ -1,19 +1,19 @@
-from typing import Optional, Any
 from collections.abc import Iterable, Iterator
+from itertools import product
+from typing import Any
 
 from PyPR.BooleanLogic.BooleanFunction import BooleanFunction
-from PyPR.BooleanLogic.Gates import XOR, AND
 from PyPR.BooleanLogic.FunctionInputs import CONST, VAR
+from PyPR.BooleanLogic.Gates import AND, XOR
 
-from itertools import product
 
 # A container class which can hold an BooleanANF of any hashable type
-# Note that this class is unordered, because it uses sets. 
+# Note that this class is unordered, because it uses sets.
 class BooleanANF:
     terms: frozenset[frozenset[Any]]
 
     @classmethod
-    def _convert_iterable_term(cls, 
+    def _convert_iterable_term(cls,
         term: Iterable[Any] | bool | int
     ) -> frozenset[Any] | None:
         """Helper function converts a variety of iterables into a common from (frozensets)
@@ -54,29 +54,29 @@ class BooleanANF:
             return frozenset(term) # type: ignore
         except TypeError:
             raise TypeError( # thow better error.
-                f"Unable to convert term {str(term)} (of type {type(term)})  to frozenset."
+                f"Unable to convert term {term!s} (of type {type(term)})  to frozenset."
             )
 
-    def __init__(self, 
-        nested_iterable: Any = None, 
+    def __init__(self,
+        nested_iterable: Any = None,
         fast_init: bool = False
     ):
         # fast init allows you to skip extra input handling
         if fast_init:
             self.terms = nested_iterable
-            return 
-        
+            return
+
         #if they want an empty BooleanANF object.
-        if nested_iterable == None: 
+        if nested_iterable == None:
             self.terms = frozenset()
             return
-        
+
         #convert any nested iterable to proper set/frozenset format:
         terms = set()
         for term in nested_iterable:
             new_term = BooleanANF._convert_iterable_term(term)
             if not(new_term == None):
-                terms ^= set([new_term])
+                terms ^= {new_term}
 
         self.terms = frozenset(terms)
 
@@ -93,7 +93,7 @@ class BooleanANF:
 
     # BooleanANF Operations:
     # ADD and XOR
-    def __xor__(self, other: "BooleanANF") -> "BooleanANF": 
+    def __xor__(self, other: "BooleanANF") -> "BooleanANF":
         """Compute the BooleanANF corresponding to the XOR of two BooleanANFs
 
         This is also equivalent to `__add__(self, other)`, and is computed using
@@ -105,7 +105,7 @@ class BooleanANF:
         :rtype: BooleanANF
         """
         return BooleanANF(self.terms ^ other.terms,fast_init=True)
-    def __add__(self, other: "BooleanANF") -> "BooleanANF": 
+    def __add__(self, other: "BooleanANF") -> "BooleanANF":
         """An Alias for `__xor__`, which computes the BooleanANF corresponding to 
         the XOR of two BooleanANFs
 
@@ -117,7 +117,7 @@ class BooleanANF:
         :rtype: BooleanANF
         """
         return BooleanANF(self.terms ^ other.terms,fast_init=True)
-    
+
 
     # MUL and AND (can make an BooleanANF very large, use w/ caution)
     def __and__(self,other: "BooleanANF") -> "BooleanANF":
@@ -161,7 +161,7 @@ class BooleanANF:
             else:
                 termset.add(new_term)
         return BooleanANF(frozenset(termset),fast_init=True)
-    
+
     # add an inverter operation
     def __invert__(self) -> "BooleanANF":
         """Invert a BooleanANF by XORing with logical one (empty frozenset)
@@ -169,7 +169,7 @@ class BooleanANF:
         :return: The inverted ANF
         :rtype: BooleanANF
         """
-        return self ^ BooleanANF(set([frozenset()]),fast_init=True)
+        return self ^ BooleanANF({frozenset()},fast_init=True)
 
     # use a pretty print for __str__, generic object for repr:
     def __str__(self) -> str:
@@ -190,23 +190,23 @@ class BooleanANF:
                 termStrings.append(repr(tuple(term)[0]) + ",")
             else:
                 #if the internal objects have an order, sort terms.
-                try: 
+                try:
                     termStrings.append("(" + ",".join(repr(t) for t in sorted(term)) + "),")
                 except TypeError:
                     termStrings.append("(" + ",".join(repr(t) for t in term) + "),")
-        
-        #sort string terms, and print vaguely by size 
+
+        #sort string terms, and print vaguely by size
         return stringBeginning + "".join(sorted(termStrings, key = lambda x: len(x)))[:-1]
 
     # Generic container methods
-    def __len__(self) -> int: 
+    def __len__(self) -> int:
         """Return the number of terms in the BooleanANF
 
         :return: the number of terms in the BooleanANF
         :rtype: int
         """
         return len(self.terms)
-    def __eq__(self,other: "BooleanANF") -> bool: 
+    def __eq__(self,other: object) -> bool:
         """Determine if two BooleanANFs are equal.
 
         because frozenset equality depends on the the equality of the stored items (and is
@@ -214,13 +214,21 @@ class BooleanANF:
         equality between BooleanANF objects. Because ANF is a normal form, this also implies
         that the two BooleanANFs are equivalent as functions.
 
-        :param other: the other BooleanANF involved in the operation
-        :type other: "BooleanANF"
-        :return: whether or not the two functions are equal.
+        The parameter is typed `object` because that is the signature the data
+        model requires of `__eq__`: Python calls it for any right-hand operand,
+        so a BooleanANF compared against an unrelated type must return
+        NotImplemented rather than fail on a missing attribute.
+
+        :param other: the other object involved in the operation
+        :type other: object
+        :return: whether or not the two functions are equal, or NotImplemented
+            if `other` is not a BooleanANF.
         :rtype: bool
         """
+        if not isinstance(other, BooleanANF):
+            return NotImplemented
         return self.terms == other.terms
-    def __hash__(self) -> int: 
+    def __hash__(self) -> int:
         """Return the hash of the underlying term set
 
         Because we are using the builtin term set equality, we also use the builtin 
@@ -231,7 +239,7 @@ class BooleanANF:
         :rtype: int
         """
         return self.terms.__hash__()
-    def __iter__(self) -> Iterator[frozenset[Any]]: 
+    def __iter__(self) -> Iterator[frozenset[Any]]:
         """Expose an iterator to the underlying term set.
 
         Because frozensets are unordered, there is no guarantee for order in the returned
@@ -242,7 +250,7 @@ class BooleanANF:
         :rtype: Iterator[frozenset[Any]]
         """
         return iter(self.terms)
-    def __contains__(self, term: Iterable[Any] | int | bool) -> bool: 
+    def __contains__(self, term: Iterable[Any] | int | bool) -> bool:
         """Determines if a term is present in the ANF
 
         uses `_convert_iterable_term`, which allows the user to pass iterables 
@@ -280,7 +288,7 @@ class BooleanANF:
             (1, BooleanANF([1]))
         ])
         return new_fn.eval_ANF(var_list)
-    
+
     def to_BooleanFunction(self: "BooleanANF") -> "BooleanFunction":
         """Convert to an equivalent `BooleanFunction`
 
@@ -303,7 +311,7 @@ class BooleanANF:
         # don't return empty XORs:
         if not top_node.args:
             top_node.add_arguments(CONST(0))
-            
+
         return top_node
 
 
@@ -323,7 +331,7 @@ def translate_ANF(self: "BooleanFunction") -> "BooleanFunction":
     return BooleanANF.from_BooleanFunction(self).to_BooleanFunction()
 BooleanFunction.translate_ANF = translate_ANF
 
-def from_ANF(cls, nested_iterable: Any) -> "BooleanFunction": 
+def from_ANF(cls, nested_iterable: Any) -> "BooleanFunction":
     """Generates a BooleanFunction from either a BooleanANF or a nested iterable.
 
     If the passed anf is a BooleanANF, convert it to a BooleanFunction (equivalent
@@ -389,7 +397,7 @@ def monomial_count(self, convert = True):
         return len(
             BooleanANF.from_BooleanFunction(self)
         )
-    
+
     return len(self.args)
 BooleanFunction.monomial_count = monomial_count
 
@@ -410,7 +418,7 @@ BooleanFunction.monomial_count = monomial_count
 #             continue
 
 #         divisor = max(
-#             [t for t in fn_dict.keys() if t <= term], 
+#             [t for t in fn_dict.keys() if t <= term],
 #             key = lambda x: len(x),
 #             default=None
 #         )
@@ -419,7 +427,7 @@ BooleanFunction.monomial_count = monomial_count
 #             fn_dict[term] = AND(*(VAR(x) for x in term))
 #         else:
 #             fn_dict[term] = AND(
-#                 fn_dict[divisor], 
+#                 fn_dict[divisor],
 #                 *(VAR(x) for x in term - divisor)
 #             )
 

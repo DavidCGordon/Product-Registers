@@ -10,18 +10,17 @@ Round-trip correctness is the core invariant: converting in one direction
 and back should yield an equivalent equation.
 """
 import numpy as np
-import pytest
 
-from PyPR.BooleanLogic import BooleanFunction, BooleanANF, XOR, AND, VAR, CONST
+from PyPR.BooleanLogic import AND, CONST, VAR, XOR
+
 from PyPR.Cryptanalysis.Components.Adapters import (
-    extract_monomials,
     boolean_function_to_coef_vector,
     coef_vector_to_anf,
     coef_vector_to_boolean_function,
-    to_coef_matrix,
+    extract_monomials,
     to_anf_list,
+    to_coef_matrix,
 )
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -186,7 +185,7 @@ def test_to_coef_matrix_from_eq_store():
     store.insert_equation(f1)
     store.insert_equation(f2)
 
-    matrix, c2i, i2c = to_coef_matrix(store)
+    matrix, c2i, _i2c = to_coef_matrix(store)
     assert matrix.shape == (2, _NUM_VARS)
     assert c2i == _COMB_TO_IDX
 
@@ -211,7 +210,7 @@ def test_to_coef_matrix_from_lu_store():
     store.insert_equation(f1)
     store.insert_equation(f2)
 
-    matrix, c2i, _ = to_coef_matrix(store)
+    matrix, _c2i, _ = to_coef_matrix(store)
     # LUEqStore rejects linearly dependent equations; we inserted 2
     # independent ones so expect 2 rows (though the upper_matrix
     # stores the reduced form, not the original equations)
@@ -265,7 +264,7 @@ def test_to_coef_matrix_from_grobner_store():
     store.insert_equation(f1)
     store.insert_equation(f2)
 
-    matrix, c2i, i2c = to_coef_matrix(store)
+    matrix, c2i, _i2c = to_coef_matrix(store)
     # Should have built index maps covering the monomials present
     assert matrix.shape[0] >= 1
     assert len(c2i) == matrix.shape[1]
@@ -287,7 +286,7 @@ def test_to_coef_matrix_from_symbolic_store():
     store.insert_equation(f1)
     store.insert_equation(f2)
 
-    matrix, c2i, i2c = to_coef_matrix(store)
+    matrix, c2i, _i2c = to_coef_matrix(store)
     assert matrix.shape == (2, _NUM_VARS)
     assert c2i == _COMB_TO_IDX
 
@@ -310,7 +309,7 @@ def test_to_coef_matrix_from_symbolic_store_dynamic():
     store.insert_equation(XOR(VAR(0), VAR(1)))
     store.insert_equation(XOR(VAR(1), VAR(2)))
 
-    matrix, c2i, i2c = to_coef_matrix(store)
+    matrix, c2i, _i2c = to_coef_matrix(store)
     assert matrix.shape[0] == 2
     assert len(c2i) == matrix.shape[1]
     assert set(np.unique(matrix)) <= {0, 1}
@@ -343,7 +342,7 @@ def test_symbolic_store_round_trip_via_matrix():
     store.insert_equation(f1)
     store.insert_equation(f2)
 
-    matrix, c2i, i2c = to_coef_matrix(store)
+    matrix, c2i, _i2c = to_coef_matrix(store)
     anf_list = to_anf_list(store)
 
     reconstructed = np.zeros_like(matrix)
@@ -364,7 +363,7 @@ def test_eq_store_round_trip_via_anf():
     store.insert_equation(f1)
     store.insert_equation(f2)
 
-    original_matrix, c2i, i2c = to_coef_matrix(store)
+    original_matrix, c2i, _i2c = to_coef_matrix(store)
     anf_list = to_anf_list(store)
 
     # Reconstruct matrix from ANF list

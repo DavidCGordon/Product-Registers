@@ -1,52 +1,50 @@
-from typing import Self, Optional, Any, Protocol
-from collections.abc import Iterator
-
-# njit actually used (in compile) even if greyed out
-from numba import njit
-
 import json
+from collections.abc import Iterator
+from typing import Any, Protocol, Self
+
+from numba import njit  # noqa: F401 -- used by the source compile() execs
 
 import PyPR.JSON_Serialization
+
 
 class IndexableContainer[K,V](Protocol):
     def __getitem__(self, key: K, /) -> V: ...
 
 class BooleanFunction:
     args: tuple["BooleanFunction", ...]
-    arg_limit: Optional[int]
+    arg_limit: int | None
 
     def __init__(self,
         *args: "BooleanFunction",
-        arg_limit: Optional[int] = None
+        arg_limit: int | None = None
     ):
         self.args = args
         self.arg_limit = arg_limit
-    
-    @classmethod
-    def _copy(cls, 
-        fn: "BooleanFunction", 
-        child_copies: dict["BooleanFunction","BooleanFunction"] 
+
+    def _copy(self,
+        child_copies: dict["BooleanFunction","BooleanFunction"]
     ) -> Self:
-        """Helper function which specifies how to copy a specific node in a 
-        boolean function.
+        """Rebuild this node over copies of its children.
 
-        Given a dictionary of child copies, form a new node and return it.
-        This is similar to recursion but is used with iteration and memoization
-        in `.copy()` and `.__copy__()`. This is also the function to override
-        if you want custom behavior (such as copying custom attributes) for
-        a child class which extends boolean function.
+        The tree walks behind `__copy__`, `compose` and `_merge_redundant` copy
+        a function bottom-up: by the time a node is reached, each of its
+        children has a copy in `child_copies`, and this builds the node's own
+        copy on top of them. It is an instance method because a node is more
+        than its children -- a gate carries `arg_limit`, a fusion node its
+        template -- and that additional data can only come from the node being
+        copied. A subclass with data of its own overrides this to carry it
+        over, copying it so that the result shares nothing with the original.
 
-        :param BooleanFunction fn: the node you wish to return a copy of.
-        :param dict child_copies: A dict containing copies of necessary nodes, 
-            which are needed to make the new copy.                
-        
-        :return output: A copy of the input fn.
+        :param child_copies: Copies of this node's children, keyed by original.
+        :type child_copies: dict[BooleanFunction, BooleanFunction]
+        :return: A copy of this node over the copied children.
+        :rtype: Self
         """
-        return cls(
-            *(child_copies[arg] for arg in fn.args),
-            arg_limit = fn.arg_limit
+        return type(self)(
+            *(child_copies[arg] for arg in self.args),
+            arg_limit = self.arg_limit
         )
-   
+
     def copy(self) -> Self:
         """An alias of `__copy__()` which creates a copy of a BooleanFunction.
 
@@ -65,9 +63,29 @@ class BooleanFunction:
         Creates a copy of the boolean function on which it is called.
         the output DAG structure is identical to the DAG structure
         of the function on which it is called, and the returned function
-        is the same subclass as the input.       
-        
+        is the same subclass as the input. The copy is always deep, so
+        `copy.copy`, `copy.deepcopy` and `.copy()` all give the same result.
+
         :return copy: a copy of the input fn.
+        """
+        return self.__deepcopy__({})
+
+    def __deepcopy__(self,
+        memo: dict[int, Any]
+    ) -> Self:
+        """Creates a copy of a BooleanFunction which shares no nodes with the original.
+
+        The DAG is rebuilt bottom-up, so a node reached along several paths is
+        copied once and the copy has the same sharing as the original. `memo` is
+        the `copy.deepcopy` memo, keyed by `id`: a node already in it is reused
+        rather than copied again. That carries the sharing across everything
+        copied in one `deepcopy` call -- for example the bits of a feedback
+        function which reference common subfunctions.
+
+        :param memo: The `copy.deepcopy` memo, mapping `id` of an original to its copy.
+        :type memo: dict[int, Any]
+        :return: A copy of the input function.
+        :rtype: Self
         """
         copies: dict[Any,Any] = {}
         stack: list[Any] = [self]
@@ -86,11 +104,18 @@ class BooleanFunction:
                 last=stack.pop()
                 continue
 
+            # already copied earlier in the same deepcopy call:
+            elif id(curr_node) in memo:
+                copies[curr_node] = memo[id(curr_node)]
+                last = stack.pop()
+                continue
+
             # moving up the tree after finishing children:
             elif last == False:
 
                 # create a deep copy:
-                copies[curr_node] = type(curr_node)._copy(curr_node,copies)
+                copies[curr_node] = curr_node._copy(copies)
+                memo[id(curr_node)] = copies[curr_node]
                 last = stack.pop()
                 continue
 
@@ -98,6 +123,7 @@ class BooleanFunction:
             elif curr_node.is_leaf():
                 # Overwritten in Inputs.py
                 copies[curr_node] = curr_node.__copy__()
+                memo[id(curr_node)] = copies[curr_node]
                 last = stack.pop()
                 continue
 
@@ -110,9 +136,9 @@ class BooleanFunction:
                     continue
 
         return copies[self]
-    
+
     def add_arguments(
-        self, 
+        self,
         *new_args: "BooleanFunction"
     ) -> None:
         """Adds one or more arguments to a BooleanFunction.
@@ -121,14 +147,14 @@ class BooleanFunction:
         
         :raises ValueError: if the number of arguments would make len(self.args)
             greater than the allowed number of arguments (self.arg_limit).
-        """   
+        """
         if (not self.arg_limit) or (len(self.args) + len(new_args) <= self.arg_limit):
             self.args = tuple(list(self.args) + list(new_args))
         else:
             raise ValueError(f"{type(self)} object supports at most {self.arg_limit} arguments")
-        
+
     def remove_arguments(
-            self, 
+            self,
             *remove_args: "BooleanFunction"
         ) -> None:
         """Removes one or more arguments from a BooleanFunction.
@@ -138,9 +164,9 @@ class BooleanFunction:
         passed, all arguments are removed.
 
         :param tuple[BooleanFunction] remove_args: A variable length list of arguments to remove  
-        """   
+        """
         if not remove_args:
-            self.args = tuple()
+            self.args = ()
         else:
             self.args = tuple(x for x in self.args if x not in remove_args)
 
@@ -164,7 +190,7 @@ class BooleanFunction:
         # used to sort subfuncs by when they appear:
         order = {}
         idx = 0
-        
+
         while stack:
             curr_node = stack[-1]
 
@@ -274,7 +300,7 @@ class BooleanFunction:
         """
         subfuncs = self.subfunctions() + [self]
         fn_strings = {root:f"(subfunction {i+1})" for i,root in enumerate(subfuncs)}
-        fn_strings[self] = f"(Main Function)"
+        fn_strings[self] = "(Main Function)"
         pretty_strings = []
 
         for root in subfuncs:
@@ -296,7 +322,7 @@ class BooleanFunction:
                 # hitting a subfunc contained in the current one:
                 if curr_node in subfuncs and curr_node != root:
                     pstr += (
-                        "   |" * indent_lvl + "   " + 
+                        "   |" * indent_lvl + "   " +
                         fn_strings[curr_node] + '\n'
                     )
 
@@ -312,14 +338,14 @@ class BooleanFunction:
 
                     last = stack.pop()
                     continue
-                    
+
                 # moving up the tree after finishing children:
                 elif last == False:
                     pstr += ("   |" * (indent_lvl-1) + "   )\n")
                     indent_lvl -= 1
                     last = stack.pop()
                     continue
-                
+
                 # before moving down to children:
                 else:
                     # print prefix for functions with args:
@@ -340,7 +366,7 @@ class BooleanFunction:
             pretty_strings.append(pstr)
 
         return "\n\n".join(pretty_strings)
-    
+
     def dense_str(self) -> str:
         """Returns a densely formatted string for debugging and variable inspection.
 
@@ -355,10 +381,10 @@ class BooleanFunction:
         """
         subfuncs = self.subfunctions()
         fn_strings = {
-            root:f"(subfunction {i+1})" 
+            root:f"(subfunction {i+1})"
             for i,root in enumerate(subfuncs)
         }
-        
+
         # no need for visited set (subfuncs is the same info)
         stack: list[Any] = [self]
         last = None
@@ -384,17 +410,17 @@ class BooleanFunction:
                 out_str += (curr_node.dense_str() + ",")
                 last = stack.pop()
                 continue
-                
+
             # moving up the tree after finishing children:
             elif last == False:
                 # strip trailing comma
                 if out_str[-1] == ',':
                     out_str = out_str[:-1]
-                
+
                 out_str += "),"
                 last = stack.pop()
                 continue
-            
+
             # before moving down to children:
             else:
                 # print prefix for functions with args:
@@ -426,7 +452,7 @@ class BooleanFunction:
         return self.dense_str()
 
     def _generate_c(self,
-        c_strings: dict["BooleanFunction", str],  
+        c_strings: dict["BooleanFunction", str],
         array_name: str
     ) -> str:
         """Helper function which specifies how to generate VHDL for a BooleanFunction subclass
@@ -443,10 +469,10 @@ class BooleanFunction:
         :return output: A string representing the computation for this node in VHDL.
         """
         raise NotImplementedError  # implemented for each subclass
-            
+
     def generate_c(self,
         output_name: str = 'output',
-        subfunction_prefix: str = 'fn', 
+        subfunction_prefix: str = 'fn',
         array_name: str = 'array',
         overrides: dict["BooleanFunction", str]  = {}
     ) -> list[str]:
@@ -475,7 +501,7 @@ class BooleanFunction:
         """
         subfuncs = self.subfunctions() + [self]
         fn_strings = {
-            root:f"{subfunction_prefix}_{i+1}" 
+            root:f"{subfunction_prefix}_{i+1}"
             for i,root in enumerate(subfuncs)
         }
 
@@ -517,13 +543,13 @@ class BooleanFunction:
                     c_strings[curr_node] = curr_node._generate_c(c_strings,array_name)
                     last = stack.pop()
                     continue
-                    
+
                 # moving up the tree after finishing children:
                 elif last == False:
                     c_strings[curr_node] = curr_node._generate_c(c_strings,array_name)
                     last = stack.pop()
                     continue
-            
+
                 else:
                     # set up children to process:
                     stack.append(False) # sentinel value
@@ -536,10 +562,9 @@ class BooleanFunction:
         return subfunction_lines
 
     # def generate_tex(self):
-        pass
 
     def _generate_VHDL(self,
-        vhdl_strings: dict["BooleanFunction", str],  
+        vhdl_strings: dict["BooleanFunction", str],
         array_name: str
     ) -> str:
         """Helper function which specifies how to generate VHDL for a BooleanFunction subclass
@@ -559,7 +584,7 @@ class BooleanFunction:
 
     def generate_VHDL(self,
         output_name: str = 'output',
-        subfunction_prefix: str = 'fn', 
+        subfunction_prefix: str = 'fn',
         array_name: str = 'array',
         overrides: dict["BooleanFunction", str]  = {}
     ) -> list[str]:
@@ -588,7 +613,7 @@ class BooleanFunction:
         """
         subfuncs = self.subfunctions() + [self]
         fn_strings = {
-            root:f"{subfunction_prefix}_{i+1}" 
+            root:f"{subfunction_prefix}_{i+1}"
             for i,root in enumerate(subfuncs)
         }
 
@@ -629,13 +654,13 @@ class BooleanFunction:
                     vhdl_strings[curr_node] = curr_node._generate_VHDL(vhdl_strings,array_name)
                     last = stack.pop()
                     continue
-                    
+
                 # moving up the tree after finishing children:
                 elif last == False:
                     vhdl_strings[curr_node] = curr_node._generate_VHDL(vhdl_strings,array_name)
                     last = stack.pop()
                     continue
-            
+
                 else:
                     # set up children to process:
                     stack.append(False) # sentinel value
@@ -648,7 +673,7 @@ class BooleanFunction:
         return subfunction_lines
 
     def _generate_python(self,
-        python_strings: dict["BooleanFunction", str],  
+        python_strings: dict["BooleanFunction", str],
         array_name: str
     ) -> str:
         """Helper function which specifies how to generate python for a BooleanFunction subclass
@@ -667,10 +692,10 @@ class BooleanFunction:
         :rtype: str
         """
         raise NotImplementedError  # implemented for each subclass
-        
+
     def generate_python(self,
         output_name: str = 'output',
-        subfunction_prefix: str = 'fn', 
+        subfunction_prefix: str = 'fn',
         array_name: str = 'array',
         overrides: dict["BooleanFunction", str]  = {}
     ) -> list[str]:
@@ -699,7 +724,7 @@ class BooleanFunction:
         """
         subfuncs = self.subfunctions() + [self]
         fn_strings = {
-            root:f"{subfunction_prefix}_{i+1}" 
+            root:f"{subfunction_prefix}_{i+1}"
             for i,root in enumerate(subfuncs)
         }
 
@@ -741,13 +766,13 @@ class BooleanFunction:
                     py_strings[curr_node] = curr_node._generate_python(py_strings,array_name)
                     last = stack.pop()
                     continue
-                    
+
                 # moving up the tree after finishing children:
                 elif last == False:
                     py_strings[curr_node] = curr_node._generate_python(py_strings,array_name)
                     last = stack.pop()
                     continue
-            
+
                 else:
                     # set up children to process:
                     stack.append(False) # sentinel value
@@ -760,7 +785,6 @@ class BooleanFunction:
         return subfunction_lines
 
     # def generate_tex(self):
-        pass
 
     # def _generate_tex(self,
     #     tex_strings: dict["BooleanFunction", str],
@@ -781,10 +805,10 @@ class BooleanFunction:
     #     :return output: A string representing the computation for this node in python.
     #     """
     #     raise NotImplementedError  # implemented for each subclass
-        
+
     # def generate_tex(self,
     #     output_name: str = 'output',
-    #     subfunction_prefix: str = 'fn', 
+    #     subfunction_prefix: str = 'fn',
     #     array_name: str = 'array',
     #     overrides: dict["BooleanFunction", str]  = {}
     # ) -> list[str]:
@@ -794,10 +818,10 @@ class BooleanFunction:
     #     various parameters that can be tweaked to help make the output more flexible, but they are
     #     limited; for anything beyond relatively basic usage it's encouraged you write your own
     #     function based on the BooleanFunction structure (as opposed to trying to coerce this method
-    #     into doing something it wasn't built for). 
+    #     into doing something it wasn't built for).
 
-    #     :param str output_name: The string to be used in the generate python for 
-    #         the output variable. The default value is 'output'. 
+    #     :param str output_name: The string to be used in the generate python for
+    #         the output variable. The default value is 'output'.
     #     :param str subfunction_prefix: In the generated python, subfunction variables
     #         will have the form {subfunction_prefix}_{index}. This string allows you
     #         to set the prefix. The default is 'fn'.
@@ -808,12 +832,12 @@ class BooleanFunction:
     #         place of the generated VHDL. Modify carefully, as this can cause the generated python
     #         to be invalid.
 
-    #     :returns python_lines: A list containing several lines, each of which is a string 
+    #     :returns python_lines: A list containing several lines, each of which is a string
     #     of valid python. These lines describe the computational DAG of the circuit.
     #     """
     #     subfuncs = self.subfunctions() + [self]
     #     fn_strings = {
-    #         root:f"{subfunction_prefix}_{i+1}" 
+    #         root:f"{subfunction_prefix}_{i+1}"
     #         for i,root in enumerate(subfuncs)
     #     }
 
@@ -855,13 +879,13 @@ class BooleanFunction:
     #                 py_strings[curr_node] = curr_node._generate_tex(py_strings,array_name)
     #                 last = stack.pop()
     #                 continue
-                    
+
     #             # moving up the tree after finishing children:
     #             elif last == False:
     #                 py_strings[curr_node] = curr_node._generate_tex(py_strings,array_name)
     #                 last = stack.pop()
     #                 continue
-            
+
     #             else:
     #                 # set up children to process:
     #                 stack.append(False) # sentinel value
@@ -875,7 +899,7 @@ class BooleanFunction:
 
 
     # convenient node manipulations
-    def _binarize(self, 
+    def _binarize(self,
         cache: dict["BooleanFunction", "BooleanFunction"]
         ) -> Self:
         """Helper function which specifies how to binarize a BooleanFunction subclass
@@ -887,9 +911,9 @@ class BooleanFunction:
         :raises NotImplementedError: If not overriden
         :return: A new BooleanFunction which is the binarized version of the input node.
         :rtype: BooleanFunction
-        """        
+        """
         raise NotImplementedError
-    
+
     def binarize(self) -> Self:
         """Creates an equivalent version of the function in which all gates have at most 2 inputs.
 
@@ -901,7 +925,7 @@ class BooleanFunction:
 
         :return: A new BooleanFunction which is the binarized version of the input function.
         :rtype: BooleanFunction
-        """        
+        """
         new_nodes = {}
         stack: list[Any] = [self]
         last = None
@@ -944,7 +968,7 @@ class BooleanFunction:
 
         return new_nodes[self]
 
-    def _remap_indices(self, 
+    def _remap_indices(self,
         index_map: Any
     ) -> None:
         """Helper function which remaps the index of a particular leaf node.
@@ -957,11 +981,11 @@ class BooleanFunction:
             a dict or list, but other types are accepted as well.
         :type index_map: Any
         :raises NotImplementedError: If not overriden
-        """   
+        """
         raise NotImplementedError
-    
-    def remap_indices(self, 
-        index_map: IndexableContainer[int,int], 
+
+    def remap_indices(self,
+        index_map: IndexableContainer[int,int],
         in_place: bool = False
     ) -> Self:
         """Remap the input variable indices.
@@ -975,7 +999,7 @@ class BooleanFunction:
         :type in_place: bool, optional
         :return: A BooleanFunction with the indices remapped.
         :rtype: BooleanFunction
-        """        
+        """
         if in_place: fn = self
         else: fn = self.copy()
 
@@ -983,7 +1007,7 @@ class BooleanFunction:
             leaf._remap_indices(index_map)
         return fn
 
-    def _remap_constants(self, 
+    def _remap_constants(self,
         const_map: list[tuple[Any,Any]]
     ) -> None:
         """Helper function which remaps the constant of a particular leaf node.
@@ -997,11 +1021,11 @@ class BooleanFunction:
             the constants). This pair structure allows for keys/constants which are not hashable. 
         :type const_map: Any
         :raises NotImplementedError: If not overriden
-        """   
+        """
         raise NotImplementedError
-    
-    def remap_constants(self, 
-        constant_map: list[tuple[Any,Any]], 
+
+    def remap_constants(self,
+        constant_map: list[tuple[Any,Any]],
         in_place: bool = False
     ) -> Self:
         """Remap the input constants.
@@ -1016,7 +1040,7 @@ class BooleanFunction:
         :type in_place: bool, optional
         :return: A BooleanFunction with the constants remapped.
         :rtype: BooleanFunction
-        """     
+        """
         if in_place: fn = self
         else: fn = self.copy()
 
@@ -1024,7 +1048,7 @@ class BooleanFunction:
             leaf._remap_constants(constant_map)
         return fn
 
-    def _shift_indices(self, 
+    def _shift_indices(self,
         shift_amount: int
     ) -> None:
         """Helper function which remaps the index of a particular leaf node.
@@ -1036,11 +1060,11 @@ class BooleanFunction:
         :param shift_amount: The amount to shift each index (e.g. `i` becomes `i + shift amount`)
         :type index_map: int
         :raises NotImplementedError: If not overriden
-        """   
+        """
         raise NotImplementedError
-    
-    def shift_indices(self, 
-        shift_amount: int, 
+
+    def shift_indices(self,
+        shift_amount: int,
         in_place: bool = False
     ) -> Self:
         """Shift the input variable indices by a fixed amount.
@@ -1052,7 +1076,7 @@ class BooleanFunction:
         :type in_place: bool, optional
         :return: A BooleanFunction with the indices shifted.
         :rtype: BooleanFunction
-        """  
+        """
         if in_place: fn = self
         else: fn = self.copy()
 
@@ -1074,14 +1098,14 @@ class BooleanFunction:
         :type in_place: bool, optional
         :return: A BooleanFunction with consecutive variables
         :rtype: BooleanFunction
-        """  
+        """
         return self.remap_indices(
             {v:i for i,v in enumerate(sorted(self.idxs_used()))},
             in_place
         )
-    
+
     def _compose(self,
-        input_map: IndexableContainer[int,"BooleanFunction"], 
+        input_map: IndexableContainer[int,"BooleanFunction"],
         in_place: bool = False
     ) -> Self:
         """Helper function which helps compose functions.
@@ -1099,11 +1123,11 @@ class BooleanFunction:
         instead of returning a new function. Defaults to `False`
         :type in_place: bool, optional
         :raises NotImplementedError: If not overriden
-        """   
+        """
         raise NotImplementedError
-    
+
     def compose(self,
-        input_map: IndexableContainer[int,"BooleanFunction"], 
+        input_map: IndexableContainer[int,"BooleanFunction"],
         in_place: bool = False
     ) -> Self:
         """Compose a BooleanFunction with a container mapping input variables to other BooleanFunctions
@@ -1120,7 +1144,7 @@ class BooleanFunction:
         :type in_place: bool, optional
         :return: A BooleanFunction with the indices remapped.
         :rtype: BooleanFunction
-        """    
+        """
         new_nodes = {}
         stack: list[Any] = [self]
         last = None
@@ -1140,13 +1164,13 @@ class BooleanFunction:
 
             # moving up the tree after finishing children:
             elif last == False:
-            
+
                 # new node:
                 if in_place:
                     curr_node.args = tuple([new_nodes[arg] for arg in curr_node.args])
                     new_nodes[curr_node] = curr_node
                 else:
-                    new_nodes[curr_node] = type(curr_node)._copy(curr_node,new_nodes)
+                    new_nodes[curr_node] = curr_node._copy(new_nodes)
                 last = stack.pop()
                 continue
 
@@ -1166,10 +1190,10 @@ class BooleanFunction:
                     continue
 
         return new_nodes[self]
-   
+
     def _merge_redundant(self,
-        cache: dict["BooleanFunction","BooleanFunction"], 
-        subfunctions: list["BooleanFunction"], 
+        cache: dict["BooleanFunction","BooleanFunction"],
+        subfunctions: list["BooleanFunction"],
         in_place: bool = False
     ) -> "BooleanFunction":
         """Helper function which determines how to simplify a node for `merge_redundant`
@@ -1190,16 +1214,16 @@ class BooleanFunction:
         :type in_place: bool, optional
         :return: A reduced or simplified version of this node.
         :rtype: BooleanFunction
-        """        
+        """
         if len(self.args) == 1:
             return cache[self.args[0]]
         elif in_place:
             self.args = tuple([cache[arg] for arg in self.args])
             return self
         else:
-            return type(self)._copy(self, cache)
-    
-    def merge_redundant(self, 
+            return self._copy(cache)
+
+    def merge_redundant(self,
         in_place: bool = False
     ) -> "BooleanFunction":
         """Performs some basic heuristic simplifications on a BooleanFunction
@@ -1225,7 +1249,7 @@ class BooleanFunction:
         :type in_place: bool, optional
         :return: A reduced and simplified version of the input function.
         :rtype: BooleanFunction
-        """        
+        """
         subfunctions = self.subfunctions()
 
         new_nodes = {}
@@ -1247,7 +1271,7 @@ class BooleanFunction:
 
             # moving up the tree after finishing children:
             elif last == False:
-            
+
                 # new node:
                 new_nodes[curr_node] = curr_node._merge_redundant(
                     new_nodes, subfunctions, in_place = in_place,
@@ -1270,8 +1294,8 @@ class BooleanFunction:
         return new_nodes[self]
 
     # evaluation
-    def _eval(self, 
-        values: dict["BooleanFunction", Any], 
+    def _eval(self,
+        values: dict["BooleanFunction", Any],
         array: IndexableContainer[int, Any]
     ) -> Any:
         """Helper function which determines how to evaluate a single node.
@@ -1286,10 +1310,10 @@ class BooleanFunction:
         :raises NotImplementedError: If not overriden
         :return: The value of the functions evaluation at this node.
         :rtype: Any
-        """        
+        """
         raise NotImplementedError
 
-    def eval(self, 
+    def eval(self,
         array: IndexableContainer[int, Any]
     ) -> Any:
         """Evaluate the function on a given set of inputs.
@@ -1301,7 +1325,7 @@ class BooleanFunction:
         :raises NotImplementedError: If not overriden
         :return: The value of the functions evaluation at this node.
         :rtype: Any
-        """  
+        """
         values = {}
         stack: list[Any] = [self]
         last = None
@@ -1343,9 +1367,9 @@ class BooleanFunction:
                     continue
 
         return values[self]
-    
-    def _eval_ANF(self, 
-        values: dict["BooleanFunction", Any], 
+
+    def _eval_ANF(self,
+        values: dict["BooleanFunction", Any],
         array: IndexableContainer[int, Any]
     ) -> Any:
         """Helper function which determines how to evaluate a single node
@@ -1361,10 +1385,10 @@ class BooleanFunction:
         :raises NotImplementedError: If not overriden
         :return: The value of the functions evaluation at this node.
         :rtype: Any
-        """     
+        """
         raise NotImplementedError
 
-    def eval_ANF(self, 
+    def eval_ANF(self,
         array: IndexableContainer[int,Any]
     ):
         """Evaluate the function on a given set of inputs using only AND, XOR, and negation.
@@ -1417,7 +1441,7 @@ class BooleanFunction:
                     stack.append(child)
                     continue
 
-        return values[self]     
+        return values[self]
 
     def compile(self) -> Any:
         """Just-In-Time compiles a given function, enabling faster evaluation.
@@ -1434,7 +1458,7 @@ class BooleanFunction:
             but it is annotated as `Any` to avoid causing unwarranted type errors in downstream
             applications.
         :rtype: Any
-        """        
+        """
         self._compiled = None
         python_body = "\n    ".join(self.generate_python())
 
@@ -1495,7 +1519,7 @@ self._compiled = _compiled
         :rtype: str
         """
         raise NotImplementedError # defined in ANF.py
-    
+
     def degree(self) -> int:
         """Calculate the algebraic degree of the function
 
@@ -1526,52 +1550,68 @@ self._compiled = _compiled
 
     # def anf_optimize(self, translate=True):
     #     raise NotImplementedError # defined in ANF.py
-   
+
     # Methods from SAT.py
-    @classmethod
-    def tseytin_formula(cls, 
-        output: int,
-        *args: int
-    ) -> list[tuple[int]]:
-        """Given the variables, return the clauses associated with this node 
+    def _tseytin_labels(self,
+        node_labels: dict["BooleanFunction", list[int]],
+        variable_labels: dict[int, int],
+        next_idx: int
+    ) -> int:
+        """Claim the solver variables this node needs for its own wires.
 
-        Output is the int label for the output wire, which is given first as a
-        convention. The rest of the args are also ints, but are variable args to
-        allow classes to define their tseyting representation more flexibly.
-        
+        The default is one wire per intermediate gate of a binary chain, which
+        is what every gate in `Gates.py` expands to. A node that encodes itself
+        some other way -- a direct n-ary CNF, or a fused subtree -- overrides
+        this and claims whatever it needs. The only requirement is that the
+        last label claimed is the wire carrying this node's result, since that
+        is what a parent wires itself to.
+
+        :param node_labels: Node-to-wires map, extended in place with this node.
+        :type node_labels: dict[BooleanFunction, list[int]]
+        :param variable_labels: Input-variable-to-wire map; only leaves add to it.
+        :type variable_labels: dict[int, int]
+        :param next_idx: The next unused solver variable.
+        :type next_idx: int
+        :return: The next unused solver variable after this node's claim.
+        :rtype: int
+        """
+        num_labels = max(1, len(self.args) - 1)
+        node_labels[self] = [next_idx + i for i in range(num_labels)]
+        return next_idx + num_labels
+
+    def _tseytin_clauses(self,
+        label_map: dict["BooleanFunction", list[int]]
+    ) -> list[tuple[int, ...]]:
+        """Return the clauses relating this node's wires to its arguments'.
+
+        This is the sole polymorphic entry point for clause generation: the
+        walk reaches a node only through here, once, after every argument has
+        been labelled. Everything about *how* a class encodes itself is private
+        to that class, and this signature is the whole contract -- its own
+        wires in, its arguments' result wires in, clauses out.
+
+        The map holds every node labelled so far, so a node takes its own wires
+        from `label_map[self]` and an argument's result from `label_map[arg][-1]`.
+        Only that last entry is a shared convention -- the layout of the rest of
+        a node's list is its own business, which is what lets a gate chain binary
+        formulas, a direct n-ary encoding claim one wire, and a fused subtree
+        label its whole interior.
+
+        :param label_map: Wires for every node encoded so far, including this
+            one and its arguments.
+        :type label_map: dict[BooleanFunction, list[int]]
+        :return: A list of clauses encoding the wire relationship for the node
+        :rtype: list[tuple[int, ...]]
         :raises NotImplementedError: If not implemented for the node class
-        :return: A list of clauses encoding the wire relationship for the node
-        :rtype: list[tuple[int]]
-        """
-        raise NotImplementedError
-    
-    @classmethod
-    def tseytin_unroll(cls,
-        gate_labels: list[int],
-        arg_labels: list[int]
-    ) -> list[tuple[int]]:
-        """Given labels for the gate wires and nodes, unroll a binary tseytin formula
-        to describe a multi-argument gate.
-
-        This is used to expand gates with multiple arguments (such as large `ANDs` or `XORs`),
-        while using the binary formula in `tseytin_formula`. 
-
-        :param gate_labels: A list with labels for the gate wires (length `n-1`)
-        :type gate_labels: list[int]
-        :param arg_labels: A list with labels for the argument wires (length `n`)
-        :type arg_labels: list[int]
-        :return: A list of clauses encoding the wire relationship for the node
-        :rtype: list[tuple[int]]
-        :raises NotImplementedError: 
         """
         raise NotImplementedError
 
-    def tseytin(self, 
-        prev_clauses: list[tuple[int]] | None = None, 
-        prev_node_labels: dict['BooleanFunction',list[int]] | None = None, 
+    def tseytin(self,
+        prev_clauses: list[tuple[int, ...]] | None = None,
+        prev_node_labels: dict['BooleanFunction',list[int]] | None = None,
         prev_variable_labels: dict[int,int] | None = None
     ) -> tuple[
-        list[tuple[int]],
+        list[tuple[int, ...]],
         dict["BooleanFunction",list[int]],
         dict[int,int]
     ]:
@@ -1608,7 +1648,7 @@ self._compiled = _compiled
         :param prev_clauses: A list of constraints, suitable for a sat solver. Each constraint is a tuple
             of integers, which represents an OR clause which must be satisfied (CNF). Negative integers
             represent the negation of a variable.
-        :type prev_clauses: list[tuple[int]]
+        :type prev_clauses: list[tuple[int, ...]]
         :param prev_node_labels: The Tseytin transform introduces new variables for each gate in the function.
             This dict maps every node to the list of variables which are used to encode it, and can be used to
             convert the sat solution back to values in the wires of the circuit, or to impose additional
@@ -1621,11 +1661,11 @@ self._compiled = _compiled
         :type prev_variable_labels: dict[int,int]
         :return: (Clauses, Node Labels, Variable Labels)
         :rtype: tuple[
-            list[tuple[int]],
+            list[tuple[int, ...]],
             dict[BooleanFunction,list[int]],
             dict[int,int]
         ]
-        """    
+        """
         raise NotImplementedError  # defined in SAT.py
 
     def tseytin_labels(self,
@@ -1679,10 +1719,10 @@ self._compiled = _compiled
         ]
         """
         raise NotImplementedError  # defined in SAT.py
-    
-    def tseytin_clauses(self, 
+
+    def tseytin_clauses(self,
         label_map: dict["BooleanFunction", list[int]]
-    ) -> list[tuple[int]]:
+    ) -> list[tuple[int, ...]]:
         """Generate constraints corresponding to the tseytin transformation of the function.
 
         `Tseytin` primarily deals with three objects: Clauses, Node Labels and variable labels. This
@@ -1697,13 +1737,13 @@ self._compiled = _compiled
             conditions based on extra information.
         :type node_labels: dict[BooleanFunction,list[int]]
         :return: clauses which encode the given function for a sat solver.
-        :rtype: list[tuple[int]],
+        :rtype: list[tuple[int, ...]],
         """
         raise NotImplementedError  # defined in SAT.py
-    
-    def sat(self, 
+
+    def sat(self,
         solver_name: str = "cadical195",
-        verbose: bool = False, 
+        verbose: bool = False,
     ) -> dict[int,bool] | None:
         """Solve the SAT problem for a given BooleanFunction
 
@@ -1728,9 +1768,9 @@ self._compiled = _compiled
         :rtype: dict[int,bool] | None
         """
         raise NotImplementedError  # defined in SAT.py
-    
-    def enum_models(self, 
-        solver_name: str = 'cadical195', 
+
+    def enum_models(self,
+        solver_name: str = 'cadical195',
         verbose: bool = False
     ) -> Iterator[dict[int,bool]]:
         """Enumerate solutions to the SAT problem for a given BooleanFunction
@@ -1775,7 +1815,7 @@ self._compiled = _compiled
         
         :return equivalent: A boolean representing whether or not the two functions 
             have the same truth table.
-        """   
+        """
         raise NotImplementedError # defined in SAT.py
 
     # Storage
@@ -1809,14 +1849,14 @@ self._compiled = _compiled
         if not previous_ids:
             ids = {}
             next_available_index = 0
-        elif in_place: 
+        elif in_place:
             ids = previous_ids
             next_available_index = max(previous_ids.values()) + 1
         else:
             # shallow copy to maintain objects, but new id dict
             ids = {k:v for k,v in previous_ids.items()}
-            next_available_index = max(previous_ids.values()) + 1 
-        
+            next_available_index = max(previous_ids.values()) + 1
+
         stack: list[Any] = [self]
         last = None
 
@@ -1850,7 +1890,7 @@ self._compiled = _compiled
                     continue
 
         return ids
-    
+
     def _generate_JSON_entry(self,
         node_ids: dict["BooleanFunction", int]
     ) -> dict[str, Any]:
@@ -1882,7 +1922,7 @@ self._compiled = _compiled
             del JSON_data['_compiled']
 
         return JSON_data
-    
+
     @classmethod
     def _parse_JSON_entry(cls,
         object_data: dict[str,Any],
@@ -1913,15 +1953,15 @@ self._compiled = _compiled
         # intantiate new object:
         new_node = object.__new__(cls)
         for key,value in object_data.items():
-            
+
             # Use previously parsed functions for args
             if key == 'args':
                 new_node.args = tuple([parsed_functions[child_id] for child_id in value])
-            
+
             # for other fields, just set directly
             else:
                 setattr(new_node,key,value)
-                
+
         return new_node
 
     def to_JSON(self) -> dict[str,Any]:
@@ -1939,7 +1979,7 @@ self._compiled = _compiled
         return PyPR.JSON_Serialization.generate_JSON(self)
 
     @classmethod
-    def from_JSON(cls, 
+    def from_JSON(cls,
         json_object: dict[str,Any]
     ) -> Self:
         """An alias for `PyPR.JSON_Serialization.parse_JSON(json_object)[0]`
@@ -1963,19 +2003,19 @@ self._compiled = _compiled
         """
         return_idx = json_object['return order'][0]
         json_class = json_object['objects'][return_idx]['class']
-        subclasses = set((
-            str(cls)[8:-2] for cls in 
+        subclasses = {
+            str(cls)[8:-2] for cls in
             PyPR.JSON_Serialization.all_subclasses(cls)
-        ))
-         
+        }
+
         if json_class not in subclasses:
             raise ValueError(
-                f"JSON encodes {json_class}, which is not " + 
+                f"JSON encodes {json_class}, which is not " +
                 f"a subclass of class {str(cls)[8:-2]}"
             )
-        
+
         return PyPR.JSON_Serialization.parse_JSON(json_object)[0]
-    
+
     def to_file(self,
         filename: str
     ) -> None:
@@ -1994,12 +2034,12 @@ self._compiled = _compiled
         # json files only:
         if filename[-5:] != ".json":
             raise ValueError("Filename must end with the \".json\" file extension")
-        
+
         with open(filename, 'w') as f:
             f.write(json.dumps(self.to_JSON(), indent = 2))
 
     @classmethod
-    def from_file(cls, 
+    def from_file(cls,
         filename: str
     ) -> Self:
         """Reads a single function from the file with the given filename.
@@ -2037,7 +2077,7 @@ self._compiled = _compiled
         :rtype: bool
         """
         return False
-    
+
     def max_idx(self) -> int:
         """Returns the maximum index used in a variable in the function.
 
@@ -2045,7 +2085,7 @@ self._compiled = _compiled
         :rtype: int
         """
         return max((arg.max_idx() for arg in self.args), default=-1)
-    
+
     def idxs_used(self) -> set[int]:
         """Return the set of indices used in variables in the function.
 
@@ -2092,7 +2132,7 @@ self._compiled = _compiled
                     continue
 
         return len(visited)
-   
+
     def component_count(self) -> dict[str,int]:
         """Return a dict which counts the occurrences of each class in the function DAG
 
@@ -2127,7 +2167,7 @@ self._compiled = _compiled
                     components[name] += 1
                 else:
                     components[name] = 1
-                    
+
                 visited.add(curr_node)
                 last = stack.pop()
                 continue

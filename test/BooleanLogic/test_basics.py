@@ -5,10 +5,18 @@ Derived from the ProductRegisters.ipynb notebook (Library Basics > Boolean Funct
 from itertools import product
 
 from PyPR.BooleanLogic import (
-    BooleanFunction, BooleanANF,
-    CONST, VAR, AND, OR, XOR, NOT, NAND, NOR, XNOR,
+    AND,
+    CONST,
+    NAND,
+    NOR,
+    NOT,
+    OR,
+    VAR,
+    XNOR,
+    XOR,
+    BooleanANF,
+    BooleanFunction,
 )
-
 
 # -- Inputs ------------------------------------------------------------------
 
@@ -110,9 +118,11 @@ def test_anf_round_trip():
 def test_dense_str():
     fn = XOR(VAR(0), VAR(1))
     s = fn.dense_str()
-    assert isinstance(s, str) and len(s) > 0
+    assert isinstance(s, str)
+    assert len(s) > 0
 
 def test_pretty_str():
     fn = AND(VAR(0), OR(VAR(1), VAR(2)))
     s = fn.pretty_str()
-    assert isinstance(s, str) and len(s) > 0
+    assert isinstance(s, str)
+    assert len(s) > 0

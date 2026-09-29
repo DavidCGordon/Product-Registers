@@ -1,7 +1,6 @@
-from typing import Any
-
 from itertools import chain, combinations
 from math import log
+from typing import Any
 
 #first 47 mersenne exponents (well beyond what is ever needed) from the OEIS:
 mersenne_exponents = [2,3,5,7,13,17,19,31,61,89,107,127,521,607,1279,
@@ -61,7 +60,7 @@ def build_solution_table(lim):
 
     #creates a k+1 by n+1 table, with space for padding:
     table: list[list[Any]] = [
-        [0 for _ in range(len(MerTable) + 1)] 
+        [0 for _ in range(len(MerTable) + 1)]
         for _ in range(lim + 1)
     ]
     for i in range(len(table)): table[i][0] = Node(1,None,None)
@@ -76,7 +75,7 @@ def build_solution_table(lim):
             if table[n][k-1].count:
                 table[n][k].left = table[n][k-1]
                 table[n][k].count += table[n][k-1].count
-            if n >= exp and table[n-exp][k-1].count: 
+            if n >= exp and table[n-exp][k-1].count:
                 table[n][k].right = table[n-exp][k-1]
                 table[n][k].count += table[n-exp][k-1].count
 
@@ -88,7 +87,7 @@ def _table_analysis(nums, sort):
     num_exponents = 0
     while (num_exponents < len(MerExp) and max(nums) >= MerExp[num_exponents]):
         num_exponents += 1
-    
+
     table = build_solution_table(max(nums))
     for n in nums:
         tree = table[n][num_exponents]
@@ -103,7 +102,7 @@ def _table_analysis(nums, sort):
 
 def list_possible(nums):
     # O(nlogn) call dominates this function
-    table = build_solution_table(max(nums)) 
+    table = build_solution_table(max(nums))
 
     # Scan through the last column to find nums with any solutions.
     row_length = len(table[0])
@@ -115,7 +114,7 @@ def list_possible(nums):
 def _single_brute_force(target):
     #select only necessary mersenne exponents
     i = 0
-    while (i<len(MerExp) and target >= MerExp[i]): 
+    while (i<len(MerExp) and target >= MerExp[i]):
         i += 1
     MerTable = MerExp[:i]
 
@@ -145,7 +144,7 @@ def _brute_force_analysis(ns, sort):
 def mersenne_combinations(targets, build_table = True, sort = True):
     if build_table:
         return _table_analysis(targets, sort)
-    else: 
+    else:
         return _brute_force_analysis(targets, sort)
 
 
@@ -217,7 +216,7 @@ def max_period(sizes):
         else:
             already_seen.add(s)
             period *= (2**s-1)
-    
+
     return period
 
 

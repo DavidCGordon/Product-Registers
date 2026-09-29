@@ -1,11 +1,10 @@
+import random
 from typing import Any
 
-from PyPR.BooleanLogic import BooleanFunction
-from PyPR.BooleanLogic.FunctionInputs import VAR,CONST
-from itertools import product
-
 import numpy as np
-import random
+
+from PyPR.BooleanLogic.FunctionInputs import CONST
+
 
 class TEMPLATE:
     def __init__(self):
@@ -15,24 +14,24 @@ class TEMPLATE:
         raise NotImplementedError
     def _clean_up(self):
         raise NotImplementedError
-    
+
     def sample(self):
         output = self._sample()
-        self._clean_up()    
+        self._clean_up()
         return output
 
 
 class VALUE(TEMPLATE):
     def __init__(self, value):
         self.value = value
-    
+
     def _sample(self, allow_empty_return = False):
         return [self.value]
-    
+
     def _clean_up(self):
         pass
 
-                 
+
 
 class GATE(TEMPLATE):
     def __init__(self,
@@ -43,7 +42,7 @@ class GATE(TEMPLATE):
             self.gate_class = parameters["gate_class"]
         else:
             raise ValueError('GATE template object requires the parameter "gate_class", but this was not supplied.')
-        
+
         self.sources = sources
         if not self.sources:
             raise ValueError("No Sources Defined")
@@ -54,7 +53,7 @@ class GATE(TEMPLATE):
             outputs += source._sample()
 
         return [self.gate_class(*outputs)]
-    
+
     def _clean_up(self):
         for s in self.sources:
             s._clean_up()
@@ -69,23 +68,23 @@ class FUNCTION(TEMPLATE):
             self.fn = parameters["fn"]
         else:
             raise ValueError('FUNCTION template object requires the parameter "fn", but this was not supplied.')
-        
+
         self.sources = sources
         if not self.sources:
             raise ValueError("No Sources Defined")
-        
+
     def _sample(self, allow_empty_return = False):
         outputs = []
         for source in self.sources:
             outputs += source._sample()
-            
+
         return [self.fn.compose(outputs)]
 
     def _clean_up(self):
         for s in self.sources:
             s._clean_up()
 
-        
+
 
 class SAMPLE(TEMPLATE): # pick one child according to distribution
     def __init__(self,
@@ -117,7 +116,7 @@ class SAMPLE(TEMPLATE): # pick one child according to distribution
                 outputs.append(output)
 
         return outputs
-    
+
     def _clean_up(self):
         for p,source in self.source_distribution:
             source._clean_up()
@@ -141,7 +140,10 @@ class NONCONSTANT(TEMPLATE):
             raise ValueError("No Source Defined")
 
     def _sample(self, allow_empty_return = False):
-        
+        # replaced on the first attempt; only read after the loop, and only
+        # when `disable_on_failure` means the loop ran without succeeding
+        output = []
+
         for i in range(self.attempt_limit):
             output = self.source._sample()
             if len(output) == 0 and not allow_empty_return:
@@ -159,13 +161,13 @@ class NONCONSTANT(TEMPLATE):
                 return output
             if allow_empty_return:
                 return []
-            
+
         if self.disable_on_failure:
             return output
         else:
             raise ValueError(f"NONCONSTANT template object was unable to find an output after {self.attempt_limit} attempts.")
-    
-    def _clean_up(self):    
+
+    def _clean_up(self):
         self.source._clean_up()
 
 
@@ -190,9 +192,13 @@ class DISTINCT(TEMPLATE):
         self.source = source
         if self.source == None:
             raise ValueError("No Source Defined")
-        
+
 
     def _sample(self, allow_empty_return = False):
+        # replaced on the first attempt; only read after the loop, and only
+        # when `disable_on_failure` means the loop ran without succeeding
+        output = []
+
         for i in range(self.attempt_limit):
             output = self.source._sample()
             if len(output) == 0 and not allow_empty_return:
@@ -211,17 +217,17 @@ class DISTINCT(TEMPLATE):
                 return output
             if allow_empty_return:
                 return []
-            
+
         if self.disable_on_failure:
             return output
         else:
             raise ValueError(f"DISTINCT template object was unable to find an output after {self.attempt_limit} attempts.")
-    
+
 
     def _clean_up(self):
         for group in DISTINCT._function_cache:
-            if DISTINCT._function_cache[group] != []: 
-                DISTINCT._function_cache[group]  = [] 
+            if DISTINCT._function_cache[group] != []:
+                DISTINCT._function_cache[group]  = []
         self.source._clean_up()
 
 # the difference between unique and distinct is that:
@@ -249,9 +255,13 @@ class UNIQUE(TEMPLATE):
         self.source = source
         if self.source == None:
             raise ValueError("No Source Defined")
-        
+
 
     def _sample(self, allow_empty_return = False):
+        # replaced on the first attempt; only read after the loop, and only
+        # when `disable_on_failure` means the loop ran without succeeding
+        output = []
+
         for i in range(self.attempt_limit):
             output = self.source._sample()
             if len(output) == 0 and not allow_empty_return:
@@ -273,10 +283,10 @@ class UNIQUE(TEMPLATE):
 
         if self.disable_on_failure:
             return output
-        else:  
+        else:
             raise ValueError(f"UNIQUE template object was unable to find an output after {self.attempt_limit} attempts.")
-    
-    def _clean_up(self):    
+
+    def _clean_up(self):
         self.source._clean_up()
 
 class FIXED(TEMPLATE):
@@ -299,8 +309,8 @@ class FIXED(TEMPLATE):
             output = self.source._sample()
             self.returned = output
             return output
-        
-    def _clean_up(self):    
+
+    def _clean_up(self):
         self.source._clean_up()
 
 class REPEAT(TEMPLATE):
@@ -313,7 +323,7 @@ class REPEAT(TEMPLATE):
             self.iterations = parameters["iterations"]
         else:
             raise ValueError('REPEAT template object requires the parameter "iterations", but this was not supplied.')
-        
+
         self.source = source
         if self.source == None:
             raise ValueError("No Source Defined")
@@ -323,12 +333,12 @@ class REPEAT(TEMPLATE):
         outputs = []
         for i in range(self.iterations):
             outputs += self.source._sample()
-        
+
         return outputs
-    
-    def _clean_up(self):    
+
+    def _clean_up(self):
         self.source._clean_up()
-    
+
 
 class OPTIONAL(TEMPLATE):
     source: TEMPLATE
@@ -342,11 +352,19 @@ class OPTIONAL(TEMPLATE):
         if self.source == None:
             raise ValueError("No Source Defined")
 
-    def _sample(self):
+    def _sample(self, allow_empty_return = False):
+        # Dropping is what this template is for, so it drops whatever the caller
+        # says: its home is as one source of a GATE, which calls its sources
+        # without permission and simply gets one input fewer when this is empty.
+        # The flag is accepted because TEMPLATE._sample declares it, but it can't
+        # gate the drop -- the filters read the same flag as "give up instead of
+        # retrying", so no combinator could grant it here without changing them.
+        # Under a filter that demands output (NONCONSTANT and friends) a drop
+        # raises "expects an output from its source", which is that filter
+        # reporting a composition it doesn't support.
         if random.random() < self.drop_chance:
             return []
-        else:
-            return self.source._sample(allow_empty_return = True)
-    
+        return self.source._sample(allow_empty_return = True)
+
     def _clean_up(self):
         self.source._clean_up()

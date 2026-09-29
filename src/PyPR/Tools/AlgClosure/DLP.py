@@ -1,7 +1,9 @@
-from PyPR.FeedbackFunctions import MPR
+import numpy as np
+
 from PyPR import FeedbackRegister
 
-import numpy as np
+from PyPR.FeedbackFunctions import MPR
+
 
 def DLP_brute_force(
     primitive_polynomial,

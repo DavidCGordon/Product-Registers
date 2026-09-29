@@ -1,18 +1,19 @@
-from PyPR.Tools.RootCounting.Combinatorics import choose, binsum
+from itertools import combinations, cycle, product, tee
+
+from PyPR.BooleanLogic import AND, CONST, VAR, XOR
+
+from PyPR.Tools.RootCounting.Combinatorics import binsum, choose
 from PyPR.Tools.RootCounting.OverlappingRectangle import rectangle_solve
 from PyPR.Tools.RootCounting.PartialOrders import maximalElements
-from PyPR.BooleanLogic import AND, XOR, CONST, VAR
-from itertools import product, combinations, tee, cycle
 
-from math import comb
 
 # A list of Blocks, and the corresponding weight
 # Completely ignores constants (I hope that works)
 class TermSet:
     def __init__(self,totals,counts):
         self.totals = totals
-        self.counts = counts 
-    
+        self.counts = counts
+
     def __copy__(self):
         return TermSet(
             {k:v for k,v, in self.totals.items()},
@@ -27,14 +28,14 @@ class TermSet:
             else:
                 output.counts[block_id] = self.counts[block_id]
                 output.totals[block_id] = self.totals[block_id]
-                
+
         for block_id in other.totals:
             if block_id in output.totals:
                 output.counts[block_id] += other.counts[block_id]
             else:
                 output.counts[block_id] = other.counts[block_id]
                 output.totals[block_id] = other.totals[block_id]
-        
+
         # reduce the counts in each multiplication
         for block_id in output.totals:
             output.counts[block_id] = min(output.counts[block_id],output.totals[block_id])
@@ -62,7 +63,7 @@ def isMonomialSubset(a,b):
     # ones without losing track of those monomials.
     if a.totals.keys() != b.totals.keys():
         return False
-    
+
     # all counts in A must be < B to be a subset.
     for block_id in a.totals:
         compare_value = b.counts[block_id] if block_id in b.counts else 0
@@ -81,14 +82,14 @@ class MonomialProfile:
         else:
             self.terms = set(term_list)
 
-    @classmethod             
+    @classmethod
     def from_merged(cls, fn_list, blocks):
         total_len = sum(len(block) for block in blocks)
         bitmap = [
-            MonomialProfile.logical_zero() 
+            MonomialProfile.logical_zero()
             for i in range(total_len)
         ]
-        
+
         for block_id in range(len(blocks)):
             for bit in blocks[block_id]:
                 bitmap[bit] = MonomialProfile([TermSet(
@@ -103,7 +104,7 @@ class MonomialProfile:
         ])
 
         return total_fn.eval_ANF(bitmap)
-    
+
     def to_BooleanFunction(self):
         output = XOR()
         for term in self.terms:
@@ -111,25 +112,25 @@ class MonomialProfile:
                 output.add_arguments(CONST(1))
                 continue
 
-            term_fn = AND()    
+            term_fn = AND()
             for block,count in term.counts.items():
                 term_fn.add_arguments(*([VAR(block)] * count))
             output.add_arguments(term_fn)
         return output
-    
 
-    
+
+
 
     def __str__(self):
         termlist = sorted(
-            list(self.terms),
+            self.terms,
             key = lambda x: (
                 tuple(sorted(zip(x.totals.values(),x.counts.values())))
             )
         )
 
         return " + ".join(str(term) for term in termlist)
-    
+
     def __copy__(self):
         return MonomialProfile([termset.__copy__() for termset in self.terms])
 
@@ -138,7 +139,7 @@ class MonomialProfile:
     def __add__(self, other):
         #clean out redundant subsets and merge.
         new_terms = maximalElements(
-            leq_ordering=isMonomialSubset, 
+            leq_ordering=isMonomialSubset,
             inputs=[self.terms, other.terms]
         )
 
@@ -158,7 +159,7 @@ class MonomialProfile:
         return MonomialProfile(new_terms)
 
     # When multiplying by Logical One, you should leave the result untouched
-    # When adding with Logical One, you should add an indicator term 
+    # When adding with Logical One, you should add an indicator term
     # These effects are accomplished by the MonomialProfile with an Empty TermSet
     @classmethod
     def logical_one(cls): return MonomialProfile([TermSet({},{})])
@@ -180,9 +181,9 @@ class MonomialProfile:
 
         # build basis table
         for termset in self.terms:
-            basis = tuple(sorted((termset.totals.keys())))
+            basis = tuple(sorted(termset.totals.keys()))
             values = tuple([binsum(termset.totals[id],termset.counts[id]) for id in basis])
-            
+
             # handle empty monomial profile:
             if basis == ():
                 basis_table[basis] = [(1,)]
@@ -207,6 +208,28 @@ class MonomialProfile:
 
     # for cube attacks:
     def get_cube_candidates(self):
+        """Cube profiles for a cube attack, each with the degree its superpolys can reach.
+
+        A candidate is a term of this profile with one variable removed from one
+        block: a cube I with that per-block count. Summing the output over I leaves
+        the superpoly, whose monomials come from the terms whose monomials can
+        contain T_I -- those with at least the candidate's count in every block --
+        with the candidate's variables removed. A term exceeding the candidate by
+        e variables in total therefore contributes superpoly monomials of degree
+        at most e, over the blocks where it exceeds it.
+
+        So each candidate carries a degree bound, the largest excess over any term
+        containing it, and target blocks, those where some containing term has
+        variables to spare. Degree 1 is a linear superpoly. A candidate that only
+        its own profile contains has a constant superpoly and says nothing about
+        the state, so it is not returned; nor is a candidate with no variables,
+        whose superpoly is the output itself.
+
+        :return: ``(candidate, target_blocks, num_cubes, degree)`` for each
+            candidate, where ``num_cubes`` counts the index sets with the
+            candidate's per-block counts.
+        :rtype: list[tuple[TermSet, tuple[int, ...], int, int]]
+        """
         candidates = []
         already_added = set()
         for term_set in self.terms:
@@ -214,59 +237,63 @@ class MonomialProfile:
                 # create the candidate and check if it's already been processed
                 candidate = term_set.__copy__()
                 candidate.counts[block_id] -= 1
-                already_added_key = (
-                    tuple(sorted(candidate.totals.values())),
-                    tuple(sorted(candidate.counts.values()))
-                )
+                # a cube of no variables sums nothing: its "superpoly" is the
+                # output itself, which is an algebraic attack's system, not a cube's
+                if sum(candidate.counts.values()) == 0:
+                    continue
+                # keyed by block, not by the sorted sizes and counts: those
+                # collide for distinct candidates such as <0:1/7, 1:2/5> and
+                # <0:2/7, 1:1/5>, and the second was silently dropped
+                already_added_key = tuple(sorted(
+                    (i, candidate.totals[i], candidate.counts[i]) for i in candidate.totals
+                ))
 
-                if candidate.counts == {3:4,1:0}:
-                    print("\n\n\n\nTEST\n\n\n\n\n")
                 if already_added_key in already_added:
                     continue
+                already_added.add(already_added_key)
 
-                # test if the candidate is useful and determine target blocks
-                useful = True
+                # the superpoly's degree bound and the blocks its monomials use
+                degree = 0
                 targets = set()
                 for other in self.terms:
 
-                    # compute differences 
+                    # compare over every block either side mentions: a containing
+                    # term with variables in a block the candidate doesn't list
+                    # still puts those variables in the superpoly
                     diffs = {}
-                    for i in candidate.totals.keys():
-                        compare_value = other.counts[i] if i in other.counts else 0
-                        diffs[i] = compare_value - candidate.counts[i]
+                    for i in set(candidate.counts) | set(other.counts):
+                        other_count = other.counts[i] if i in other.counts else 0
+                        candidate_count = candidate.counts[i] if i in candidate.counts else 0
+                        diffs[i] = other_count - candidate_count
 
-                    # check if term is useful / determine targets
-                    if any([x < 0 for x in diffs.values()]):
+                    if any(x < 0 for x in diffs.values()):
                         continue # This set "sticks out" past the other term and is not a subset
-                    elif (len(candidate.totals)) > 1 and (sum(diffs.values()) == 0):
-                        pass # the same profile adds constants, but no targets (this can happen)
-                    elif sum(diffs.values()) == 1:
-                        targets.add([i for i, x in diffs.items() if x == 1][0])
-                    else:
-                        print(candidate, other, "USELESS")
-                        useful=False
-                        break
-                        
 
-                if useful:
-                    num_cubes = 1
-                    for i in candidate.totals:
-                        num_cubes *= choose(
-                            candidate.totals[i],
-                            candidate.counts[i]
-                        )
+                    # zero excess is the candidate's own profile: a constant
+                    excess = sum(diffs.values())
+                    if excess > 0:
+                        degree = max(degree, excess)
+                        for i, x in diffs.items():
+                            if x > 0:
+                                targets.add(i)
 
-                    already_added.add((
-                        tuple(sorted(candidate.totals.values())),
-                        tuple(sorted(candidate.counts.values()))
-                    ))
+                if degree == 0:
+                    continue
 
-                    candidates.append((
-                        candidate,
-                        tuple(sorted(targets)),
-                        num_cubes
-                    ))
-                        
+                num_cubes = 1
+                for i in candidate.totals:
+                    num_cubes *= choose(
+                        candidate.totals[i],
+                        candidate.counts[i]
+                    )
+
+                candidates.append((
+                    candidate,
+                    tuple(sorted(targets)),
+                    num_cubes,
+                    degree
+                ))
+
         return candidates
 
 
@@ -283,7 +310,7 @@ class MonomialProfile:
         for term in self.terms:
             total_dim = max([total_dim, *term.totals.keys()])
         total_dim += 1
-        
+
         totals = [0 for i in range(total_dim)]
 
         for term in self.terms:
@@ -293,9 +320,9 @@ class MonomialProfile:
         # build basis table
         basis_table = {}
         for termset in self.terms:
-            basis = tuple(sorted((termset.totals.keys())))
+            basis = tuple(sorted(termset.totals.keys()))
             values = tuple([termset.counts[id] for id in basis])
-            
+
             # handle empty monomial profile:
             if basis == ():
                 continue
@@ -325,10 +352,10 @@ class MonomialProfile:
                 rollover_idx = 0
                 rollover_copy = [x for x in curr_vec]
                 # loop until indices are not too large:
-                while any((
+                while any(
                     (rollover_copy[i] > rects[rect_idx][i])
                     for i in range(len(rects[rect_idx]))
-                )):
+                ):
                     # normal rollover for everything but last place:
                     if rollover_idx < len(basis)-1:
                         rollover_copy[rollover_idx] = 1
@@ -352,8 +379,8 @@ class MonomialProfile:
 
                     # insert the unique ones for this degree combination
                     for i in range(len(basis)):
-                        comb_iters[basis[i]] = combinations(range(totals[basis[i]]), curr_vec[i]) 
-                    
+                        comb_iters[basis[i]] = combinations(range(totals[basis[i]]), curr_vec[i])
+
                     # combine into a product iterator and yield
                     total_iter = iproduct(*comb_iters)
                     for item in total_iter:
@@ -362,7 +389,7 @@ class MonomialProfile:
     def _get_monomials_complete(self):
         # convert counts to rectangle list
         rects = [rect(term) for term in self.terms]
-        
+
         # construct most general totals matrix:
         dim = max([0] + [len(r) for r in rects])
         totals = [0 for i in range(dim)]
@@ -378,10 +405,10 @@ class MonomialProfile:
         # rollover loop which dynamically switches between the active term/rect
         rect_idx = 0
         curr_vec = [0 for i in range(dim)]
-        
+
         # counteract the first incrementto start first yield with all zeroes
         # this allows the method to yield the constant term:
-        curr_vec[0] -= 1 
+        curr_vec[0] -= 1
 
         while rect_idx < len(rects):
             # increment degree
@@ -392,10 +419,10 @@ class MonomialProfile:
             rollover_copy = [x for x in curr_vec]
 
             # as long as any index is too large for the current rectangle:
-            while any((
+            while any(
                 (rollover_copy[i] > rects[rect_idx][i])
                 for i in range(len(rects[rect_idx]))
-            )):
+            ):
                 # normal rollover for everything but last place:
                 if rollover_idx < len(rects[rect_idx])-1:
                     rollover_copy[rollover_idx] = 0

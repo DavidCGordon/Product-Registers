@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from PyPR.BooleanLogic import BooleanFunction
-
 
 class BaseEqStore:
     """Minimal shared interface for all equation stores.
@@ -31,6 +29,11 @@ class BaseEqStore:
     - ``filtering``: whether the store discards redundant
       information as equations are inserted, becoming increasingly
       solved over time. Non-filtering stores are pure accumulators.
+      This one is declared on the class, not assigned per instance:
+      it is ``True`` exactly for subclasses of
+      :class:`~PyPR.Cryptanalysis.Components.EquationStores.FilteringEqStore.FilteringEqStore`,
+      which is also where the progress measure ``num_determined`` lives,
+      so the flag and the type cannot disagree.
 
     :param consistent: Whether to enable consistency checking.
     :type consistent: bool
@@ -40,12 +43,12 @@ class BaseEqStore:
     num_eqs: int
     consistent: bool
     eager: bool
-    filtering: bool
+
+    filtering = False
 
     def __init__(self, *, consistent: bool = False):
         self.consistent = consistent
         self.eager = True
-        self.filtering = False
 
     @property
     def is_determined(self) -> bool:
@@ -77,7 +80,7 @@ class BaseEqStore:
         """
         return self.insert_equation(equation, identifier, translate_ANF)
 
-    def process_pending(self, *, verbose: bool = False, batch_size: int | None = None) -> None:
+    def process_pending(self, *, verbose: bool = False, batch_size: int | None = None) -> int:
         """Finalize any deferred reduction. No-op for eager/passive stores.
 
         :param verbose: Whether to print progress.
@@ -86,8 +89,12 @@ class BaseEqStore:
             returning control between batches (for progress reporting).
             ``None`` processes everything at once.
         :type batch_size: int | None
+        :return: The number of pending equations consumed. A store with nothing
+            deferred has none to consume and reports zero, so a caller may
+            accumulate this across stores without checking which kind it holds.
+        :rtype: int
         """
-        pass
+        return 0
 
     def insert_equation(
         self,

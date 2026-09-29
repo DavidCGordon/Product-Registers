@@ -13,10 +13,10 @@ Required reading: docs/conventions/Polynomial Conventions.md (MPR section).
 import numpy as np
 import pytest
 
-from PyPR.FeedbackRegister import FeedbackRegister
-from PyPR.FeedbackFunctions import MPR, CMPR
 from PyPR.BooleanLogic.ChainingGeneration.Templates import fast_template
 
+from PyPR.FeedbackFunctions import CMPR, MPR
+from PyPR.FeedbackRegister import FeedbackRegister
 
 # ── MPR construction ─────────────────────────────────────────────────────────
 
@@ -100,7 +100,6 @@ def test_mpr_copy_independent():
 
 def test_mpr_with_update_polynomial():
     """Specifying a non-default update polynomial changes the update but not the period."""
-    M_default = MPR(5, "12")
     M_custom  = MPR(5, "12", update_poly=[0, 1, 0, 0, 0])  # U(x) = x (same as default)
     # Both should still have period 31
     reg = FeedbackRegister(1, M_custom)
@@ -332,9 +331,13 @@ def test_primitive_polynomials_are_closed_under_reversal(n):
     polynomial and confirm its nonzero states form one full 2^n - 1 cycle.
     """
     reversed_poly = PRIMITIVE[n][::-1]
-    assert reversed_poly[0] == 1 and reversed_poly[-1] == 1, (
-        "a primitive polynomial has nonzero constant and leading terms, so its "
-        "reversal is still a degree-n polynomial"
+    assert reversed_poly[0] == 1, (
+        "a primitive polynomial has a nonzero leading term, so its reversal has "
+        "a nonzero constant term"
+    )
+    assert reversed_poly[-1] == 1, (
+        "a primitive polynomial has a nonzero constant term, so its reversal is "
+        "still a degree-n polynomial"
     )
 
     fn = MPR(n, reversed_poly)
@@ -375,3 +378,24 @@ def test_cmpr_block_update_matrices_reproduce_the_clock(sizes):
                 f"sizes={sizes} seed={seed} block {index} (offset {offset}): "
                 f"got {actual}, expected {expected}"
             )
+
+
+# ── estimate_LC validates its bit ────────────────────────────────────────────
+# The blocks partition the register, so every bit in [0, size) lies in exactly
+# one of them. A negative index used to slip past `REs[output_bit]` -- Python
+# indexes from the end -- and only surface fifteen lines later as an
+# UnboundLocalError on the block length; a too-large one raised IndexError. Both
+# are now rejected up front, before any root expression is computed.
+
+@pytest.mark.parametrize("bit", [-1, -15, 15, 100])
+def test_estimate_lc_rejects_a_bit_outside_the_register(bit):
+    C = CMPR([MPR(7, "12"), MPR(5, "12"), MPR(3, "12")])
+    with pytest.raises(ValueError, match=r"output_bit must be a bit of this register"):
+        C.estimate_LC(bit, verbose=False)
+
+@pytest.mark.slow
+def test_estimate_lc_accepts_every_bit_of_the_register():
+    C = CMPR([MPR(7, "12"), MPR(5, "12"), MPR(3, "12")])
+    for bit in range(C.size):
+        lower, upper = C.estimate_LC(bit, verbose=False)
+        assert 0 < lower <= upper, f"bit {bit}: bounds ({lower}, {upper}) are not ordered"

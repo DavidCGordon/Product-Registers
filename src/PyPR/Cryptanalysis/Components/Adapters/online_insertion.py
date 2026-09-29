@@ -26,8 +26,10 @@ The two dispatch axes are:
 These axes are orthogonal, yielding four closure variants. Each variant
 contains only the logic relevant to that combination — no dead branches.
 """
+from PyPR.Cryptanalysis.Components.Adapters.equation_repr import (
+    coef_vector_to_boolean_function,
+)
 from PyPR.Cryptanalysis.Components.EquationStores.IndexedEqStore import IndexedEqStore
-from PyPR.Cryptanalysis.Components.Adapters.equation_repr import coef_vector_to_boolean_function
 
 
 def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
@@ -72,15 +74,11 @@ def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
     can_early_stop = store.eager and store.filtering
 
     # --- Stall metric ---
-    # For filtering stores, pick the "number of solved variables" metric
-    # at factory time.  LUEqStore tracks this via rank (num_eqs = pivot
-    # count); GroebnerEqStore via len(solved_vars).  Basis size is NOT
-    # a good metric — it can grow without solving any new variables.
-    if store.filtering:
-        if hasattr(store, 'solved_vars') and isinstance(store.solved_vars, dict):
-            _get_solved = lambda: len(store.solved_vars)
-        else:
-            _get_solved = lambda: store.num_eqs
+    # Only a filtering store makes progress to measure; each one reports it as
+    # num_determined, by whatever measure it reduces with. Bound unconditionally
+    # so the closures below always have something to call -- a non-filtering
+    # store never reaches the stall check, and reads a constant if it did.
+    _get_solved = (lambda: store.num_determined) if store.filtering else (lambda: 0)
 
     # ---------------------------------------------------------------
     # Build the insert closure.
@@ -100,7 +98,7 @@ def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
         _stall_count = 0
         _last_solved = _get_solved()
 
-        def insert_fn(coef_vector, eq_idx):
+        def _insert_indexed_stopping(coef_vector, eq_idx):
             nonlocal _stall_count, _last_solved
             store.queue_equation(coef_vector, identifier=eq_idx)
 
@@ -129,10 +127,12 @@ def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
                 return True
             return False
 
+        insert_fn = _insert_indexed_stopping
+
     elif is_indexed:
         # Indexed but passive (EqStore / SymbolicEqStore as online store).
         # Insert ndarray, never stop early.
-        def insert_fn(coef_vector, eq_idx):
+        def _insert_indexed_passive(coef_vector, eq_idx):
             store.queue_equation(coef_vector, identifier=eq_idx)
             if verbose:
                 print(
@@ -141,12 +141,14 @@ def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
                 )
             return False
 
+        insert_fn = _insert_indexed_passive
+
     elif can_early_stop:
         # Non-indexed, eager+filtering.  Convert to BooleanFunction.
         _stall_count = 0
         _last_solved = _get_solved()
 
-        def insert_fn(coef_vector, eq_idx):
+        def _insert_converting_stopping(coef_vector, eq_idx):
             nonlocal _stall_count, _last_solved
             bf = coef_vector_to_boolean_function(coef_vector, idx_to_comb)
             store.queue_equation(bf)
@@ -176,10 +178,12 @@ def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
                 return True
             return False
 
+        insert_fn = _insert_converting_stopping
+
     else:
         # Typical case: GroebnerEqStore.  Convert to BooleanFunction,
         # queue for batch processing, never stop early.
-        def insert_fn(coef_vector, eq_idx):
+        def _insert_converting_passive(coef_vector, eq_idx):
             bf = coef_vector_to_boolean_function(coef_vector, idx_to_comb)
             store.queue_equation(bf)
             if verbose:
@@ -188,6 +192,8 @@ def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
                     end=''
                 )
             return False
+
+        insert_fn = _insert_converting_passive
 
     # ---------------------------------------------------------------
     # Build the finalize closure.

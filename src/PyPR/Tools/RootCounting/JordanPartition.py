@@ -1,5 +1,7 @@
-from numba import njit
 from functools import cache
+
+from numba import njit
+
 # What a crazy algorithm: https://arxiv.org/pdf/math/0612437.pdf
 # note this should be symmetric.
 
@@ -32,7 +34,7 @@ def update(i,s,t,p):
     f = 0
     while (Dp(i + f,s,t,p) and (i + f) < s):
         f += 1
-    
+
     length = s+t-1-2*i - f
     degree = f+1
     next_idx = i+f+1

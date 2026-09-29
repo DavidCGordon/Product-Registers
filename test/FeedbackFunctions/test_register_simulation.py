@@ -8,15 +8,22 @@ clocking paths (numba-compiled vs. interpreted ANF evaluation).  These are
 performance variants of one mathematical object, so any disagreement between
 them is a bug in one of them -- there is no design freedom there.
 """
+import numpy as np
 import pytest
 
-from PyPR.FeedbackRegister import FeedbackRegister
-from PyPR.FeedbackFunctions import (
-    MPR, CMPR, Fibonacci, Galois, FCSR, TFunction, CrossJoin,
-)
 from PyPR.BooleanLogic import AND, VAR
 from PyPR.BooleanLogic.ChainingGeneration.Templates import fast_template
 
+from PyPR.FeedbackFunctions import (
+    CMPR,
+    FCSR,
+    MPR,
+    CrossJoin,
+    Fibonacci,
+    Galois,
+    TFunction,
+)
+from PyPR.FeedbackRegister import FeedbackRegister
 
 # ── Fixtures ────────────────────────────────────────────────────────────
 
@@ -83,6 +90,44 @@ def test_seed_changes_initial_state():
     initial_2 = F[:].copy()
     assert not (initial_1 == initial_2).all(), "Different seeds should give different states"
 
+@pytest.mark.parametrize("bits", [[1], [1, 0, 1, 0]])
+def test_seed_and_state_reject_wrong_length(bits):
+    """A bit list must cover the register exactly -- a short one used to be
+    accepted and left a state array shorter than the register."""
+    F = Fibonacci(3, [1, 1, 0, 1])
+    reg = FeedbackRegister(1, F)
+    with pytest.raises(ValueError, match="exactly 3 bits"):
+        reg.seed(bits)
+    with pytest.raises(ValueError, match="exactly 3 bits"):
+        reg.set_state(bits)
+
+def test_seed_array_is_copied():
+    """The register owns its seed: mutating the caller's array afterwards
+    must not change what reset() restores."""
+    F = Fibonacci(3, [1, 1, 0, 1])
+    bits = np.array([1, 0, 0], dtype=np.uint8)
+    reg = FeedbackRegister(bits, F)
+    bits[0] = 0
+    reg.reset()
+    assert reg[:].tolist() == [1, 0, 0]
+
+def test_negative_int_seed_rejected():
+    F = Fibonacci(3, [1, 1, 0, 1])
+    with pytest.raises(ValueError, match="outside register capacity"):
+        FeedbackRegister(-1, F)
+
+def test_compiled_clock_on_uncompiled_fn_raises_value_error():
+    """FeedbackFunction.__init__ sets _compiled = None, so the guard must test
+    for None rather than for the attribute's presence."""
+    F = TFunction(4)
+    reg = FeedbackRegister(1, F)
+    with pytest.raises(ValueError, match="not compiled"):
+        reg.clock()
+    with pytest.raises(ValueError, match="not compiled"):
+        next(reg.run(1))
+    with pytest.raises(ValueError, match="not compiled"):
+        reg.period()
+
 
 # ── Output stream and filtering ────────────────────────────────────────
 
@@ -106,21 +151,33 @@ def test_period_fibonacci():
     """Fibonacci LFSR with primitive poly of degree 3 has period 2^3 - 1 = 7."""
     F = Fibonacci(3, [1, 1, 0, 1])
     reg = FeedbackRegister(1, F)
-    period, _ = reg.period(compiled=False)
+    # period() reports None when it hits its limit without closing a cycle;
+    # these registers always close, so pin that before unpacking
+    result = reg.period(compiled=False)
+    assert result is not None
+    period, _ = result
     assert period == 7, f"Expected period 7, got {period}"
 
 def test_period_galois():
     """Galois LFSR with same polynomial should also have period 7."""
     G = Galois(3, [1, 1, 0, 1])
     reg = FeedbackRegister(1, G)
-    period, _ = reg.period(compiled=False)
+    # period() reports None when it hits its limit without closing a cycle;
+    # these registers always close, so pin that before unpacking
+    result = reg.period(compiled=False)
+    assert result is not None
+    period, _ = result
     assert period == 7, f"Expected period 7, got {period}"
 
 def test_period_mpr():
     """MPR with primitive poly of degree 3 has period 2^3 - 1 = 7."""
     M = MPR(3, [1, 0, 1, 1])
     reg = FeedbackRegister(1, M)
-    period, _ = reg.period(compiled=False)
+    # period() reports None when it hits its limit without closing a cycle;
+    # these registers always close, so pin that before unpacking
+    result = reg.period(compiled=False)
+    assert result is not None
+    period, _ = result
     assert period == 7, f"Expected period 7, got {period}"
 
 
@@ -155,7 +212,7 @@ def every_feedback_family():
     ]
 
 
-@pytest.mark.parametrize("name,fn,seed", every_feedback_family(), ids=lambda v: v if isinstance(v, str) else "")
+@pytest.mark.parametrize(("name", "fn", "seed"), every_feedback_family(), ids=lambda v: v if isinstance(v, str) else "")
 def test_compiled_and_uncompiled_runs_agree(name, fn, seed):
     """The numba path and the ANF-evaluation path produce identical state sequences.
 
@@ -171,7 +228,7 @@ def test_compiled_and_uncompiled_runs_agree(name, fn, seed):
     assert interpreted == compiled, f"{name}: compiled and uncompiled runs diverged"
 
 
-@pytest.mark.parametrize("name,fn,_seed", every_feedback_family(), ids=lambda v: v if isinstance(v, str) else "")
+@pytest.mark.parametrize(("name", "fn", "_seed"), every_feedback_family(), ids=lambda v: v if isinstance(v, str) else "")
 @pytest.mark.parametrize("seed_kind", ["one", "all_ones", "arbitrary"])
 def test_period_variants_agree_where_the_unsafe_search_is_valid(name, fn, _seed, seed_kind):
     """The four period algorithms obey the contract their docstring states.

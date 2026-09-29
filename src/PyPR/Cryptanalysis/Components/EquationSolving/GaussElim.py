@@ -1,6 +1,7 @@
-import numpy as np
-import numba
 import time
+
+import numba
+import numpy as np
 
 from PyPR.Cryptanalysis.Components.Adapters.store_repr import to_coef_matrix
 
@@ -102,16 +103,16 @@ def reduce(equation_store, constants=None):
         hasattr(equation_store, 'consistent') and
         equation_store.consistent and
         hasattr(equation_store, 'comb_to_idx') and
-        tuple() in equation_store.comb_to_idx
+        () in equation_store.comb_to_idx
     ):
-        solution[equation_store.comb_to_idx[tuple()]] = 1
+        solution[equation_store.comb_to_idx[()]] = 1
 
     return solution
 
 
 def solve(
     equation_store, feedback_fn, output_fn, keystream, *,
-    test_length=1000, additional_constants=None,
+    test_length=1000, verify=None, additional_constants=None,
     verbose=False, _print_depth=0,
 ):
     """Solve a system of GF(2) equations via RREF + exhaustive guess.
@@ -145,6 +146,10 @@ def solve(
     :type keystream: np.ndarray[np.uint8]
     :param test_length: Number of keystream bits to use for verification.
     :type test_length: int
+    :param verify: Decides whether a candidate initial state is correct, in
+        place of comparing its keystream with `keystream` (which may then be
+        None). Forwarded to :func:`GuessSolver.guess_and_solve`.
+    :type verify: Callable[[np.ndarray[np.uint8]], bool] | None
     :param additional_constants: Base constant vector of length
         ``num_vars``. For LUEqStore inputs, entries align by variable
         index with the upper_matrix rows.
@@ -158,7 +163,9 @@ def solve(
         independent guess dimensions after pruning.
     :rtype: tuple[list[int] | None, int, int]
     """
-    from PyPR.Cryptanalysis.Components.EquationSolving.GuessSolver import guess_and_solve
+    from PyPR.Cryptanalysis.Components.EquationSolving.GuessSolver import (
+        guess_and_solve,
+    )
 
     # Extract augmented matrix [A | b] and monomial index maps
     if (
@@ -179,7 +186,7 @@ def solve(
                 transformed[j] ^= L[j, i] * transformed[i]
 
         # Extract only pivot rows; skip the const axiom row for consistent stores
-        const_idx = comb_to_idx.get(tuple())
+        const_idx = comb_to_idx.get(())
         pivot_rows = [i for i in range(n) if equation_store.solved_for[i]]
         if equation_store.consistent and const_idx is not None:
             pivot_rows = [i for i in pivot_rows if i != const_idx]
@@ -289,7 +296,7 @@ def solve(
 
     return guess_and_solve(
         feedback_fn, output_fn, base_solution, pruned_effects,
-        keystream, test_length=test_length,
+        keystream, test_length=test_length, verify=verify,
         verbose=verbose, _print_depth=_print_depth,
     )
 
@@ -311,11 +318,11 @@ class GaussElimSolver:
 
     def solve(
         self, equation_store, feedback_fn, output_fn, keystream, *,
-        test_length=1000, verbose=False, _print_depth=0,
+        test_length=1000, verify=None, verbose=False, _print_depth=0,
     ):
         return solve(
             equation_store, feedback_fn, output_fn, keystream,
-            test_length=test_length,
+            test_length=test_length, verify=verify,
             additional_constants=self.additional_constants,
             verbose=verbose, _print_depth=_print_depth,
         )

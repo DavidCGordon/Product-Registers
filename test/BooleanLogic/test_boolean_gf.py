@@ -6,12 +6,11 @@ functions for binary sequences.  Tests here verify the basic field laws
 (identity, absorption, GF(2) additive self-cancellation) and the integration
 with Berlekamp-Massey via from_seq.
 """
-import numpy as np
 
 from PyPR.BooleanLogic.BooleanGF import BooleanGF
-from PyPR.FeedbackRegister import FeedbackRegister
-from PyPR.FeedbackFunctions import MPR
 
+from PyPR.FeedbackFunctions import MPR
+from PyPR.FeedbackRegister import FeedbackRegister
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

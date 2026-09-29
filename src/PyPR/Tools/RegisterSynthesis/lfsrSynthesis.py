@@ -1,5 +1,6 @@
-from numba import njit
 import numpy as np
+from numba import njit
+
 
 def _berlekamp_massey_bijective(seq):
     """Shortest LFSR generating `seq` whose update map is a bijection.
@@ -130,7 +131,7 @@ def _berlekamp_massey(N,seq):
     L = 0
     # m = index of last change
     m = -1
-    
+
     #n = index of bit we are correcting.
     for n in range(N):
 
@@ -141,7 +142,7 @@ def _berlekamp_massey(N,seq):
 
         #handle discrepancy (if needed)
         if d != 0:
-            
+
             #store copy of current guess
             temp = curr_guess.copy()
 
@@ -159,7 +160,7 @@ def _berlekamp_massey(N,seq):
 
     #return the linear complexity and connection polynomial
     return (L, curr_guess[:L+1])
-   
+
 @njit
 def _bm_iterator_core(
     start_idx,yield_rate,
@@ -185,7 +186,7 @@ def _bm_iterator_core(
             for i in range (shift, n+1):
                 curr_guess[i] ^= prev_guess[i - shift]
 
-            #update LC 
+            #update LC
             if 2 * linear_complexity <= n:
                 linear_complexity = (n + 1) - linear_complexity
                 prev_guess = temp
@@ -258,7 +259,7 @@ def berlekamp_massey_iterator(seq, yield_rate = 1000, bijective = False):
         arr[start_idx : start_idx+len(new_chunk)] = new_chunk
         if len(new_chunk) < yield_rate:
             NotEnded = False
-        
+
 
         # update variables with JIT code
         arr,curr_guess,prev_guess,linear_complexity,last_update \

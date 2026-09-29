@@ -1,11 +1,13 @@
 # Linear Complexity and Monomial estimation
-from PyPR.Tools.RootCounting.MonomialProfile import TermSet,MonomialProfile
-from PyPR.Tools.RootCounting.JordanSet import JordanSet
-from PyPR.Tools.RootCounting.RootExpression import RootExpression
+import numba
 
 # Other libs
 import numpy as np
-import numba
+
+from PyPR.Tools.RootCounting.JordanSet import JordanSet
+from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile, TermSet
+from PyPR.Tools.RootCounting.RootExpression import RootExpression
+
 i32 = numba.types.int32
 
 # use the iterator and convert output to a RE
@@ -28,13 +30,13 @@ def re_compute_single_mesh(sizes,degrees,locked_list: list | None = None):
                 field.append(size)
                 counts.append(count)
         field_tuple = tuple(sorted(field))
-        js = JordanSet({k:min(k,v) for k,v, in zip(field,counts)}, set([1]))
+        js = JordanSet({k:min(k,v) for k,v, in zip(field,counts)}, {1})
 
         # add to the table
         if field_tuple in root_table:
             root_table[field_tuple].add(js)
-        else: 
-            root_table[field_tuple] = set([js])
+        else:
+            root_table[field_tuple] = {js}
 
     return RootExpression(root_table)
 
@@ -87,7 +89,7 @@ def _re_mesh_iterator(sizes, degrees, locked_list):
         if max_depth_reached or no_more_trades: # or end_saturated:
             depth -= 1
             continue
-        
+
         # update using the given trades
         num_traded = max(1, arr[depth][block] - sizes[block])
         arr[depth][block] -= num_traded
@@ -110,16 +112,16 @@ def _re_mesh_iterator(sizes, degrees, locked_list):
                         break
                 else:
                     first_idx_already_found = True
-        
-        # check additionally, that any partially filled field can't be incremented further. 
-        # if it can, then that assignment is strictly better, so don't yield this one. 
+
+        # check additionally, that any partially filled field can't be incremented further.
+        # if it can, then that assignment is strictly better, so don't yield this one.
         fillable_space = False
         if leftmost_assignment and np.any(partially_filled_mask):
             overshoot = np.maximum(0,arr[depth] - sizes)
             extra_potential = np.sum(overshoot * values) / values
             potential_increment = extra_potential * partially_filled_mask.astype('int32')
             fillable_space = np.any(potential_increment >= 1)
-        
+
 
         if leftmost_assignment and not fillable_space:
             yield arr[depth]
@@ -129,4 +131,4 @@ def _re_mesh_iterator(sizes, degrees, locked_list):
         arr[depth + 1] = arr[depth]
         depth += 1
 
-    raise StopIteration()
+    raise StopIteration

@@ -12,12 +12,13 @@ import random
 
 import numpy as np
 
-from PyPR.FeedbackFunctions import MPR, CMPR
-from PyPR.BooleanLogic import VAR, AND, CONST
+from PyPR.BooleanLogic import AND, CONST, VAR
 from PyPR.BooleanLogic.ChainingGeneration.Templates import arman_template
+
+from PyPR.FeedbackFunctions import CMPR, MPR
+
 from PyPR.Tools.CostEstimation import estimate_cost_comp, estimate_cost_cube
 from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile, TermSet
-
 
 M2  = MPR(2,  "3")
 M3  = MPR(3,  "5")

@@ -3,12 +3,12 @@
 field_eye creates an identity matrix; field_invert solves M^{-1} via Gaussian
 elimination over the BooleanGF field.  The core invariant is M * M^{-1} = I.
 """
-import pytest
 import numpy as np
+import pytest
 
 from PyPR.BooleanLogic.BooleanGF import BooleanGF
-from PyPR.Tools.ResolventSolving import field_eye, field_invert
 
+from PyPR.Tools.ResolventSolving import field_eye, field_invert
 
 # ── field_eye ─────────────────────────────────────────────────────────────────
 
@@ -89,7 +89,7 @@ def test_field_invert_raises_for_nonsquare():
         [BooleanGF.one(), BooleanGF.zero(), BooleanGF.one()],
         dtype=BooleanGF
     ).reshape(1, 3)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="square"):
         field_invert(BooleanGF, non_square)
 
 def test_field_invert_3x3_round_trip():

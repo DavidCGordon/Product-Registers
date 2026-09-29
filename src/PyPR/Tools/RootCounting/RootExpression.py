@@ -1,13 +1,10 @@
+
+
+from PyPR.Tools.RootCounting.Combinatorics import binsum, powerset
+from PyPR.Tools.RootCounting.EvaluationFunctions import pessimistic_expected_value
 from PyPR.Tools.RootCounting.JordanSet import JordanSet
 from PyPR.Tools.RootCounting.OverlappingRectangle import rectangle_solve
-from PyPR.Tools.RootCounting.EvaluationFunctions import pessimistic_expected_value
-from PyPR.Tools.RootCounting.Combinatorics import binsum, powerset
 
-
-from PyPR.BooleanLogic import CONST, VAR
-
-from itertools import product
-import time
 
 def isEmbeddedSubset(a,b):
     a_keyset = set(a.roots.keys())
@@ -41,17 +38,17 @@ def isRootSubset(a,b):
 class RootExpression:
     def __init__(self,root_table):
         self.root_table = root_table
-    
+
     def extend(self, extension_jordan_set):
         max_mult = 0
         for field_tuple in self.root_table:
             for term in self.root_table[field_tuple]:
                 if isEmbeddedSubset(extension_jordan_set, term):
                     max_mult = max(max_mult,*term.mults)
-    
+
         field_tuple = tuple(sorted(extension_jordan_set.roots.keys()))
         return self + RootExpression({
-            field_tuple: set([JordanSet(extension_jordan_set.roots, set([max_mult + 1]))])
+            field_tuple: {JordanSet(extension_jordan_set.roots, {max_mult + 1})}
         })
 
     def __str__(self):
@@ -61,7 +58,7 @@ class RootExpression:
             outstr += "\n"
         outstr += "}"
         return outstr
-    
+
     def __copy__(self):
         new_table = {}
         for field_tuple in self.root_table:
@@ -71,7 +68,7 @@ class RootExpression:
         return RootExpression(new_table)
 
 
-    
+
     def __xor__(self, other): return self.__add__(other)
     def __add__(self, other):
         # clean out redundant subsets and merge.
@@ -85,7 +82,7 @@ class RootExpression:
                 for JSet in other.root_table[field_tuple]:
                     output.root_table[field_tuple].add(JSet)
                 continue
-            
+
             # otherwise, split mults:
             # problem there could be smaller things, which were kept for mult reasons
             for JSet in other.root_table[field_tuple]:
@@ -109,7 +106,7 @@ class RootExpression:
                         already_added.mults -= new_term.mults
                         if not already_added.mults:
                             to_remove.append(already_added)
-                
+
                 # update the table entry accordingly:
                 if new_term.mults and merge_location is not None:
                     merge_location.mults |= new_term.mults
@@ -130,7 +127,7 @@ class RootExpression:
         output = RootExpression({})
         for field_tuple1 in self.root_table:
             for field_tuple2 in other.root_table:
-                target_field_tuple = tuple(sorted((set(field_tuple1) | set(field_tuple2))))
+                target_field_tuple = tuple(sorted(set(field_tuple1) | set(field_tuple2)))
 
                 # add if needed
                 if target_field_tuple not in output.root_table:
@@ -158,7 +155,7 @@ class RootExpression:
                                 already_added.mults -= prod.mults
                                 if not already_added.mults:
                                     to_remove.append(already_added)
-                        
+
                         # update the table entry accordingly:
                         if prod.mults and merge_location is not None:
                             merge_location.mults |= prod.mults
@@ -166,11 +163,11 @@ class RootExpression:
                             output.root_table[target_field_tuple].add(prod)
                         for term in to_remove:
                             output.root_table[target_field_tuple].remove(term)
-        return output    
+        return output
 
     @classmethod
     #def logical_one(self): return RootExpression({(): set([JordanSet({}, {1})])})
-    def logical_one(cls): return RootExpression({(): set([JordanSet({}, {1})])})
+    def logical_one(cls): return RootExpression({(): {JordanSet({}, {1})}})
 
     @classmethod
     def logical_zero(cls): return RootExpression({})
@@ -192,10 +189,10 @@ class RootExpression:
         #  - but each embedded term might needs to be added to multiple entries in the basis table.
         #       - because the roots span across several subfields.
         for field_tuple in self.root_table:
-            for term in self.root_table[field_tuple]: 
+            for term in self.root_table[field_tuple]:
                 full = []           # - All bases where b == c (contains the 1 coset)
                 partial = []        # - All bases where b != c (no embedded sets)
-                
+
                 # Add each (b,c) pair to the right list:
                 for b,c in term.roots.items():
                     if b == c: full.append((b,binsum(b,c-1)))
@@ -222,10 +219,10 @@ class RootExpression:
     #calculate lower bound (ignoring bases in locked list)
     def lower(self):
         # initalize values:
-        linear_complexity = 0        
+        linear_complexity = 0
         basis_table = {}
 
-        # Evaluate only the maximum coset? 
+        # Evaluate only the maximum coset?
         # cleaned_terms = maximalElements(
         #     leq_ordering = isEmbeddedSet,
         #     inputs = [self.terms]
@@ -246,7 +243,7 @@ class RootExpression:
                     basis_table[basis].append(counts)
                 else:
                     basis_table[basis] = [counts]
-                
+
         #solve basis table using hyperrec algorithm:
         for rectangle_list in basis_table.values():
             linear_complexity += rectangle_solve(rectangle_list)

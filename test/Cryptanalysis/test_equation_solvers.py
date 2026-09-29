@@ -14,18 +14,18 @@ import random
 import numpy as np
 import pytest
 
-from PyPR.BooleanLogic import VAR, XOR, AND, CONST
+from PyPR.BooleanLogic import CONST, VAR, XOR
 
+from PyPR.Cryptanalysis.Components.EquationSolving import (
+    GaussElim,
+    Grob_Solver,
+    LU_Solver,
+)
+from PyPR.Cryptanalysis.Components.EquationSolving.GaussElim import reduce_matrix
 from PyPR.Cryptanalysis.Components.EquationStores.EqStore import EqStore
+from PyPR.Cryptanalysis.Components.EquationStores.GrobnerEqStore import GroebnerEqStore
 from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
 from PyPR.Cryptanalysis.Components.EquationStores.SymbolicEqStore import SymbolicEqStore
-from PyPR.Cryptanalysis.Components.EquationStores.GrobnerEqStore import GroebnerEqStore
-
-import PyPR.Cryptanalysis.Components.EquationSolving.LU_Solver as LU_Solver
-import PyPR.Cryptanalysis.Components.EquationSolving.GaussElim as GaussElim
-import PyPR.Cryptanalysis.Components.EquationSolving.Grob_Solver as Grob_Solver
-from PyPR.Cryptanalysis.Components.EquationSolving.GaussElim import reduce_matrix
-
 
 _COMB_TO_IDX = {
     (): 0,
@@ -261,8 +261,11 @@ def test_reduce_matrix_output_is_in_reduced_row_echelon_form(trial):
     reduced, _ = reduce_matrix(matrix.copy())
     pivots = [int(np.argmax(reduced[i])) for i in range(reduced.shape[0])]
 
-    assert pivots == sorted(pivots) and len(set(pivots)) == len(pivots), (
-        f"trial {trial}: pivot columns {pivots} are not strictly increasing"
+    assert pivots == sorted(pivots), (
+        f"trial {trial}: pivot columns {pivots} are not in increasing order"
+    )
+    assert len(set(pivots)) == len(pivots), (
+        f"trial {trial}: pivot columns {pivots} repeat a column"
     )
     for pivot in pivots:
         assert int(reduced[:, pivot].sum()) == 1, (

@@ -54,17 +54,71 @@ jobs:
 
       # --durations surfaces the slowest tests in every log, which is the raw
       # material for the wall-clock benchmarking tier if it gets added later.
+      #
+      # pipefail is not part of GitHub's default `bash -e {0}`, so without it
+      # the pipeline would exit with tee's status and a failing suite would
+      # report green. Teeing at all is for the summary step below.
       - name: Run test suite
-        run: pytest -q -ra --durations=10
+        id: pytest
+        run: |
+          set -o pipefail
+          pytest -q -ra --durations=10 | tee pytest-output.txt
+
+      # Without this the run summary carries only the advisory lint and type
+      # sections, which reads as though the tests were never reported. A failure
+      # does already fail this job and the `tests-passed` gate -- nothing is
+      # swallowed -- but stating the pass explicitly separates a green suite
+      # from one that never ran, which is the case actually worth catching.
+      - name: Summarize test result
+        if: always()
+        run: |
+          {
+            echo
+            echo "## pytest (Python ${{ matrix.python-version }})"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ ! -s pytest-output.txt ]; then
+            echo "**The suite did not run**: no pytest output." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # With -q the final line is the count line ("807 passed in 113s").
+          tally="$(tail -n 1 pytest-output.txt)"
+
+          if [ "${{ steps.pytest.outcome }}" = "success" ]; then
+            echo "No test failures -- \`$tally\`" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # -ra emits one line per failure under this banner. The tracebacks stay
+          # in the step log rather than the summary, which has a 1 MB cap. A
+          # collection error produces no banner, so fall back to the raw tail.
+          detail="$(awk '/^=+ short test summary info/{f=1} f' pytest-output.txt | head -60)"
+          if [ -z "$detail" ]; then
+            detail="$(tail -n 40 pytest-output.txt)"
+          fi
+
+          {
+            echo "**Test failures** -- \`$tally\`"
+            echo
+            echo '```'
+            echo "$detail"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # Advisory only. `gate` deliberately does not list this job in `needs`, and
   # continue-on-error keeps a red result from failing the workflow, so nothing
   # here can block a merge.
   #
   # It reports counts rather than findings on purpose: the codebase carries a
-  # known backlog (~180 pyright errors in src/, a few hundred ruff hits), so a
-  # full dump would be unread noise. What is worth watching is whether the
-  # numbers move, which a one-line-per-directory summary makes obvious.
+  # known backlog (~180 pyright errors in src/, ~350 ruff findings), so a full
+  # dump would be unread noise. What is worth watching is whether the numbers
+  # move, which a one-line-per-directory summary makes obvious.
+  #
+  # Both tools are pinned in the `lint` extra, which is what makes a moving
+  # number mean something: with either unpinned, a release could move the count
+  # with no source change and the signal would be worthless.
   quality:
     name: type-check and lint (advisory)
     runs-on: ubuntu-latest
@@ -94,12 +148,19 @@ jobs:
         continue-on-error: true
         run: python .github/scripts/typecheck_summary.py src test --limit 15
 
+      # Rule selection and the documented exemptions live in [tool.ruff] in
+      # pyproject.toml, so this reproduces exactly what `ruff check src test`
+      # prints on a developer's machine -- there are no rule flags here to drift
+      # out of step with the config. The version goes into the summary because a
+      # count is only comparable against runs that used the same ruff.
       - name: Lint (ruff)
         continue-on-error: true
         run: |
           {
             echo
             echo "## Lint (ruff), by rule"
+            echo
+            echo "\`$(ruff --version)\`, configured by \`[tool.ruff]\` in pyproject.toml."
             echo
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

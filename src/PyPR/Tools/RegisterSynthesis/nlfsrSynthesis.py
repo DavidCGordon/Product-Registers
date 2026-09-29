@@ -31,7 +31,7 @@ See `docs/architecture/Bijective Register Synthesis.md` for the full development
 including the proof that the update map is a bijection exactly when the discarded
 bit occurs in f as a lone linear term.
 """
-from PyPR.BooleanLogic import XOR, AND, NOT, CONST, VAR
+from PyPR.BooleanLogic import AND, CONST, NOT, VAR, XOR
 
 
 def KMP_table(seq):
@@ -52,7 +52,7 @@ def KMP_table(seq):
     for idx in range(1,len(seq)):
         while (pref_len > 0) and (seq[pref_len] != seq[idx]):
             pref_len = output[pref_len-1]
-        
+
         if seq[pref_len] == seq[idx]:
             pref_len += 1
 
@@ -257,7 +257,7 @@ def BM_NL(seq, bijective = False):
         k -= 1
 
         if discrepancy:
-            
+
             #base case update
             if m == 0:
                 k = n
@@ -265,7 +265,7 @@ def BM_NL(seq, bijective = False):
 
             # nonunique update/over half update??
             elif k < 0:
-                
+
                 # if the kmp length jumps, increase register size to accomodate
                 s = max(KMP_table(seq[:n][::-1]))
                 if (s > m-1):
@@ -277,7 +277,7 @@ def BM_NL(seq, bijective = False):
             for idx in range(m):
                 if seq[n-1-idx]:
                     variables.append(VAR(idx))
-                else:            
+                else:
                     variables.append(NOT(VAR(idx)))
             h.add_arguments(AND(*variables))
 
@@ -325,14 +325,17 @@ def BM_NL_iterator(seq, yield_rate = 1000, yield_corrected = True, bijective = F
     k = 0
     # the complexity/frame len
     m = 0
-    
+    # replaced by the real guess on the first bit, before anything reads it;
+    # declared here so the rest of the loop can see it is always bound
+    h = XOR(CONST(0))
+
     #seq can be a generator
     for n, bit in enumerate(seq):
 
         # initialize the feedback function:
         if n == 0:
             h = XOR(CONST(bit))
-        
+
         arr.append(bit)
         target = bit
 
@@ -344,7 +347,7 @@ def BM_NL_iterator(seq, yield_rate = 1000, yield_corrected = True, bijective = F
             else:
                 yield m, h
 
-        
+
         #calculate the expected output (evaluate the function)
         frame = arr[n-m:n][::-1]
         predicted = h.eval(frame)
@@ -365,7 +368,7 @@ def BM_NL_iterator(seq, yield_rate = 1000, yield_corrected = True, bijective = F
 
             # nonunique update/over half update??
             elif k < 0:
-                
+
                 #if the kmp length jumps, increase register size to accomodate
                 s = max(KMP_table(arr[:n][::-1]))
                 if (s > m-1):
@@ -377,7 +380,7 @@ def BM_NL_iterator(seq, yield_rate = 1000, yield_corrected = True, bijective = F
             for idx in range(m):
                 if arr[n-1-idx]:
                     variables.append(VAR(idx))
-                else:            
+                else:
                     variables.append(NOT(VAR(idx)))
             h.add_arguments(AND(*variables))
 

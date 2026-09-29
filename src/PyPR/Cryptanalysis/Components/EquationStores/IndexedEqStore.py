@@ -44,7 +44,7 @@ class IndexedEqStore(BaseEqStore):
         consistent: bool = False,
     ):
         super().__init__(consistent=consistent)
-        self.linked_stores: set[IndexedEqStore] = set([self])
+        self.linked_stores: set[IndexedEqStore] = {self}
         self.equation_ids: dict[int, Any] = {}
         self.num_eqs = 0
 
@@ -95,7 +95,7 @@ class IndexedEqStore(BaseEqStore):
         if not self.dynamic:
             # More descriptive error messages for static and consistent stores
             # with no constant column (so no equation can contain a constant term):
-            if self.consistent and comb == tuple():
+            if self.consistent and comb == ():
                 raise ValueError(
                     "Inserted equation has a constant term, but this store was marked "
                     "consistent without a constant column. All equations must have zero "

@@ -18,15 +18,12 @@ already object dtype, and in-place dtype assignment is deprecated as of NumPy 2.
 
 See docs/theory/Resolvent Analysis.md for the mathematical background.
 """
-from PyPR.BooleanLogic import XOR, CONST
-from PyPR.BooleanLogic.BooleanGF import BooleanGF
-from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey, berlekamp_massey_iterator
+from itertools import product
 
 import numpy as np
-import galois as gal
 
-from itertools import product
-import re
+from PyPR.BooleanLogic import CONST, XOR
+from PyPR.BooleanLogic.BooleanGF import BooleanGF
 
 # Methods for solving for the resolvent:
 
@@ -43,7 +40,7 @@ def field_eye(field, size):
 def field_invert(field, matrix):
     #check to ensure matrix is square:
     if len(matrix.shape) != 2 or matrix.shape[0] != matrix.shape[1]:
-        raise ValueError(f"Matrix be square, not shape {matrix.shape}")
+        raise ValueError(f"Matrix must be square, not shape {matrix.shape}")
     size = matrix.shape[0]
 
     #append the identity, to be transformed into the inverse
@@ -69,7 +66,7 @@ def field_invert(field, matrix):
         matrix[i] /= matrix[i][i]
 
     # backsubstitution/jordan reduction:
-    for pivot in range(size-1,0,-1): 
+    for pivot in range(size-1,0,-1):
         row_multipliers = matrix[:pivot, pivot][:,np.newaxis]
         change = row_multipliers * matrix[pivot]
 
@@ -90,7 +87,7 @@ def generate_resolvent_example(cmpr, use_z_convention = False):
     REs = cmpr.fn.root_expressions()
     LC_bound = max([re.upper() for re in REs])
 
-    # Initalize output dictionary 
+    # Initalize output dictionary
     outputs = {
         'initial transforms': None,
         'sequence transforms': None,
@@ -102,7 +99,7 @@ def generate_resolvent_example(cmpr, use_z_convention = False):
         'resolvent matrices': cmpr.fn.resolvent_matrices,
         'computed transforms': np.array([None for i in range(cmpr.size)],dtype=object),
     }
-    
+
     # fill in initial state transforms
     initial_vector = np.array(
         [BooleanGF([cmpr[bit]],[1]) for bit in range(cmpr.size)],
@@ -126,12 +123,12 @@ def generate_resolvent_example(cmpr, use_z_convention = False):
     outputs['sequence transforms'] = register_vector
     outputs['chaining transforms'] = chaining_vector
     outputs['initial transforms'] = initial_vector
-    
+
     # compute everything using D-transform convention:
     # i.e. compute DC(D) + B[0]
     scaled_chaining = np.array([D]) * chaining_vector
     combined_vector = scaled_chaining + initial_vector
-        
+
     outputs['scaled chaining'] = scaled_chaining
     outputs['combined vector'] = combined_vector
 
@@ -139,7 +136,7 @@ def generate_resolvent_example(cmpr, use_z_convention = False):
     if use_z_convention:
         # the initial, sequence, chaining, and computed transforms are all independent of notation:
         # using the 'z' convention used in the paper:
-        
+
         # there is an additional delay = D = z^(-1) factor in the resolvents
         outputs['resolvent matrices'] = [np.array([D]) * matrix for matrix in cmpr.fn.resolvent_matrices]
 

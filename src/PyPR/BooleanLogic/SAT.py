@@ -1,17 +1,35 @@
-from collections.abc import Iterator
-from typing import Any
+"""SAT encoding and solving for Boolean functions.
 
-from PyPR.BooleanLogic import BooleanFunction,XOR
+The Tseytin walks (`tseytin`, `tseytin_labels`, `tseytin_clauses`) turn a
+BooleanFunction DAG into CNF, one node at a time: every node is given its own
+solver variables and emits the clauses that implement it. The solver entry
+points (`sat`, `enum_models`, `functionally_equivalent`) are built on those
+walks, and all six are attached to `BooleanFunction` as methods at the end of
+the encoding section.
+
+Fusion nodes (`TseytinFuse`) come after: a way to control the CNF a subtree
+emits without changing the function it computes.
+
+See `docs/architecture/SAT Encoding.md` for the per-node invariant the walks
+rely on and fusion nodes exploit.
+"""
+from collections.abc import Iterator
+from typing import Any, Self
+
 from pysat.formula import CNF
 from pysat.solvers import Solver
 
+from PyPR.BooleanLogic.BooleanFunction import BooleanFunction
+from PyPR.BooleanLogic.FunctionInputs import VAR
+from PyPR.BooleanLogic.Gates import AND, OR, XOR
 
-def tseytin(self, 
-    prev_clauses: list[tuple[int]] | None = None, 
-    prev_node_labels: dict[BooleanFunction,list[int]] | None = None, 
+
+def tseytin(self,
+    prev_clauses: list[tuple[int, ...]] | None = None,
+    prev_node_labels: dict[BooleanFunction,list[int]] | None = None,
     prev_variable_labels: dict[int,int] | None = None,
 ) -> tuple[
-    list[tuple[int]],
+    list[tuple[int, ...]],
     dict[BooleanFunction,list[int]],
     dict[int,int]
 ]:
@@ -48,7 +66,7 @@ def tseytin(self,
     :param prev_clauses: A list of constraints, suitable for a sat solver. Each constraint is a tuple
         of integers, which represents an OR clause which must be satisfied (CNF). Negative integers
         represent the negation of a variable.
-    :type prev_clauses: list[tuple[int]]
+    :type prev_clauses: list[tuple[int, ...]]
     :param prev_node_labels: The Tseytin transform introduces new variables for each gate in the function.
         This dict maps every node to the list of variables which are used to encode it, and can be used to
         convert the sat solution back to values in the wires of the circuit, or to impose additional
@@ -61,19 +79,21 @@ def tseytin(self,
     :type prev_variable_labels: dict[int,int]
     :return: (Clauses, Node Labels, Variable Labels)
     :rtype: tuple[
-        list[tuple[int]],
+        list[tuple[int, ...]],
         dict[BooleanFunction,list[int]],
         dict[int,int]
     ]
-    """ 
+    """
     clauses: dict[tuple,None]
     if not prev_clauses: clauses = dict.fromkeys([(1,)])
     else: clauses = dict.fromkeys([tuple(x) for x in prev_clauses])
 
-    node_labels, variable_labels, = self.tseytin_labels(prev_node_labels, prev_variable_labels)
+    node_labels, variable_labels = self.tseytin_labels(
+        prev_node_labels, prev_variable_labels
+    )
     clauses.update(dict.fromkeys(self.tseytin_clauses(node_labels)))
     return list(clauses.keys()), node_labels, variable_labels
-    
+
 def tseytin_labels(self,
     node_labels: dict[BooleanFunction,list[int]] | None = None,
     variable_labels: dict[int,int] | None = None
@@ -124,57 +144,53 @@ def tseytin_labels(self,
         dict[int,int]
     ]
     """
-    stack = [self]
-
     # initialize index maps if needed
     if node_labels == None and variable_labels == None:
-        next_available_index = 2
         variable_labels = {}
         node_labels = {}
-    
+
     # if only 1 is passed in, raise an error
     elif node_labels == None:
         raise ValueError("Missing node labels")
     elif variable_labels == None:
         raise ValueError("Missing variable labels")
-    else:
-        # if both passed in, just set the next index
-        next_available_index = max([max(ls) for ls in node_labels.values()]) + 1
 
+    # Every node claims its result wire last and highest, so one past the
+    # highest wire in the map is always free. Index 1 is reserved: `tseytin`
+    # asserts the unit clause (1,), and CONST labels itself [1] or [-1], so a
+    # constant is pinned by that clause and needs none of its own.
+    # A map holding only CONST(0) has -1 as its highest label, which would put
+    # the next wire at 0 -- not a literal at all, since 0 ends a DIMACS clause.
+    next_idx = 2 if not node_labels else max(
+        2, max(max(labels) for labels in node_labels.values()) + 1
+    )
+
+    stack = [self]
     while stack:
         curr_node = stack[-1]
 
-        #don't visit nodes twice:
+        # a node carried in from a previous call keeps its wires, and so does
+        # everything beneath it -- this is what lets labels be threaded across
+        # several circuits so shared subexpressions reuse variables
         if curr_node in node_labels:
             stack.pop()
 
-        # handle VAR and CONST Nodes
-        # each has it's own implementation in _tseytin_labels
-        elif curr_node.is_leaf():
-            next_available_index = curr_node._tseytin_labels(
-                node_labels,
-                variable_labels,
-                next_available_index
+        # ready once every argument is labelled (vacuously true of a leaf)
+        elif all(arg in node_labels for arg in curr_node.args):
+            next_idx = curr_node._tseytin_labels(
+                node_labels, variable_labels, next_idx
             )
             stack.pop()
 
-        # handle gate nodes
-        elif all([arg in node_labels for arg in curr_node.args]):
-            num_gate_labels = max(1,len(curr_node.args)-1)
-            node_labels[curr_node] = [next_available_index + i for i in range(num_gate_labels)]
-            next_available_index += num_gate_labels
-            stack.pop()
-
-        # place children in the stack to handle later
         else:
             for child in reversed(curr_node.args):
                 stack.append(child)
 
     return node_labels,variable_labels
 
-def tseytin_clauses(self, 
+def tseytin_clauses(self,
     label_map: dict[BooleanFunction, list[int]]
-) -> list[tuple[int]]:
+) -> list[tuple[int, ...]]:
     """Generate constraints corresponding to the tseytin transformation of the function.
 
     `Tseytin` primarily deals with three objects: Clauses, Node Labels and variable labels. This
@@ -189,43 +205,34 @@ def tseytin_clauses(self,
         conditions based on extra information.
     :type node_labels: dict[BooleanFunction,list[int]]
     :return: clauses which encode the given function for a sat solver.
-    :rtype: list[tuple[int]],
+    :rtype: list[tuple[int, ...]],
     """
     visited = set()
     stack = [self]
+    # a shared subexpression is reached once per path; the dict keeps one copy
+    # of each clause while preserving the order they were first emitted in
+    clauses: dict[tuple,None] = {}
 
-    clauses = {}
     while stack:
         curr_node = stack[-1]
 
-        # if current node has no children, or one child has been visited: 
-        # you are moving back up the tree
         if curr_node in visited:
             stack.pop()
 
-        elif curr_node.is_leaf():
-            visited.add(curr_node)
-            stack.pop()
-            
-        elif all([arg in visited for arg in curr_node.args]):
-            curr_labels = label_map[curr_node]
-            arg_labels = [label_map[arg][-1] for arg in curr_node.args]
-
-            # Why did I need to use dict?
-            clauses.update(dict.fromkeys(
-                type(curr_node).tseytin_unroll(curr_labels,arg_labels)
-            ))
-
+        # ready once every argument has been handled (vacuously true of a leaf)
+        elif all(arg in visited for arg in curr_node.args):
+            clauses.update(dict.fromkeys(curr_node._tseytin_clauses(label_map)))
             visited.add(curr_node)
             stack.pop()
 
         else:
             for child in reversed(curr_node.args):
                 stack.append(child)
+
     return list(clauses.keys())
 
 def satisfiable(self,
-    solver_name: str = "cadical195", 
+    solver_name: str = "cadical195",
     verbose: bool = False
 ) -> dict[int,bool] | None:
     """Solve the SAT problem for a given BooleanFunction
@@ -254,7 +261,7 @@ def satisfiable(self,
     clauses += [(node_map[self][-1],)]
     num_variables = node_map[self][-1] + 1
     num_clauses = len(clauses)
-    
+
     if verbose:
         print("Tseytin finished")
         print(f'Number of variables: {num_variables}')
@@ -272,7 +279,7 @@ def satisfiable(self,
         return {k: (assignments[v-1]>0) for k,v in var_map.items()}
     else:
         return None
-  
+
 def enumerate_models(self,
     solver_name: str = 'cadical195',
     verbose: bool = False
@@ -318,33 +325,23 @@ def enumerate_models(self,
         for assignment in solver.enum_models(): # type: ignore (this is from bad typing in pysat)
             yield {k: (assignment[v-1]>0) for k,v in var_map.items()}
 
-def functionally_equivalent(self, 
-    other: BooleanFunction 
+def functionally_equivalent(self,
+    other: BooleanFunction
 ) -> bool:
-    """Enumerate solutions to the SAT problem for a given BooleanFunction
+    """Decide whether two Boolean functions have the same truth table.
 
-    First, the `tseytin` method is used to build a SAT encoding of the function.
-    Then, the output is manually asserted to be true, and the resulting clauses are
-    used as input for a SAT solver provided by the PySAT package. These solvers include
-    the ability to enumerate solutions, and this method lifts that to match the PyPR
-    interface for sat. 
-    
-    If more complicated sat-based procedures are needed, `tseytin` is exposed, and 
-    more complicated instances can be created manually. However, because direct SAT
-    solving and model enumeration are the most common applications, this function provides
-    a much simpler interface, abstracting away details of the encoding. 
+    Two functions f and g agree on every input exactly when f XOR g is
+    unsatisfiable, so this builds the Tseytin encoding of `XOR(self, other)`
+    and asks a SAT solver for a satisfying assignment: none means equivalent,
+    and any one is an input on which they differ. The comparison is semantic,
+    not structural. Deciding it is coNP-complete in general, so for large
+    functions it may be expensive.
 
-    :param solver_name: A string giving the name of a sat solver provided by PySAT
-        which will be used as the solver, defaults to "cadical195", which we observed
-        to work well experimentally.
-    :type solver_name: str, optional
-    :param verbose: if `True` print statistics and timings for debugging, defaults to False
-    :type verbose: bool, optional
+    :param other: The function to compare against.
+    :type other: BooleanFunction
 
-    :return: if the function is unsatisfiable, return None. otherwise, on each iteration,
-        return a dictionary which maps variables to their boolean values in a satisfying 
-        assignment. Any variables which don't appear in the dict are "don't care".
-    :rtype: dict[int,bool] | None
+    :return: `True` if the two functions agree on every input.
+    :rtype: bool
     """
     return ((satisfiable(XOR(self,other))) == None)
 
@@ -355,3 +352,397 @@ BooleanFunction.tseytin_clauses = tseytin_clauses
 BooleanFunction.sat = satisfiable
 BooleanFunction.enum_models = enumerate_models
 BooleanFunction.functionally_equivalent = functionally_equivalent
+
+
+# ── fusion nodes ─────────────────────────────────────────────────────────────
+# A `_TseytinFuse` wraps a template function and the arguments it is applied to,
+# and presents itself to the encoder as a single node. Because it owns the whole
+# domain it fuses over, it can emit any CNF it likes for that domain -- including
+# one with fewer wires and fewer clauses than expanding the subtree gate by gate
+# would produce. It changes the encoding, never the function.
+#
+# Fusion is never automatic. A caller builds these nodes deliberately, which
+# keeps the choice of fusion domain explicit and keeps every other node encoding
+# exactly as it did before.
+#
+# See `BooleanFunction._tseytin_labels` and `._tseytin_clauses` for the contract
+# these nodes implement.
+
+class _TseytinFuse(BooleanFunction):
+    """A subtree presented to the SAT encoder as one node.
+
+    The stored `template` is over `VAR(0) .. VAR(n-1)`, and the node's
+    arguments supply those inputs positionally, so the node denotes exactly
+    `template.compose({i: args[i]})`. That equivalence is the whole semantics, and
+    `expand()` produces it.
+
+    What changes is the encoding. An ordinary gate hands the walk one wire per
+    intermediate and relates them pairwise; a fusion node claims whatever wires
+    its own encoding needs and emits the clauses for the entire domain at once.
+    Wires interior to the domain therefore stop being nodes, but they are still
+    published in this node's label list, so a caller can still read or constrain
+    every wire in the solution -- it just has no node object to key them by.
+
+    :ivar template: The template this node encodes, over `VAR(0) .. VAR(n-1)`.
+    :vartype template: BooleanFunction
+    :ivar args: The arguments supplying the template's inputs, in order.
+    :vartype args: tuple[BooleanFunction, ...]
+    """
+
+    template: BooleanFunction
+
+    def __init__(self, template: BooleanFunction, *args: BooleanFunction) -> None:
+        """Wrap `template` applied to `args`.
+
+        :param template: A template over `VAR(0) .. VAR(n-1)`.
+        :type template: BooleanFunction
+        :param args: One argument per template input, in index order.
+        :type args: BooleanFunction
+        :raises ValueError: If the template reads an input with no argument.
+        """
+        # An input the arguments don't supply would otherwise be encoded as a
+        # free interior wire -- a different function from the one `eval` sees,
+        # which fails on the missing index instead.
+        unsupplied = sorted(i for i in template.idxs_used() if not 0 <= i < len(args))
+        if unsupplied:
+            raise ValueError(
+                f"the template reads inputs {unsupplied}, but only "
+                f"{len(args)} argument(s) were given"
+            )
+
+        # A copy, so the node cannot be changed out from under itself by a
+        # caller still holding the template, and so two nodes built from one
+        # factory do not share interior objects -- the label map is keyed by
+        # node identity, so shared interiors would collide. Sharing is meant to
+        # happen at this node: reuse the _TseytinFuse itself and the walk gives
+        # it one set of wires and one set of clauses, like any other node.
+        self.template = template.__copy__()
+        self.args = args
+        self.arg_limit = None
+        self._build_skeleton()
+
+    def _copy(
+        self,
+        child_copies: dict[BooleanFunction, BooleanFunction]
+    ) -> Self:
+        """Rebuild this node over already-copied arguments.
+
+        The template is not a child: it is this node's own data, so the default
+        (which passes only the children to the constructor) would put the first
+        child where the template goes. The constructor takes a copy of the
+        template it is given, so the result shares nothing with this node and
+        the copy is deep.
+
+        :param child_copies: Copies of the node's arguments, keyed by original.
+        :type child_copies: dict[BooleanFunction, BooleanFunction]
+        :return: A fusion node over a copy of the template and the copied arguments.
+        :rtype: _TseytinFuse
+        """
+        return type(self)(self.template, *(child_copies[arg] for arg in self.args))
+
+    def expand(self) -> BooleanFunction:
+        """The ordinary subtree this node stands for.
+
+        Substituting the arguments into the template gives a function built
+        from normal gates, which denotes the same thing and encodes the
+        ordinary way. This is what a fused encoding must agree with, and what
+        `verify` checks against.
+
+        :return: The template with its inputs replaced by this node's arguments.
+        :rtype: BooleanFunction
+        """
+        return self.template.compose({i: arg for i, arg in enumerate(self.args)})
+
+    def verify(self) -> bool:
+        """Whether this node's CNF encodes the same function as `expand()`.
+
+        A fused encoding is written by hand, so nothing but a check like this
+        establishes that it agrees with the subtree it replaces. The check is a
+        SAT call on the XOR of the two, and it is deliberately *not* run during
+        clause emission: emission is on the hot path, the cost is unbounded, and
+        the check itself encodes this node, which would recurse.
+
+        :return: True if the fused and expanded forms are equivalent.
+        :rtype: bool
+        """
+        return self.functionally_equivalent(self.expand())
+
+    def _eval(self, values: dict[BooleanFunction, Any], array: Any) -> Any:
+        """Evaluate the template on the already-evaluated arguments.
+
+        :param values: Evaluations of this node's children.
+        :type values: dict[BooleanFunction, Any]
+        :param array: The input container the walk was given.
+        :type array: Any
+        :return: The template's value on those arguments.
+        :rtype: Any
+        """
+        return self.template.eval([values[arg] for arg in self.args])
+
+    def _eval_ANF(self, values: dict[BooleanFunction, Any], array: Any) -> Any:
+        """Evaluate the template over ANF-valued arguments.
+
+        :param values: ANF evaluations of this node's children.
+        :type values: dict[BooleanFunction, Any]
+        :param array: The input container the walk was given.
+        :type array: Any
+        :return: The template's ANF value on those arguments.
+        :rtype: Any
+        """
+        return self.template.eval_ANF([values[arg] for arg in self.args])
+
+    def _template_code(
+        self,
+        hook: str,
+        arg_strings: dict[BooleanFunction, str],
+        array_name: str
+    ) -> str:
+        """Generate the template's expression over its arguments' expressions.
+
+        Fusion only changes the SAT encoding; generated code is the template's
+        own gates, with each input replaced by the code already generated for
+        the argument that supplies it. The template is walked in post-order and
+        every node other than an input is asked for its expression through the
+        same hook the caller is using.
+
+        :param hook: The per-node generation hook, e.g. `_generate_c`.
+        :type hook: str
+        :param arg_strings: Code already generated for this node's arguments.
+        :type arg_strings: dict[BooleanFunction, str]
+        :param array_name: The name of the state array in the generated code.
+        :type array_name: str
+        :return: One expression computing this node.
+        :rtype: str
+        """
+        strings: dict[BooleanFunction, str] = {}
+        stack: list[BooleanFunction] = [self.template]
+        while stack:
+            node = stack[-1]
+            if node in strings:
+                stack.pop()
+            elif isinstance(node, VAR):
+                strings[node] = arg_strings[self.args[node.index]]
+                stack.pop()
+            elif all(arg in strings for arg in node.args):
+                strings[node] = getattr(node, hook)(strings, array_name)
+                stack.pop()
+            else:
+                stack.extend(reversed(node.args))
+        return strings[self.template]
+
+    def _generate_c(self, c_strings: dict[BooleanFunction, str], array_name: str) -> str:
+        return self._template_code("_generate_c", c_strings, array_name)
+
+    def _generate_VHDL(self, vhdl_strings: dict[BooleanFunction, str], array_name: str) -> str:
+        return self._template_code("_generate_VHDL", vhdl_strings, array_name)
+
+    def _generate_python(self, python_strings: dict[BooleanFunction, str], array_name: str) -> str:
+        return self._template_code("_generate_python", python_strings, array_name)
+
+    def _binarize(self, cache: dict[BooleanFunction, BooleanFunction]) -> "_TseytinFuse":
+        """Binarize below the fusion boundary, but not across it.
+
+        Decomposing the domain into two-input gates is the thing this node
+        exists to avoid, so the template is left whole and only the arguments
+        are replaced by their binarized forms.
+
+        :param cache: Already-binarized nodes, keyed by original.
+        :type cache: dict[BooleanFunction, BooleanFunction]
+        :return: A fusion node over binarized arguments.
+        :rtype: _TseytinFuse
+        """
+        return type(self)(self.template, *[cache[arg] for arg in self.args])
+
+    def add_arguments(self, *new_args: BooleanFunction) -> None:
+        """Not supported: the arguments are fixed by the template's arity.
+
+        :param new_args: Unused.
+        :type new_args: BooleanFunction
+        :raises ValueError: Always.
+        """
+        raise ValueError(
+            "a fusion node's arguments are fixed by the template it wraps; "
+            "build a new node over the template you want instead"
+        )
+
+    def remove_arguments(self, *old_args: BooleanFunction) -> None:
+        """Not supported: the arguments are fixed by the template's arity.
+
+        :param old_args: Unused.
+        :type old_args: BooleanFunction
+        :raises ValueError: Always.
+        """
+        raise ValueError(
+            "a fusion node's arguments are fixed by the template it wraps; "
+            "build a new node over the template you want instead"
+        )
+
+    # ── encoding ─────────────────────────────────────────────────────────
+
+    def _build_skeleton(self) -> None:
+        """Encode the template once, in wire numbers relative to this node.
+
+        The CNF a fusion node emits never changes shape -- only which solver
+        variables it is written over -- so it is built here, at construction,
+        and reduced to a substitution at encoding time. That leaves the walk
+        doing no work per node beyond renumbering.
+
+        The skeleton is stored over *placeholder* wires. `_arg_wires` maps an
+        argument position to the placeholder standing for that argument's
+        result, and `_own_wires` lists the placeholders this node will need
+        solver variables for, its own result last. Constant literals are not
+        placeholders and survive renumbering untouched.
+        """
+        template_labels, input_labels = self.template.tseytin_labels()
+        self._arg_wires = {
+            i: input_labels[i] for i in range(len(self.args)) if i in input_labels
+        }
+        argument_wires = set(self._arg_wires.values())
+        result = template_labels[self.template][-1]
+
+        direct = self._direct_skeleton(result)
+        if direct is not None:
+            self._own_wires, self._skeleton = direct
+            return
+
+        clauses = self.template.tseytin_clauses(template_labels)
+        interior = {
+            abs(literal)
+            for clause in clauses for literal in clause
+            if abs(literal) != 1 and abs(literal) not in argument_wires
+        }
+
+        # A template that is a bare input or constant carries its result on a
+        # wire this node does not own, so it takes one of its own and asserts
+        # the equivalence; every node has to publish a result wire it owns.
+        if result in argument_wires or abs(result) == 1:
+            owned_result = max(interior | argument_wires | {1}) + 1
+            clauses = clauses + [(-owned_result, result), (owned_result, -result)]
+            interior.add(owned_result)
+            result = owned_result
+
+        self._own_wires = sorted(interior - {result}) + [result]
+        self._skeleton = clauses
+
+    def _direct_skeleton(
+        self,
+        result: int
+    ) -> tuple[list[int], list[tuple[int, ...]]] | None:
+        """A fused skeleton for the templates that have an easy one, else None.
+
+        An n-input AND or OR is definable in one wire and n+1 clauses, where
+        chaining two-input gates spends n-1 wires and 3(n-1) clauses. The
+        conjunction case is `o -> a_i` for each argument together with
+        `(and a_i) -> o`; the disjunction case is its dual.
+
+        This is the placeholder pair, not a general fusion engine: anything else
+        falls back to the ordinary expansion, which is always correct.
+
+        :param result: The placeholder the ordinary encoding gave the template's
+            result, used only to pick a fresh placeholder clear of it.
+        :type result: int
+        :return: `(own wires, clauses)` over placeholders, or None.
+        :rtype: tuple[list[int], list[tuple[int, ...]]] | None
+        """
+        template = self.template
+        if not isinstance(template, (AND, OR)):
+            return None
+        # the template must be exactly the gate applied to its inputs in order
+        if not template.args or len(template.args) != len(self.args):
+            return None
+        if not all(isinstance(a, VAR) and a.index == i for i, a in enumerate(template.args)):
+            return None
+        if len(self._arg_wires) != len(self.args):
+            return None
+
+        args = [self._arg_wires[i] for i in range(len(self.args))]
+        output = max(args + [result]) + 1
+
+        if isinstance(template, AND):
+            clauses = (
+                [(-output, arg) for arg in args]
+                + [tuple([output] + [-arg for arg in args])]
+            )
+        else:
+            clauses = (
+                [(-arg, output) for arg in args]
+                + [tuple([-output] + list(args))]
+            )
+        return [output], clauses
+
+    def _tseytin_labels(
+        self,
+        node_labels: dict[BooleanFunction, list[int]],
+        variable_labels: dict[int, int],
+        next_idx: int
+    ) -> int:
+        """Claim one solver variable per wire the skeleton uses.
+
+        The count was fixed at construction, so this is a block of consecutive
+        variables and nothing is walked. They are this node's wires and no
+        other's: the interior of a fused domain has no nodes to be keyed by, so
+        it is published here and is opaque to the caller by design, with the
+        node's result last as every node's is.
+
+        :param node_labels: Node-to-wires map, extended in place.
+        :type node_labels: dict[BooleanFunction, list[int]]
+        :param variable_labels: Input-variable-to-wire map; untouched here.
+        :type variable_labels: dict[int, int]
+        :param next_idx: The next unused solver variable.
+        :type next_idx: int
+        :return: The next unused solver variable after this node's claim.
+        :rtype: int
+        """
+        node_labels[self] = [next_idx + i for i in range(len(self._own_wires))]
+        return next_idx + len(self._own_wires)
+
+    def _tseytin_clauses(
+        self,
+        label_map: dict[BooleanFunction, list[int]]
+    ) -> list[tuple[int, ...]]:
+        """Renumber the skeleton onto the wires this encoding actually uses.
+
+        Placeholders map to the arguments' result wires and to the block claimed
+        in `_tseytin_labels`; a literal's sign is carried through, and constants
+        are left alone.
+
+        :param label_map: Wires for every node encoded so far, including this
+            one and its arguments.
+        :type label_map: dict[BooleanFunction, list[int]]
+        :return: Clauses encoding the template over those arguments.
+        :rtype: list[tuple[int, ...]]
+        """
+        renumber = {
+            placeholder: label_map[self.args[i]][-1]
+            for i, placeholder in self._arg_wires.items()
+        }
+        renumber.update(zip(self._own_wires, label_map[self]))
+
+        return [
+            tuple(
+                renumber[abs(literal)] * (1 if literal > 0 else -1)
+                if abs(literal) != 1 else literal
+                for literal in clause
+            )
+            for clause in self._skeleton
+        ]
+
+
+def TseytinFuse(template: BooleanFunction):
+    """Turn a template into a node constructor that fuses it.
+
+    `TseytinFuse(template)` behaves like a gate class: calling it with
+    arguments builds a node denoting `template` applied to them, which the SAT encoder treats
+    as a single unit::
+
+        Maj = TseytinFuse(OR(AND(VAR(0), VAR(1)), AND(VAR(1), VAR(2))))
+        fn = XOR(Maj(VAR(3), VAR(4), VAR(5)), VAR(6))
+
+    :param template: A template over `VAR(0) .. VAR(n-1)`.
+    :type template: BooleanFunction
+    :return: A constructor taking the arguments to apply the template to.
+    :rtype: Callable[..., _TseytinFuse]
+    """
+    def build(*args: BooleanFunction) -> _TseytinFuse:
+        return _TseytinFuse(template, *args)
+    return build

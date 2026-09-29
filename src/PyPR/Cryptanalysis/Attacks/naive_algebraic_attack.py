@@ -1,17 +1,24 @@
-from PyPR.BooleanLogic import BooleanFunction
+
+import time
+from typing import TYPE_CHECKING
+
+import numpy as np
 
 from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile
 
+from PyPR.Cryptanalysis.Components.EquationGenerators.CubeEqGenerator import (
+    CubeEqGenerator,
+    get_var_map,
+)
+from PyPR.Cryptanalysis.Components.EquationGenerators.SubstitutionEqGenerator import (
+    SubstitutionEqGenerator,
+)
+from PyPR.Cryptanalysis.Components.EquationSolving.Grob_Solver import GrobnerSolver
+from PyPR.Cryptanalysis.Components.EquationSolving.LU_Solver import LUSolver
 from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
 
-from PyPR.Cryptanalysis.Components.EquationGenerators.CubeEqGenerator import CubeEqGenerator, get_var_map
-from PyPR.Cryptanalysis.Components.EquationGenerators.SubstitutionEqGenerator import SubstitutionEqGenerator
-
-from PyPR.Cryptanalysis.Components.EquationSolving.LU_Solver import LUSolver
-from PyPR.Cryptanalysis.Components.EquationSolving.Grob_Solver import GrobnerSolver
-
-import numpy as np
-import time
+if TYPE_CHECKING:
+    from PyPR.BooleanLogic import BooleanFunction
 
 # small helper function to help pretty-print:
 def indent(n):
@@ -35,7 +42,8 @@ def NAA_offline(
         if verbose:
             print(f"{indent(print_depth+1)}using monomial profile optimization: True")
             print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Calculating larger monomial profile:")
-            mp_time = time.time()
+
+        mp_time = time.time()
 
         # A map with all subsets filled in, to sum over cubes
         output_mp = output_fn.remap_constants([
@@ -47,7 +55,8 @@ def NAA_offline(
             print(f"{indent(print_depth+1)}Monomial profile computed:")
             print(f"{indent(print_depth+1)}Time: {time.time() - mp_time} s")
             print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Calculating variable_map:")
-            var_map_time = time.time()
+
+        var_map_time = time.time()
 
         # A map with all subsets filled in, to sum over cubes
         variable_indices = get_var_map(
@@ -62,10 +71,8 @@ def NAA_offline(
         # use precomputed maps for faster eq generation and storage
         eqs = LUEqStore(variable_indices)
 
-        check_ranks = False
-
         eq_gen = CubeEqGenerator(
-            feedback_fn, output_fn, 2**feedback_fn.size, 
+            feedback_fn, output_fn, 2**feedback_fn.size,
             variable_indices
         )
 
@@ -76,19 +83,20 @@ def NAA_offline(
         eqs = LUEqStore()
         # ensure all variables are in the eq store:
         for v in range(len(feedback_fn)):
-            eqs._update_known_monomials(tuple([v]))
+            eqs._update_known_monomials((v,))
 
         eq_gen = SubstitutionEqGenerator(feedback_fn, output_fn, 2**feedback_fn.size)
 
     if verbose:
         print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Generating Equations:")
-        eq_time = time.time()
+
+    eq_time = time.time()
 
     # main loop:
     for t, equation in enumerate(eq_gen): #type: ignore  (to narrow types correctly)
         equation: BooleanFunction | np.ndarray[tuple[int],np.dtype[np.uint8]]
 
-        if t < init_rounds: 
+        if t < init_rounds:
             continue
 
         linearly_independent = eqs.insert_equation(
@@ -97,7 +105,7 @@ def NAA_offline(
             translate_ANF = False
         )
 
-        if verbose: 
+        if verbose:
             print(f'\r{indent(print_depth+2)}Equations Found: {eqs.num_eqs} / {eqs.num_vars}',end='')
 
         if not linearly_independent:
@@ -117,8 +125,8 @@ def NAA_offline(
         #print(f'\r{indent(print_depth+2)}Equations Found: {eqs.num_eqs} / {eqs.num_vars}')
         print(f"\n{indent(print_depth+1)}Finished equation generation: ")
         print(f"{indent(print_depth+1)}Time: {time.time() - eq_time} s")
-        print(f"Offline phase complete -- Total time: ", time.time() - start_time)
-    
+        print("Offline phase complete -- Total time: ", time.time() - start_time)
+
     output = {}
     output['guess vars'] = not_solved
     output['equation times'] = eqs.equation_ids
@@ -194,4 +202,3 @@ def NAA_online(
         print(f"{indent(print_depth)}Online phase complete -- Total time: {time.time() - start_time} s")
 
     return initial_state
- 

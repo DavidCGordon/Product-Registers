@@ -13,11 +13,18 @@ import random
 import numpy as np
 import pytest
 
-from PyPR.BooleanLogic import BooleanANF, VAR, XOR, AND, CONST
-from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
-from PyPR.Cryptanalysis.Components.EquationStores.EqStore import EqStore
-from PyPR.Cryptanalysis.Components.EquationStores.SymbolicEqStore import SymbolicEqStore
+from PyPR.BooleanLogic import AND, CONST, VAR, XOR, BooleanANF
 
+from PyPR.Cryptanalysis.Components.EquationStores.EqStore import EqStore
+from PyPR.Cryptanalysis.Components.EquationStores.FilteringEqStore import (
+    FilteringEqStore,
+)
+from PyPR.Cryptanalysis.Components.EquationStores.GrobnerEqStore import GroebnerEqStore
+from PyPR.Cryptanalysis.Components.EquationStores.GrobnerEqStore2 import (
+    GroebnerEqStore2,
+)
+from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
+from PyPR.Cryptanalysis.Components.EquationStores.SymbolicEqStore import SymbolicEqStore
 
 # ── Empty store ───────────────────────────────────────────────────────────────
 
@@ -282,3 +289,109 @@ def test_store_rank_equals_the_rank_of_the_system_it_holds(trial):
         f"trial {trial}: store reports rank {store.rank} for a system of rank "
         f"{gf2_rank(masks)}"
     )
+
+
+# ── FilteringEqStore contract ────────────────────────────────────────────────
+# A filtering store converges toward a solution; a non-filtering one only
+# accumulates. The type is the authority on which a store is, and every
+# filtering store reports progress as num_determined, whatever it reduces with.
+
+def test_filtering_flag_agrees_with_the_type():
+    """`store.filtering` and isinstance(store, FilteringEqStore) are one question."""
+    stores = [EqStore(), SymbolicEqStore(), LUEqStore(),
+              GroebnerEqStore(None), GroebnerEqStore2()]
+    for store in stores:
+        assert store.filtering == isinstance(store, FilteringEqStore), (
+            f"{type(store).__name__} reports filtering={store.filtering} but "
+            f"isinstance says {isinstance(store, FilteringEqStore)}"
+        )
+
+def test_only_filtering_stores_report_progress():
+    assert not hasattr(EqStore(), "num_determined")
+    assert not hasattr(SymbolicEqStore(), "num_determined")
+    assert LUEqStore().num_determined == 0
+    assert GroebnerEqStore(None).num_determined == 0
+
+def test_lu_progress_is_the_rank():
+    """LU counts pivot columns, so progress moves only on an independent row."""
+    store = LUEqStore()
+    store.insert_equation(XOR(VAR(0), VAR(1)))
+    store.insert_equation(XOR(VAR(1), VAR(2)))
+    assert store.num_determined == store.rank == 2
+    store.insert_equation(XOR(VAR(0), VAR(2)))  # the XOR of the first two
+    assert store.num_determined == 2, "a dependent row must not register as progress"
+
+@pytest.mark.parametrize("make_store", [lambda: GroebnerEqStore(None), GroebnerEqStore2],
+                         ids=["GroebnerEqStore", "GroebnerEqStore2"])
+def test_grobner_num_vars_counts_variables_ever_seen(make_store):
+    """num_vars must not fall when reduction moves a variable to solved_vars.
+
+    unknown_vars shrinks as variables are pinned, so num_vars is maintained at
+    the one place the set grows. Solved variables are composed out before
+    idxs_used() runs, so a variable reappearing in a later equation is not
+    counted twice -- which the x0 in the fourth and sixth equations exercises.
+    """
+    store = make_store()
+    equations = [
+        XOR(VAR(0), VAR(1)),                        # new: 0, 1
+        XOR(VAR(1), VAR(2), CONST(1)),              # new: 2
+        XOR(VAR(0), CONST(1)),                      # pins 0, cascades to 1 and 2
+        XOR(VAR(0), VAR(3)),                        # 0 already solved; 3 is new
+        XOR(VAR(1), VAR(2), CONST(1)),              # nothing new
+        XOR(AND(VAR(4), VAR(5)), VAR(0), CONST(1)), # new: 4, 5
+    ]
+    for equation in equations:
+        store.enqueue_equation(equation)
+        store.process_pending()
+        ever_seen = store.unknown_vars | set(store.solved_vars)
+        assert store.num_vars == len(ever_seen), (
+            f"num_vars={store.num_vars} but {len(ever_seen)} variables have been seen"
+        )
+
+@pytest.mark.parametrize(
+    "make_store",
+    [LUEqStore, lambda: GroebnerEqStore(None), GroebnerEqStore2],
+    ids=["LUEqStore", "GroebnerEqStore", "GroebnerEqStore2"],
+)
+def test_progress_reaches_num_vars_exactly_when_determined(make_store):
+    """The completion invariant every consumer of num_determined relies on."""
+    store = make_store()
+    for equation in [XOR(VAR(0), VAR(1)), XOR(VAR(1), VAR(2), CONST(1)),
+                     XOR(VAR(0), CONST(1)), XOR(VAR(0), VAR(3))]:
+        store.queue_equation(equation)
+        store.process_pending()
+        assert (store.num_determined == store.num_vars) == store.is_determined, (
+            f"{type(store).__name__}: num_determined={store.num_determined}, "
+            f"num_vars={store.num_vars}, is_determined={store.is_determined}"
+        )
+
+
+# ── process_pending reports how much it consumed ─────────────────────────────
+# BaseEqStore.process_pending returns the number of pending equations consumed,
+# zero for a store with nothing deferred, so that a caller may accumulate it
+# across stores without checking which kind it holds -- SplitGrob_Solver and the
+# online inserter both do. It used to be declared `-> None` with a `pass` body
+# while the Groebner stores returned an int, so `count += process_pending()`
+# worked or raised TypeError depending on the store.
+
+@pytest.mark.parametrize("make_store", [
+    EqStore, SymbolicEqStore, LUEqStore,
+    lambda: GroebnerEqStore(None), GroebnerEqStore2,
+], ids=["EqStore", "SymbolicEqStore", "LUEqStore", "GroebnerEqStore", "GroebnerEqStore2"])
+def test_process_pending_returns_an_int_for_every_store(make_store):
+    store = make_store()
+    store.queue_equation(XOR(VAR(0), VAR(1)))
+    store.queue_equation(XOR(VAR(1), CONST(1)))
+    consumed = store.process_pending()
+    assert isinstance(consumed, int)
+    total = 0
+    total += store.process_pending()          # the accumulation callers rely on
+    assert total >= 0
+
+def test_deferred_stores_count_what_they_consume():
+    """The Groebner stores defer reduction, so the count is the queue they drained."""
+    for store in (GroebnerEqStore(None), GroebnerEqStore2()):
+        store.queue_equation(XOR(VAR(0), VAR(1)))
+        store.queue_equation(XOR(VAR(1), CONST(1)))
+        assert store.process_pending() == 2
+        assert store.process_pending() == 0, "a drained queue has nothing left to consume"

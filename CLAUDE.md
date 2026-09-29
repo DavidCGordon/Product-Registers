@@ -47,11 +47,11 @@ Requires Python 3.12+. Key dependencies: `numba` (JIT), `numpy`, `galois` (finit
 
 ## Running Tests
 
-The suite is **pytest**-based — 359 tests across `test/`, mirroring the `src/` structure.
+The suite is **pytest**-based — about 1,030 tests across `test/`, mirroring the `src/` structure.
 
 ```bash
 pip install -e ".[dev]"        # installs pytest
-pytest                         # whole suite (~50s)
+pytest                         # whole suite (~1 min)
 pytest test/Cryptanalysis      # one subtree
 pytest -k monomial_profile     # by name
 pytest -m "not slow"           # skip tests marked @pytest.mark.slow
@@ -71,6 +71,46 @@ iteration fast.
 
 CI runs this same suite on every push and PR to `master` and `dev` — see
 `.github/workflows/tests.yml`.
+
+## Linting
+
+```bash
+pip install -e ".[lint]"       # pinned ruff + pyright
+ruff check src test            # the findings
+ruff check src test --statistics   # the same thing counted by rule
+ruff rule N999                 # what a rule means and why it exists
+```
+
+Lint is **advisory** — the `quality` CI job is `continue-on-error` and the
+`tests-passed` gate does not depend on it, so a finding can never block a merge.
+The count is the signal: it is meant to move only when someone changes the
+source, which is why both tools are pinned exactly in the `lint` extra.
+
+Rule selection is ruff's default set for the pinned version. `[tool.ruff.lint]`
+in `pyproject.toml` carries only the subtractions, and each one is a decision
+with a reason attached rather than a deferral — `N999` because module names are
+CapitalCase by design, `SIM401` and `SIM114` because the Code Style section
+below already chose explicit control flow over dictionary idioms and merged
+branches, `W291`/`W293` in the files whose docstrings and templates hold
+whitespace we chose not to change (fixing it changes the strings' values), `F401` in `__init__.py`
+because re-exports are the mechanism, `I001` in `__init__.py` because an
+`__init__`'s import order is its load order and some of them depend on it,
+`S102` in the two codegen files because they exec source this library just
+emitted. Everything else is a live finding.
+
+Imports are grouped by layer, not lumped together as first-party: standard
+library, third-party, then the package root, `BooleanLogic`, registers
+(`FeedbackFunctions`, `FeedbackRegister`), `Tools`, and `Cryptanalysis`, each
+group sorted and separated by a blank line. The groups are declared in
+`[tool.ruff.lint.isort]`, so `ruff check --select I --fix` produces them; a
+new internal subpackage needs a section there or it falls into the catch-all
+first-party group at the end.
+
+Before silencing a rule, read `ruff rule <CODE>`. Rules fall into three groups:
+ones describing a way code is silently wrong (`B006`, `E722`), ones that are
+idiom with no correctness stake, and ones carrying assumptions about a codebase
+this is not. Only the third group belongs in the ignore list, and it belongs
+there with a comment saying which assumption fails here.
 
 ## Architecture
 

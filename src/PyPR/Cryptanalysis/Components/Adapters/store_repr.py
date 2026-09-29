@@ -8,6 +8,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from PyPR.BooleanLogic import BooleanANF
+
 from PyPR.Cryptanalysis.Components.Adapters.equation_repr import coef_vector_to_anf
 
 
@@ -41,7 +42,7 @@ def to_coef_matrix(store) -> tuple[NDArray[np.uint8], dict, dict]:
 
         # For consistent stores the const_idx row is an axiom (CONST=1),
         # not a real equation — drop it and let solvers/guessing handle it.
-        const_idx: int | None = c2i.get(tuple())
+        const_idx: int | None = c2i.get(())
 
         pivot_rows = [i for i in range(n) if store.solved_for[i]]
         if store.consistent and const_idx is not None:
@@ -124,7 +125,7 @@ def to_anf_list(store) -> list[BooleanANF]:
     if hasattr(store, 'upper_matrix') and hasattr(store, 'solved_for'):
         i2c = store.idx_to_comb
         n = store.num_vars
-        const_idx: int | None = store.comb_to_idx.get(tuple())
+        const_idx: int | None = store.comb_to_idx.get(())
 
         result = []
         for i in range(n):

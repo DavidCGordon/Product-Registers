@@ -1,6 +1,7 @@
 import PyPR.BooleanLogic.ChainingGeneration.TemplateBuilding as tb
-from PyPR.BooleanLogic.Gates import *
 from PyPR.BooleanLogic.FunctionInputs import *
+from PyPR.BooleanLogic.Gates import *
+
 
 def arman_function(reference_block, max_and):
   n = len(reference_block)

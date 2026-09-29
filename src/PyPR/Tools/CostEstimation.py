@@ -13,19 +13,21 @@ See Theory/Cube Equation Generation.md for the mathematical background.
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from PyPR.BooleanLogic.Gates import AND, OR, NAND, NOR, XOR, XNOR
+from PyPR.BooleanLogic.Gates import AND, NAND, NOR, OR, XNOR, XOR
+
 from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile, TermSet
 
 if TYPE_CHECKING:
     from PyPR.BooleanLogic import BooleanFunction
+
     from PyPR.FeedbackFunctions import FeedbackFunction
 
 
 def estimate_cost_comp(
-    feedback_fn: "FeedbackFunction",
-    output_fn: "BooleanFunction",
+    feedback_fn: FeedbackFunction,
+    output_fn: BooleanFunction,
     monomial_profiles: list[MonomialProfile],
 ) -> int:
     """Estimate the ANF composition cost in coefficient flips.
@@ -56,7 +58,10 @@ def estimate_cost_comp(
             (1, MonomialProfile.logical_one()),
         ]).binarize()
 
-        stack = [new_fn]
+        # False is a sentinel marking the boundary between a node and its
+        # children, so the stack is heterogeneous -- same idiom as the DAG
+        # walks in BooleanFunction.py
+        stack: list[Any] = [new_fn]
         last = None
 
         while stack:
@@ -103,8 +108,8 @@ def estimate_cost_comp(
 
 
 def estimate_cost_cube(
-    feedback_fn: "FeedbackFunction",
-    output_fn: "BooleanFunction",
+    feedback_fn: FeedbackFunction,
+    output_fn: BooleanFunction,
     monomial_profiles: list[MonomialProfile],
 ) -> int:
     """Estimate the cube-based equation generation cost in coefficient flips.

@@ -1,5 +1,6 @@
 from itertools import groupby
 
+
 #group tuples by first dimension, and add an empty "0" layer
 def preprocess(rectangle_list):
     output = sorted(rectangle_list, key = lambda x: x[0], reverse=True)
@@ -36,7 +37,7 @@ def _solve_rec(dimension,rectangle_list):
     # base case:
     if dimension == 1:
         return max(x[0] for x in rectangle_list)
-    
+
     total_area = 0
     processed_list = preprocess(rectangle_list)
 

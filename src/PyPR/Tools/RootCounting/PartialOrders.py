@@ -14,7 +14,7 @@ def maximalElements(leq_ordering, inputs):
                 elif leq_ordering(element, already_added):
                     maximal = False
                     break
-                
+
             if maximal:
                 maximal_set.add(element)
     return maximal_set
@@ -47,11 +47,11 @@ def isExactSubset(a,b):
 # If the roots in A are a subset of those in B, with same or lower multiplicity
 # We can finally remove these at evaluation to avoid double counting.
 def isSubset(a,b):
-    
+
     # this is subset check using >
     if (a.mults > b.mults):
         return False
-    
+
     if a.roots.keys() != b.roots.keys():
         return False
 
@@ -88,7 +88,7 @@ def isEmbeddedSet(a,b):
 
     a_keyset = set(a.roots.keys())
     b_keyset = set(b.roots.keys())
-    
+
     # there should be a strict subset relationship on keys:
     if not a_keyset.issubset(b_keyset):
         return False
@@ -109,13 +109,13 @@ def isEmbeddedSet(a,b):
 # Formally: If set A is a subset of something that might be embedded in B
 # Alternatively: If all the roots are inside the area optimistically covered by B.
 # we remove these when we optimistically assume that we will get everything in B
-# if we aren't optimistic, we might still want the smaller one. 
+# if we aren't optimistic, we might still want the smaller one.
 
 # unclear if we can ever actually get these?
 def isEmbeddedSubset(a,b):
     if a.m > b.m:
         return False
-    
+
     a_keyset = set(a.roots.keys())
     b_keyset = set(b.roots.keys())
 

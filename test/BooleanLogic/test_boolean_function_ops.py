@@ -9,9 +9,7 @@ from itertools import product as iter_product
 
 import pytest
 
-from PyPR.BooleanLogic import AND, OR, XOR, NOT, VAR, CONST
-from PyPR.BooleanLogic.BooleanANF import BooleanANF
-
+from PyPR.BooleanLogic import AND, CONST, NOT, OR, VAR, XOR
 
 # ── idxs_used ────────────────────────────────────────────────────────────────
 
@@ -235,6 +233,25 @@ def test_inputs_for_const():
     leaves = fn.inputs()
     assert c in leaves
 
+def test_inputs_is_an_ordered_list_of_leaves():
+    """A list, not a set: the docstring promises DFS order and that distinct
+    objects are all kept. Leaves used to return `{self}` while gates returned a
+    list, so the two halves of the contract disagreed."""
+    v0, v1, v2 = VAR(0), VAR(1), VAR(2)
+    leaves = XOR(AND(v0, v1), v2).inputs()
+    assert isinstance(leaves, list)
+    assert [id(x) for x in leaves] == [id(v0), id(v1), id(v2)]
+
+def test_inputs_keeps_equal_but_distinct_leaves():
+    """Two VAR(0) objects are two leaves, even though they name one variable."""
+    assert len(AND(VAR(0), VAR(0)).inputs()) == 2
+
+def test_leaf_inputs_is_itself():
+    leaf = VAR(3)
+    assert leaf.inputs() == [leaf]
+    constant = CONST(1)
+    assert constant.inputs() == [constant]
+
 
 # ── add_arguments / remove_arguments ─────────────────────────────────────────
 
@@ -247,7 +264,7 @@ def test_add_arguments_increases_arity():
 def test_add_arguments_respects_arg_limit():
     """add_arguments raises ValueError when arg_limit would be exceeded."""
     fn = NOT(VAR(0))  # NOT has arg_limit=1
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="supports at most"):
         fn.add_arguments(VAR(1))
 
 def test_remove_arguments_specific():
@@ -256,13 +273,14 @@ def test_remove_arguments_specific():
     fn = XOR(v0, v1, v2)
     fn.remove_arguments(v1)
     assert v1 not in fn.args
-    assert v0 in fn.args and v2 in fn.args
+    assert v0 in fn.args
+    assert v2 in fn.args
 
 def test_remove_arguments_none_clears_all():
     """remove_arguments() with no args clears the entire argument list."""
     fn = XOR(VAR(0), VAR(1), VAR(2))
     fn.remove_arguments()
-    assert fn.args == tuple()
+    assert fn.args == ()
 
 def test_remove_arguments_missing_is_silent():
     """Removing an argument not present does not raise an error."""

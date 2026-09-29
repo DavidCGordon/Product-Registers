@@ -1,6 +1,7 @@
 import PyPR.BooleanLogic.ChainingGeneration.TemplateBuilding as tb
-from PyPR.BooleanLogic.Gates import *
 from PyPR.BooleanLogic.FunctionInputs import *
+from PyPR.BooleanLogic.Gates import *
+
 
 def old_ANF_function(reference_block, max_and = 4, max_xor = 4):
   n = len(reference_block)
@@ -30,11 +31,11 @@ def old_ANF_function(reference_block, max_and = 4, max_xor = 4):
                 ]
               )
             )
-          ) 
+          )
         )
       )
     )
-  
+
   def second_layer_XOR(num_inputs):
     return (
       tb.UNIQUE(
@@ -60,7 +61,7 @@ def old_ANF_function(reference_block, max_and = 4, max_xor = 4):
                 ]
               )
             )
-          ) 
+          )
         )
       )
     )
@@ -88,7 +89,7 @@ def old_ANF_template(max_and = 4, max_xor = 4):
 
       template = old_ANF_function(
         reference_block=cmpr.blocks[i-1],
-        max_and=max_and, 
+        max_and=max_and,
         max_xor=max_xor
       )
 

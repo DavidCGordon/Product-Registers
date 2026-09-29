@@ -4,8 +4,7 @@ functional equivalence, and model enumeration.
 SAT support is patched onto BooleanFunction via PyPR.BooleanLogic.SAT, which is
 imported automatically when PyPR.BooleanLogic is loaded.
 """
-from PyPR.BooleanLogic import AND, OR, XOR, NOT, VAR, CONST
-
+from PyPR.BooleanLogic import AND, CONST, NOT, OR, VAR, XOR
 
 # ── satisfiable / unsatisfiable ──────────────────────────────────────────────
 

@@ -1,17 +1,27 @@
-from PyPR.BooleanLogic import BooleanFunction
+
+import time
+from typing import TYPE_CHECKING
+
+import numpy as np
 
 from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile
 
+from PyPR.Cryptanalysis.Components.EquationGenerators.CubeEqGenerator import (
+    CubeEqGenerator,
+    get_var_map,
+)
+from PyPR.Cryptanalysis.Components.EquationGenerators.SubstitutionEqGenerator import (
+    SubstitutionEqGenerator,
+)
+from PyPR.Cryptanalysis.Components.EquationSolving.LU_Solver import LUSolver
 from PyPR.Cryptanalysis.Components.EquationStores.EqStore import EqStore
+from PyPR.Cryptanalysis.Components.EquationStores.FilteringEqStore import (
+    FilteringEqStore,
+)
 from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
 
-from PyPR.Cryptanalysis.Components.EquationGenerators.CubeEqGenerator import CubeEqGenerator, get_var_map
-from PyPR.Cryptanalysis.Components.EquationGenerators.SubstitutionEqGenerator import SubstitutionEqGenerator
-
-from PyPR.Cryptanalysis.Components.EquationSolving.LU_Solver import LUSolver
-
-import numpy as np
-import time
+if TYPE_CHECKING:
+    from PyPR.BooleanLogic import BooleanFunction
 
 # small helper function to help pretty-print:
 def indent(n):
@@ -19,7 +29,7 @@ def indent(n):
 
 
 def RAA_offline(
-    feedback_fn, annihilator, multiple, 
+    feedback_fn, annihilator, multiple,
     init_rounds, margin,
     time_limit, verbose = False, print_depth=0,
 
@@ -37,7 +47,8 @@ def RAA_offline(
         if verbose:
             print(f"{indent(print_depth+1)}using monomial profile optimization: True")
             print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Calculating larger monomial profile:")
-            mp_time = time.time()
+
+        mp_time = time.time()
 
         selected = max((annihilator, multiple), key = lambda x: x.degree())
         selected_mp = selected.remap_constants([
@@ -51,8 +62,9 @@ def RAA_offline(
             print(f"{indent(print_depth+1)}Monomial profile computed:")
             print(f"{indent(print_depth+1)}Time: {time.time() - mp_time} s")
             print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Calculating variable_map:")
-            var_map_time = time.time()
-        
+
+        var_map_time = time.time()
+
         # A map with all subsets filled in, to sum over cubes
         variable_indices = get_var_map(
             feedback_fn, selected_mp, variable_blocks, complete_subsets = True
@@ -67,10 +79,15 @@ def RAA_offline(
         annihilator_eqs = EqStore(variable_indices)
         multiple_eqs = EqStore(variable_indices)
 
-        check_ranks = False
+        # No rank trackers on this path: the monomial profile already bounds
+        # the variable count. Their absence *is* the flag -- see the guard in
+        # the equation loop below.
+        annihilator_LU = None
+        multiple_LU = None
+        count_into_margin = 0
 
         eq_gen = CubeEqGenerator(
-            feedback_fn, [annihilator, multiple], (len(variable_indices) + margin), 
+            feedback_fn, [annihilator, multiple], (len(variable_indices) + margin),
             variable_indices, #output_map = variable_indices
         )
 
@@ -94,7 +111,7 @@ def RAA_offline(
 
         # ensure all variables are in the eq store:
         for v in range(len(feedback_fn)):
-            annihilator_eqs._update_known_monomials(tuple([v]))
+            annihilator_eqs._update_known_monomials((v,))
 
         eq_gen = SubstitutionEqGenerator(
             feedback_fn, [annihilator, multiple], 2**feedback_fn.size
@@ -102,13 +119,13 @@ def RAA_offline(
 
         # have to check ranks, since number of
         # variables isnt known ahead of time
-        check_ranks = True
         count_into_margin = 0
 
 
     if verbose:
         print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Generating Equations:")
-        eq_time = time.time()
+
+    eq_time = time.time()
 
     # main equation loop
     for t, (ann_eq, mult_eq) in enumerate(eq_gen): # type: ignore (to narrow types correctly)
@@ -121,7 +138,7 @@ def RAA_offline(
         annihilator_eqs.insert_equation(ann_eq, identifier = t)
         multiple_eqs.insert_equation(mult_eq, identifier = t)
 
-        if verbose: 
+        if verbose:
             print(f'\r{indent(print_depth+2)}Equations Found: {multiple_eqs.num_eqs} / {multiple_eqs.num_vars + margin}',end='')
 
         if time_limit and (time.time() - start_time >= time_limit):
@@ -130,7 +147,7 @@ def RAA_offline(
             break
 
         # break step only necessary for dynamic stores
-        if check_ranks:
+        if annihilator_LU is not None and multiple_LU is not None:
             ann_indep = annihilator_LU.insert_equation(ann_eq, identifier = t)
             mult_indep = multiple_LU.insert_equation(mult_eq, identifier = t)
 
@@ -146,7 +163,7 @@ def RAA_offline(
         #print(f'\r{indent(print_depth+2)}Equations Found: {annihilator_eqs.num_eqs} / {annihilator_eqs.num_vars + margin}',end='\n')
         print(f"\n{indent(print_depth+1)}Finished equation generation: ")
         print(f"{indent(print_depth+1)}Time: {time.time() - eq_time} s")
-        print(f"Offline phase complete -- Total time: ", time.time() - start_time)
+        print("Offline phase complete -- Total time: ", time.time() - start_time)
 
     output = {}
     output['idx to comb map'] = multiple_eqs.idx_to_comb
@@ -190,12 +207,14 @@ def RAA_online(
     idx_to_comb = attack_data['idx to comb map']
 
     if online_store is None:
-        online_store = LUEqStore(comb_to_idx, consistent=(tuple() in comb_to_idx))
+        online_store = LUEqStore(comb_to_idx, consistent=(() in comb_to_idx))
 
     if verbose:
         print(f"{indent(print_depth+1)}Starting Equation Substitution:")
 
-    from PyPR.Cryptanalysis.Components.Adapters.online_insertion import make_online_inserter
+    from PyPR.Cryptanalysis.Components.Adapters.online_insertion import (
+        make_online_inserter,
+    )
 
     insert_eq, finalize = make_online_inserter(
         online_store, idx_to_comb,
@@ -218,8 +237,8 @@ def RAA_online(
     finalize()
 
     if verbose:
-        if hasattr(online_store, 'solved_vars') and isinstance(online_store.solved_vars, dict):
-            solved_count = len(online_store.solved_vars)
+        if isinstance(online_store, FilteringEqStore):
+            solved_count = online_store.num_determined
         else:
             solved_count = online_store.num_eqs
         print(f"\n{indent(print_depth+1)}Finished substituting key stream:")
@@ -244,4 +263,3 @@ def RAA_online(
         print(f"{indent(print_depth)}Online phase complete -- Total time: {time.time() - start_time} s")
 
     return initial_state
- 

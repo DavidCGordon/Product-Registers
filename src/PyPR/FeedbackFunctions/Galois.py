@@ -1,10 +1,12 @@
 from functools import cached_property
-from typing import Self, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from PyPR.BooleanLogic import BooleanANF, BooleanFunction, CONST, VAR
+from PyPR.BooleanLogic import CONST, VAR, BooleanFunction
+
 from PyPR.FeedbackFunctions import FeedbackFunction
+
 from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey
 
 if TYPE_CHECKING:

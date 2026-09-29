@@ -1,13 +1,14 @@
-from PyPR.BooleanLogic import BooleanFunction, BooleanANF
+from typing import Any
 
-from PyPR.Cryptanalysis.Components.EquationStores.IndexedEqStore import IndexedEqStore
-from PyPR.Cryptanalysis.Components.Adapters.equation_repr import (
-    extract_monomials,
-    coef_vector_to_anf,
-)
 import numpy as np
 
-from typing import Any
+from PyPR.BooleanLogic import BooleanANF, BooleanFunction
+
+from PyPR.Cryptanalysis.Components.Adapters.equation_repr import (
+    coef_vector_to_anf,
+    extract_monomials,
+)
+from PyPR.Cryptanalysis.Components.EquationStores.IndexedEqStore import IndexedEqStore
 
 
 class SymbolicEqStore(IndexedEqStore):
@@ -35,7 +36,6 @@ class SymbolicEqStore(IndexedEqStore):
 
     def _expand_storage(self):
         """No-op — symbolic storage (list) grows naturally."""
-        pass
 
     def insert_equation(
         self,

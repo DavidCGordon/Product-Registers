@@ -1,23 +1,22 @@
-import numpy as np
-import numba as nb
-import galois as gl
-from galois import egcd
-import sympy
-
 import math
+from itertools import product
+
+import numpy as np
+import sympy
+from galois import egcd
 
 from PyPR.FeedbackFunctions import MPR
 from PyPR.FeedbackRegister import FeedbackRegister
+
 from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey
 
-from itertools import product
 
 def modular_compose(remainders,moduli):
     if (len(remainders) != len(moduli)):
-        raise ValueError()
+        raise ValueError
     if len(remainders) == 0:
-        raise ValueError()
- 
+        raise ValueError
+
     curr_remainder = remainders[0]
     curr_modulus = moduli[0]
 
@@ -28,18 +27,18 @@ def modular_compose(remainders,moduli):
 
         common_factor = math.gcd(curr_modulus, merge_mod)
         if (curr_remainder % common_factor != merge_rem % common_factor):
-            raise ValueError() # No solution exists
+            raise ValueError # No solution exists
 
         # Merge the two equations
         _, bezout_current, bezout_merge = egcd(
-            curr_modulus // common_factor, 
+            curr_modulus // common_factor,
             merge_mod //  common_factor
         )
 
         # Potential overflow here:
         new_mod = curr_modulus // common_factor * merge_mod; # LCM of m1 and m2
         curr_remainder = (
-            merge_rem * (bezout_current) * (curr_modulus//common_factor) + 
+            merge_rem * (bezout_current) * (curr_modulus//common_factor) +
             curr_remainder * (bezout_merge) * (merge_mod//common_factor)
         ) % new_mod
         curr_modulus = new_mod
@@ -51,7 +50,7 @@ def bezout(numbers):
     and coefficents is a bezout-like vector (coefficients dot numbers = g)
     """
     if not numbers:
-        raise ValueError()
+        raise ValueError
     if len(numbers) == 1:
         return (numbers[0], [1])
 
@@ -66,19 +65,19 @@ def bezout(numbers):
         c = numbers[i]
         # Calculate g' = gcd(g, c) and coefficients s, t such that g*s + c*t = g'
         g_prime, s, t = egcd(g, c)
-        
+
         # Update coefficients for all previous numbers:
         for j in range(len(coefficients)):
             coefficients[j] *= s
         coefficients.append(t)
         g = g_prime
-        
+
     return (g, coefficients)
 
 def order(num, mod):
     if num == 1:
         return 1
-    
+
     power = 1
     value = num
     while value != 1:
@@ -92,7 +91,7 @@ def get_field(denominator):
 def euler_totient(x):
     if x == 1:
         return 1
-    
+
     output = 1
     for f,m in sympy.factorint(x).items():
         output *= (f**(m-1))*(f-1)
@@ -101,19 +100,19 @@ def euler_totient(x):
 def carmichael_lambda(x):
     if x == 1:
         return 1
-    
+
     facts = []
     for f,m in sympy.factorint(x).items():
         if f**m in [2,4]:
             facts.append(f**m // 2)
         elif f == 2:
-            facts.append((f**(m-2)))
+            facts.append(f**(m-2))
         else:
             facts.append((f**(m-1))*(f-1))
-    
+
     if len(facts) == 1:
         return facts[0]
-    
+
     g = math.gcd(*facts)
     output = 1
     for f in facts:
@@ -141,7 +140,7 @@ def primitive_elements(prime,power,lim=1000):
 
             if len(base_set) == lim:
                 break
-            
+
     current_set = set(base_set)
     for degree in range(1,power):
         if len(current_set) >= lim:
@@ -151,11 +150,11 @@ def primitive_elements(prime,power,lim=1000):
         curr_mod = prime**(degree+1)
         target_order = carmichael_lambda(curr_mod)
 
-        current_set |= set([
-            (x+y)%total_mod for x,y in product(current_set,add) 
+        current_set |= {
+            (x+y)%total_mod for x,y in product(current_set,add)
             if order((x+y)%total_mod,curr_mod) == target_order
-        ])
-       
+        }
+
     return list(current_set)[:lim]
 
 # NEW STUFF (MOVE LATER)
@@ -163,7 +162,7 @@ def simple_precompute(n):
     output = []
     for factor,mult in sympy.factorint(n).items():
         output += [factor]*mult
-    return sorted(output)  
+    return sorted(output)
 
 def simple_precompute2(n, field, multiples=100):
     n %= (2**field-1)
@@ -187,8 +186,10 @@ def fast_decimate(starter_poly,decimation_factor,path=None):
     size = len(starter_poly)-1
     if path == None:
         path = simple_precompute2(decimation_factor,size)
-    
-    poly = starter_poly[:]
+
+    # kept a list[int] throughout: MPR takes a coefficient list, and the
+    # decimation feeds its own output back in as the next starter
+    poly = [int(coefficient) for coefficient in starter_poly]
     F = FeedbackRegister(1,MPR(size,"1"))
 
     for d in path:
@@ -200,10 +201,10 @@ def fast_decimate(starter_poly,decimation_factor,path=None):
 
         seq = np.array([state[0] for state in F.run(2*size*(d+10))], dtype='uint8')
         decimated_seq = seq[::d]
-        lc, poly = berlekamp_massey(decimated_seq)
-        poly = poly[::-1] # reverse poly to get primal
+        _lc, recovered = berlekamp_massey(decimated_seq)
+        poly = [int(coefficient) for coefficient in recovered[::-1]] # primal order
 
-    return np.array(poly,dtype='uint8')
+    return poly
 
 def generate_primitive_polynomials(base):
     size = len(base)-1
@@ -213,13 +214,13 @@ def generate_primitive_polynomials(base):
     component_moduli = [f**m for f,m in components]
     # order_2 = {(f,m): order(2,f**m) for (f,m) in components}
     # decycle = max(components, key = lambda x: (order_2[x],x))
-    
+
     exps = []
     paths = []
     for i,(f,m) in enumerate(components):
         # if (f,m) == decycle:
         #     continue
-        
+
         vec = [1]*(len(components))
 
         best_exp = None
@@ -229,14 +230,14 @@ def generate_primitive_polynomials(base):
             vec[i] = choice
             combined = modular_compose(vec,component_moduli)[0]
             path = simple_precompute2(combined,size,multiples=100)
-           
+
             if (best_exp == None) or sum(path) < sum(best_path): #type:ignore
                 best_exp = combined
                 best_path = path
-        
+
         exps.append(best_exp)
         paths.append(best_path)
-    
+
     # Use precomputed exponents/paths to cycle:
     seen = set()
     maxs = [f**m-2 for f,m in components if (f,m)]
@@ -257,24 +258,26 @@ def generate_primitive_polynomials(base):
         poly = fast_decimate(poly,exps[idx],path=paths[idx])
         idx = len(curr)-1
 
-        print(maxs, curr, poly, tuple(poly) in seen, gl.Poly(poly[::-1]).is_primitive()) 
-
     # yield final polynomial
     if tuple(poly) not in seen:
         seen.add(tuple(poly))
         yield poly
- 
-print('start')
-base = [0]*128
-for i in [0,13,45,54,127]:
-    base[i] = 1
 
-# base = [0]*64
-# for i in [0,13,45,54,127]:
-#     base[i] = 1
+# Exploratory run. Guarded so that importing this module doesn't start a
+# 128-bit primitive-polynomial search, which it previously did and never
+# finished -- the module could not be imported at all.
+if __name__ == "__main__":
+    print('start')
+    base = [0]*128
+    for i in [0,13,45,54,127]:
+        base[i] = 1
 
-#base = [1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1]
+    # base = [0]*64
+    # for i in [0,13,45,54,127]:
+    #     base[i] = 1
 
-print(euler_totient(2**16-1))
-x = [p for p in generate_primitive_polynomials(base)]
-print(len(x),num_primitive_polynomials(len(base)-1))
+    #base = [1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1]
+
+    print(euler_totient(2**16-1))
+    x = [p for p in generate_primitive_polynomials(base)]
+    print(len(x),num_primitive_polynomials(len(base)-1))

@@ -23,19 +23,20 @@ equations (range(limit)), not `limit+1` like the other two generators.
 """
 import numpy as np
 
-from PyPR.FeedbackRegister import FeedbackRegister
+from PyPR.BooleanLogic import AND, CONST, VAR, XOR, BooleanFunction
+
 from PyPR.FeedbackFunctions import MPR
-from PyPR.BooleanLogic import VAR, AND, XOR, CONST
-from PyPR.Cryptanalysis.Components.EquationGenerators.SymbolicEqGenerator import (
-    SymbolicEqGenerator,
+from PyPR.FeedbackRegister import FeedbackRegister
+
+from PyPR.Cryptanalysis.Components.EquationGenerators.CubeEqGenerator import (
+    CubeEqGenerator,
 )
 from PyPR.Cryptanalysis.Components.EquationGenerators.SubstitutionEqGenerator import (
     SubstitutionEqGenerator,
 )
-from PyPR.Cryptanalysis.Components.EquationGenerators.CubeEqGenerator import (
-    CubeEqGenerator,
+from PyPR.Cryptanalysis.Components.EquationGenerators.SymbolicEqGenerator import (
+    SymbolicEqGenerator,
 )
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -73,6 +74,7 @@ def test_first_equation_equals_output_at_initial_state():
 
     gen = SymbolicEqGenerator(M3, output_fn, limit=0)
     eq_t0 = next(iter(gen))
+    assert isinstance(eq_t0, BooleanFunction)
 
     symbolic_val = eq_t0.eval(initial_state)
     direct_val   = output_fn.eval(initial_state)
@@ -88,6 +90,7 @@ def test_first_equation_with_and_output():
 
     gen = SymbolicEqGenerator(M3, output_fn, limit=0)
     eq_t0 = next(iter(gen))
+    assert isinstance(eq_t0, BooleanFunction)
 
     assert eq_t0.eval(initial_state) == output_fn.eval(initial_state)
 
@@ -111,6 +114,7 @@ def test_equations_match_register_output():
 
     gen = SymbolicEqGenerator(M3.__copy__(), output_fn, limit=limit)
     for t, eq in enumerate(gen):
+        assert isinstance(eq, BooleanFunction)
         sym_val = eq.eval(initial_state)
         assert sym_val == true_outputs[t], (
             f"At t={t}: symbolic={sym_val}, actual={true_outputs[t]}"
@@ -128,6 +132,7 @@ def test_equations_match_register_output_with_xor_output():
 
     gen = SymbolicEqGenerator(M3.__copy__(), output_fn, limit=limit)
     for t, eq in enumerate(gen):
+        assert isinstance(eq, BooleanFunction)
         sym_val = eq.eval(initial_state)
         assert sym_val == true_outputs[t], (
             f"At t={t}: symbolic={sym_val}, actual={true_outputs[t]}"
@@ -138,7 +143,7 @@ def test_equations_match_register_output_with_xor_output():
 
 def test_list_output_returns_list_of_equations():
     """Passing a list of output functions yields a list of equations per step."""
-    output_fns = [VAR(0), VAR(1)]
+    output_fns: list[BooleanFunction] = [VAR(0), VAR(1)]
     gen = SymbolicEqGenerator(M3.__copy__(), output_fns, limit=3)
     for item in gen:
         assert isinstance(item, list), f"Expected list, got {type(item)}"
@@ -146,7 +151,7 @@ def test_list_output_returns_list_of_equations():
 
 def test_list_output_equations_are_correct():
     """Each equation in a list-output generator evaluates correctly."""
-    output_fns = [VAR(0), VAR(1)]
+    output_fns: list[BooleanFunction] = [VAR(0), VAR(1)]
     seed = 0b101
     initial_state = [int(b) for b in format(seed, f"0{M3.size}b")[::-1]]
     limit = 4
@@ -156,6 +161,7 @@ def test_list_output_equations_are_correct():
 
     gen = SymbolicEqGenerator(M3.__copy__(), output_fns, limit=limit)
     for t, eq_list in enumerate(gen):
+        assert isinstance(eq_list, list)
         for fn_idx, (output_fn, eq) in enumerate(zip(output_fns, eq_list)):
             sym_val  = eq.eval(initial_state)
             true_val = output_fn.eval(true_states[t])
@@ -189,6 +195,7 @@ def test_substitution_first_equation_matches_initial_output():
     initial_state = [int(b) for b in format(seed, f"0{M3.size}b")[::-1]]
 
     eq_t0 = next(iter(SubstitutionEqGenerator(M3.__copy__(), output_fn, limit=0)))
+    assert isinstance(eq_t0, BooleanFunction)
     assert eq_t0.eval(initial_state) == output_fn.eval(initial_state), (
         f"t=0 substitution equation gave {eq_t0.eval(initial_state)}, "
         f"direct eval gave {output_fn.eval(initial_state)}"
@@ -209,6 +216,7 @@ def test_substitution_equations_match_register_output():
 
     gen = SubstitutionEqGenerator(M3.__copy__(), output_fn, limit)
     for t, eq in enumerate(gen):
+        assert isinstance(eq, BooleanFunction)
         assert eq.eval(initial_state) == true_outputs[t], (
             f"At t={t}: substitution={eq.eval(initial_state)}, actual={true_outputs[t]}"
         )
@@ -232,6 +240,8 @@ def test_substitution_agrees_with_symbolic_on_evaluation():
     substitution_eqs = list(SubstitutionEqGenerator(M3.__copy__(), output_fn, limit))
 
     for t, (sym_eq, sub_eq) in enumerate(zip(symbolic_eqs, substitution_eqs)):
+        assert isinstance(sym_eq, BooleanFunction)
+        assert isinstance(sub_eq, BooleanFunction)
         sym_val = sym_eq.eval(initial_state)
         sub_val = sub_eq.eval(initial_state)
         assert sym_val == sub_val, (
@@ -243,7 +253,7 @@ def test_substitution_agrees_with_symbolic_on_evaluation():
 
 def test_substitution_list_output_returns_list_of_equations():
     """Passing a list of output functions yields a list per step."""
-    output_fns = [VAR(0), VAR(1)]
+    output_fns: list[BooleanFunction] = [VAR(0), VAR(1)]
     gen = SubstitutionEqGenerator(M3.__copy__(), output_fns, limit=3)
     for item in gen:
         assert isinstance(item, list), f"Expected list, got {type(item)}"
@@ -336,6 +346,8 @@ def test_all_generators_agree_on_evaluation():
     cube_gen = CubeEqGenerator(M3.__copy__(), output_fn, limit, _VAR_MAP_3)
 
     for t, (sym_eq, sub_eq, coeff_vec) in enumerate(zip(sym_gen, sub_gen, cube_gen)):
+        assert isinstance(sym_eq, BooleanFunction)
+        assert isinstance(sub_eq, BooleanFunction)
         sym_val = sym_eq.eval(initial_state)
         sub_val = sub_eq.eval(initial_state)
 

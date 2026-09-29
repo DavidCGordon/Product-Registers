@@ -14,14 +14,19 @@ from functools import reduce
 
 import pytest
 
+from PyPR.FeedbackFunctions import CMPR, MPR
 from PyPR.FeedbackRegister import FeedbackRegister
-from PyPR.FeedbackFunctions import MPR, CMPR
-from PyPR.Tools.MersenneTools import (
-    cycle_lengths, max_period, expected_period, expected_period_ratio,
-    mersenne_combinations, list_possible,
-    epr_brute_force, expected_period_brute_force,
-)
 
+from PyPR.Tools.MersenneTools import (
+    cycle_lengths,
+    epr_brute_force,
+    expected_period,
+    expected_period_brute_force,
+    expected_period_ratio,
+    list_possible,
+    max_period,
+    mersenne_combinations,
+)
 
 # ── cycle_lengths ───────────────────────────────────────────────────────
 
@@ -193,7 +198,7 @@ def test_max_period_is_the_lcm_of_the_component_periods(sizes):
     assert max_period(sizes) == expected, f"{sizes}: {max_period(sizes)} != lcm {expected}"
 
 
-@pytest.mark.parametrize("sizes,expected", [
+@pytest.mark.parametrize(("sizes", "expected"), [
     ([3, 3], 7 * 2),              # repeat: the second copy adds no new factor
     ([5, 5, 5], 31 * 4),          # two repeats, two doublings
     ([3, 5, 5], 7 * 31 * 2),      # one distinct pair plus one repeat

@@ -1,10 +1,11 @@
+from math import ceil, floor, log2
 from typing import TYPE_CHECKING
 
-from PyPR.BooleanLogic import BooleanFunction, XOR, AND, VAR, CONST
-from PyPR.FeedbackFunctions import FeedbackFunction
-from PyPR.Tools.RegisterSynthesis.fcsrSynthesis import BM_FCSR
+from PyPR.BooleanLogic import AND, VAR, XOR, BooleanFunction
 
-from math import ceil, floor, log2
+from PyPR.FeedbackFunctions import FeedbackFunction
+
+from PyPR.Tools.RegisterSynthesis.fcsrSynthesis import BM_FCSR
 
 if TYPE_CHECKING:
     from PyPR.FeedbackRegister import FeedbackRegister
@@ -86,7 +87,7 @@ class FCSR(FeedbackFunction):
         # self.size // 2 gives number of non-carry bits
 
         self.fn_list = [BooleanFunction() for _ in range(self.size)]
-        
+
         # place base connections:
         for i in range(diadic_complexity-1):
             self.fn_list[2*i] = XOR(VAR(2*(i+1)), VAR(2*i+1))
@@ -99,7 +100,7 @@ class FCSR(FeedbackFunction):
                 #print(i)
                 if i == self.size // 2:
                     self.fn_list[2*i] = VAR(0)
-                else:                
+                else:
                     self.fn_list[2*i] = XOR(VAR(2*(i+1)), VAR(2*i + 1), VAR(0))
                     self.fn_list[2*i + 1] = XOR(
                         AND(VAR(2*(i+1)), VAR(2*i + 1)),
@@ -235,10 +236,10 @@ class FCSR(FeedbackFunction):
             return (1,[0])
 
         # to handle the 1/1 edge case, we need an extra bit to
-        # turn off the feedback (to get the all zeros state) 
+        # turn off the feedback (to get the all zeros state)
         if den == 1 and num == 1:
             return (2,[1,0,1])
-        
+
         if  num > 0:
             size = 1 + ceil(log2(max(den,abs(num))))
             values = 2**size - num
@@ -249,7 +250,7 @@ class FCSR(FeedbackFunction):
                 ceil(log2(abs(num)/3 + 1)) + 1,
                 ceil(log2(den))
             )
-            
+
             values = carries = floor(abs(num) / 3)
             if floor(abs(num)) % 3 == 1:
                 values += 1

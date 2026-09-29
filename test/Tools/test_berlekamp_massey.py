@@ -19,11 +19,14 @@ import random
 import numpy as np
 import pytest
 
-from PyPR.FeedbackRegister import FeedbackRegister
 from PyPR.FeedbackFunctions import MPR, Fibonacci, Galois
-from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey, berlekamp_massey_iterator
-from PyPR.Tools.RegisterSynthesis.nlfsrSynthesis import BM_NL, BM_NL_iterator
+from PyPR.FeedbackRegister import FeedbackRegister
 
+from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import (
+    berlekamp_massey,
+    berlekamp_massey_iterator,
+)
+from PyPR.Tools.RegisterSynthesis.nlfsrSynthesis import BM_NL, BM_NL_iterator
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -126,6 +129,7 @@ def test_bm_iterator_final_matches_batch():
     for lc_iter, poly_iter in berlekamp_massey_iterator(iter(seq), yield_rate=10):
         last_lc, last_poly = lc_iter, poly_iter
 
+    assert last_poly is not None, "the iterator yielded nothing"
     assert last_lc == lc_batch, f"Iterator LC {last_lc} != batch LC {lc_batch}"
     assert list(last_poly) == list(poly_batch), "Iterator polynomial != batch polynomial"
 
@@ -476,6 +480,7 @@ def test_bm_iterator_bijective_final_matches_batch():
                                                         bijective=True):
         last_lc, last_poly = lc_iter, poly_iter
 
+    assert last_poly is not None, "the iterator yielded nothing"
     assert last_lc == lc_batch, f"Iterator LC {last_lc} != batch LC {lc_batch}"
     assert list(last_poly) == list(poly_batch), "Iterator polynomial != batch polynomial"
 

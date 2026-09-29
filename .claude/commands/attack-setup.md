@@ -66,8 +66,7 @@ ann = basis[0]
 
 # For FAA: also compute the multiple
 from PyPR.BooleanLogic import AND
-mult_anf = AND(output_fn, ann).translate_ANF()
-mult_fn = mult_anf.to_BooleanFunction()
+mult_fn = AND(output_fn, ann).translate_ANF()
 ```
 
 ## Step 5 — Run the Attack
@@ -80,8 +79,9 @@ from PyPR.FeedbackRegister import FeedbackRegister
 import numpy as np
 
 # Offline
-attack_data = NAA_offline(C, output_fn, 0, 500,
-    time_limit=30, verbose=True,
+# NAA_offline(feedback_fn, output_fn, init_rounds, time_limit, ...)
+attack_data = NAA_offline(C, output_fn, 0, 30,
+    verbose=True,
     monomial_profiles=C.monomial_profiles(), variable_blocks=C.blocks)
 
 # Generate keystream from a secret state
@@ -99,8 +99,9 @@ result = NAA_online(C, output_fn, ks, attack_data,
 ```python
 from PyPR.Cryptanalysis.Attacks.reduced_algebraic_attack import RAA_offline, RAA_online
 
-attack_data = RAA_offline(C, ann, mult_fn, 0, 500,
-    time_limit=30, verbose=True,
+# RAA_offline(feedback_fn, annihilator, multiple, init_rounds, margin, time_limit, ...)
+attack_data = RAA_offline(C, ann, mult_fn, 0, 4, 30,
+    verbose=True,
     monomial_profiles=C.monomial_profiles(), variable_blocks=C.blocks)
 
 result = RAA_online(C, output_fn, ks, attack_data, verbose=True)
@@ -110,8 +111,9 @@ result = RAA_online(C, output_fn, ks, attack_data, verbose=True)
 ```python
 from PyPR.Cryptanalysis.Attacks.fast_algebraic_attack import FAA_offline, FAA_online
 
-attack_data = FAA_offline(C, ann, mult_fn, 0, 500,
-    time_limit=30, verbose=True,
+# FAA_offline(feedback_fn, annihilator, multiple, init_rounds, margin, time_limit, ...)
+attack_data = FAA_offline(C, ann, mult_fn, 0, 4, 30,
+    verbose=True,
     monomial_profiles=C.monomial_profiles(), variable_blocks=C.blocks)
 
 result = FAA_online(C, output_fn, ks, attack_data, verbose=True)
@@ -129,6 +131,7 @@ print("Recovered:   ", result)  # compare
 ## Common Mistakes
 
 - **Forgetting `compiled=False`** when generating keystream in probe scripts.
+- **A keystream that isn't `uint8`** — RAA and FAA XOR it into a `uint8` coefficient vector in place, and numpy refuses that from a wider dtype. Build it with `np.array([...], dtype=np.uint8)`.
 - **Using `GrobnerSolver` with NAA** — this will raise `ValueError`.
 - **Wrong keystream length** — always use `attack_data['keystream needed']`, not a hardcoded value.
 - **Mismatched output function** — the output_fn passed to the online phase must be the same one used in the offline phase.

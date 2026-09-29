@@ -18,7 +18,14 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest"]
 # Advisory only -- the CI job that uses these never blocks a merge.
-lint = ["pyright", "ruff"]
+#
+# Both are pinned exactly. The job reports counts rather than findings, on the
+# premise that a moving number means someone changed the source; an unpinned
+# linter breaks that premise, because a release can move the count on its own.
+# Ruff in particular resolves `lint.select` to a default set that has grown
+# across versions, so the pin fixes which rules run as well as how they behave.
+# Bumping either is a deliberate commit whose diff is the count that moved.
+lint = ["pyright==1.1.414", "ruff==0.16.7"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -41,3 +48,117 @@ addopts = "--strict-markers"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
+
+# Ruff runs with its default rule selection for the pinned version -- the set is
+# fixed by the pin above, so it is not restated here. What follows is only the
+# subtractions, each one a decision about this codebase rather than a deferral.
+#
+# Everything not listed is a live finding. `ruff check src test --statistics`
+# reports them by rule; `ruff rule <CODE>` explains any one of them.
+[tool.ruff]
+# Marks PyPR as first-party so isort separates it from site-packages.
+src = ["src", "test"]
+
+[tool.ruff.lint]
+# Families ruff's default set only samples, completed deliberately. Each was
+# chosen against its actual hit list in this tree, not on the family's name.
+extend-select = [
+    # pycodestyle warnings: trailing whitespace, whitespace-only blank lines,
+    # missing newline at EOF. The code cases are fixed and stay at zero; the
+    # string cases are exempted file by file below.
+    "W",
+    # flake8-pytest-style. PT011 catches `pytest.raises(ValueError)` with no
+    # `match`, which passes for the wrong reason as easily as the right one;
+    # PT018 splits composite asserts so a failure names the half that broke.
+    "PT",
+    # flake8-type-checking. Imports reachable only from annotations belong in an
+    # `if TYPE_CHECKING:` block -- the idiom FCSR.py, Fibonacci.py, Galois.py and
+    # CostEstimation.py already use. This enforces it on the modules that missed it.
+    "TC",
+    # flake8-raise: `raise ValueError()` -> `raise ValueError`. Cosmetic, and
+    # enabled only because it costs nothing to keep at zero.
+    "RSE",
+]
+
+ignore = [
+    # Module names are CapitalCase by design (FeedbackRegister.py, BooleanLogic/)
+    # and match the class each one defines. pep8-naming wants snake_case; the
+    # convention here predates the linter and is load-bearing for the module map
+    # in CLAUDE.md. 69 findings, none of them actionable.
+    "N999",
+    # Collapsing `x = d[k] if k in d else 0` into `d.get(k, 0)`. CLAUDE.md
+    # ("Code Style") already decided this the other way: prefer explicit control
+    # flow over dictionary idioms, so the lookup and the default stay visible.
+    "SIM401",
+    # Merging `if a: X` / `elif b: X` into `if a or b: X`. The same preference:
+    # the separate arms name each case, and several carry their own comments.
+    "SIM114",
+]
+
+[tool.ruff.lint.isort]
+# Internal imports are grouped by what they are for, not lumped together as
+# "first-party": a module reads its dependencies top-down from the lowest layer
+# (Boolean functions) to the highest (attacks). Sorted within each group.
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "pypr",
+    "boolean-logic",
+    "registers",
+    "tools",
+    "cryptanalysis",
+    "first-party",
+    "local-folder",
+]
+
+[tool.ruff.lint.isort.sections]
+# The package root and cross-cutting infrastructure.
+"pypr" = ["PyPR", "PyPR.JSON_Serialization"]
+# Boolean functions: DAGs, ANF, gates, SAT, chaining templates.
+"boolean-logic" = ["PyPR.BooleanLogic"]
+# Registers and the feedback functions that drive them.
+"registers" = ["PyPR.FeedbackFunctions", "PyPR.FeedbackRegister"]
+# Period analysis, synthesis, root counting, number theory.
+"tools" = ["PyPR.Tools"]
+# Attacks and their components.
+"cryptanalysis" = ["PyPR.Cryptanalysis"]
+
+[tool.ruff.lint.per-file-ignores]
+# Re-exports. An unused import in a package __init__ is the mechanism, not a
+# mistake -- these are the names the subpackage is meant to hand out.
+#
+# Import order in an __init__ is also load order, and here it is load-bearing:
+# Gates.py reads `BooleanFunction` off the half-initialised BooleanLogic package,
+# which is the class only if the __init__ bound it first -- sorting alphabetically
+# puts BooleanANF (which imports Gates) ahead of it and the package fails to
+# import. Each __init__ keeps the dependency order it was written in.
+"**/__init__.py" = ["F401", "I001"]
+# The two code-generation paths. Both exec source this library just emitted, on
+# the way to a compiled feedback function; flake8-bandit is scoped to untrusted
+# input, which is not the situation here. Scoped per-file rather than globally
+# ignored, so a genuinely questionable exec elsewhere still gets flagged. (Both
+# files also carry the string-whitespace exemption below; TOML allows one entry
+# per path, so the two share a line.)
+"src/PyPR/BooleanLogic/BooleanFunction.py" = ["S102", "W291", "W293"]
+"src/PyPR/FeedbackFunctions/FeedbackFunction.py" = ["S102", "W291", "W293"]
+# Whitespace inside string literals: 284 trailing spaces and whitespace-only
+# lines, nearly all in docstrings, plus two `"""` comment blocks and CMPR's VHDL
+# codegen template. Ruff offers no safe fix for any of them, because removing
+# the whitespace changes the string's value -- `__doc__` stops being
+# byte-identical and the template emits different VHDL -- and that is not worth
+# it for invisible whitespace. Ruff cannot exempt strings alone, so these files
+# are exempted whole, which also stops it flagging new trailing whitespace in
+# their code; every other file is still checked. Drop a file from this list
+# once its strings are cleaned.
+"src/PyPR/FeedbackRegister.py" = ["W291", "W293"]
+"src/PyPR/JSON_Serialization.py" = ["W291", "W293"]
+"src/PyPR/BooleanLogic/BooleanANF.py" = ["W291", "W293"]
+"src/PyPR/BooleanLogic/SAT.py" = ["W291", "W293"]
+"src/PyPR/FeedbackFunctions/CMPR.py" = ["W291", "W293"]
+"src/PyPR/Cryptanalysis/Components/Annihilators/GaussianAnnihilator.py" = ["W291", "W293"]
+"src/PyPR/Cryptanalysis/Components/EquationGenerators/CubeEqGenerator.py" = ["W291", "W293"]
+"src/PyPR/Cryptanalysis/Components/EquationGenerators/SubstitutionEqGenerator.py" = ["W291", "W293"]
+"src/PyPR/Cryptanalysis/Components/EquationGenerators/SymbolicEqGenerator.py" = ["W291", "W293"]
+"src/PyPR/Tools/RootCounting/EvaluationFunctions.py" = ["W291", "W293"]
+"src/PyPR/Tools/RootCounting/RootExpression.py" = ["W291", "W293"]

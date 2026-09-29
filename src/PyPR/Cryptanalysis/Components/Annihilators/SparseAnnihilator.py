@@ -1,10 +1,9 @@
-from PyPR.BooleanLogic.Gates import NOT
+import os
+import time
+from functools import cmp_to_key
+
 from PyPR.BooleanLogic.BooleanANF import BooleanANF
 
-from functools import cmp_to_key
-import time
-
-import os
 os.system('')
 
 # term <-> frozenset cheat sheet:
@@ -22,7 +21,7 @@ def less_than_or_equal(term_1, term_2):
     if len(term_1) > len(term_2):
         return False
     return (
-        sorted(term_1, reverse=True) <= 
+        sorted(term_1, reverse=True) <=
         sorted(term_2, reverse=True)
     )
 
@@ -46,7 +45,7 @@ def monomial_compare(term_1,term_2):
         return 1
     if len(term_1) < len(term_2):
         return -1
-    
+
     # differentiate based on sorted:
     if (
         sorted(term_1, reverse=True) >=
@@ -70,7 +69,7 @@ def coprime(term_1, term_2):
     # NOT IN THEIR DEFINITION:
     # if (not term_1) or (not term_2):
     #     raise ValueError
-    
+
     if term_1 & term_2:
         return False
     return True
@@ -89,7 +88,7 @@ def bounded_basis(t,f,sigma,bounded_bases):
     # (This is guaranteed to exist, so it shouldn't fail)
     for sigma_prime,c,p in bounded_bases:
         if (
-            lead_term(p) <= t and 
+            lead_term(p) <= t and
             coprime(t - lead_term(p), sigma_prime) and
             strictly_less_than((t - lead_term(p)) | sigma_prime, sigma)
         ):
@@ -109,10 +108,10 @@ def gen(sigma, f, bounded_bases):
     if coprime(sigma-sigma_0, lead_term(p_0)):
         if basis == None:
             return None
-        
+
     # reduce leading terms in p, while maintaining lead_term(c) = sigma
     while basis != None:
-        sigma_prime, c_prime, p_prime = basis
+        _sigma_prime, c_prime, p_prime = basis
         update_poly = BooleanANF([lead_term(p)-lead_term(p_prime)]) #type: ignore
         c += c_prime * update_poly
         p += p_prime * update_poly
@@ -120,7 +119,7 @@ def gen(sigma, f, bounded_bases):
     return sigma, c, p
 
 def potential_critical_characters(basis, bounded_bases, length_limit):
-    sigma_1, c_1, p_1 = basis
+    sigma_1, _c_1, p_1 = basis
     p_1_lead_term = lead_term(p_1)
     if p_1_lead_term == None:
         raise ValueError("Zero Polynomial")
@@ -135,7 +134,7 @@ def potential_critical_characters(basis, bounded_bases, length_limit):
         if (
             # coprime check:
             not(mu_1 & sigma_1) and
-            not(mu_2 & sigma_2) and 
+            not(mu_2 & sigma_2) and
             (mu_1 | sigma_1) != (mu_2 | sigma_2)
         ):
             candidate = max(
@@ -146,17 +145,18 @@ def potential_critical_characters(basis, bounded_bases, length_limit):
             # filtering here helps keep the queue small
             if len(candidate) <= length_limit:
                 todo.add(candidate)
-    
+
     for var in p_1_lead_term:
         if var not in sigma_1:
             todo.add(sigma_1 | frozenset([var]))
 
     return todo
-            
+
 def annihilators(f, annihilator_only=False, verbose = True):
     if verbose:
         print("Starting\n\n\n")
-        start_time = time.time()
+
+    start_time = time.time()
 
     f = BooleanANF.from_BooleanFunction(f)
     degrees = (f.degree(),0)
@@ -168,7 +168,7 @@ def annihilators(f, annihilator_only=False, verbose = True):
     bounded_bases.append(starting_basis)
 
     count = 0
-    while todo:        
+    while todo:
         # pop minimum sigma (maybe PQ here later?)
         sigma_todo = min(todo, key=monomial_order)
         todo.remove(sigma_todo)
@@ -176,15 +176,15 @@ def annihilators(f, annihilator_only=False, verbose = True):
         # update printed status:
         if verbose:
             print(
-                f"\r\x1B[3A" +
-                f"|    Iteration: {count+1}\n" + 
+                "\r\x1B[3A" +
+                f"|    Iteration: {count+1}\n" +
                 f"|    Progress: {min(len(sigma_todo),max(degrees))}/{max(degrees)}\n" +
                 f"|    Currently Found: (Degrees: {degrees} / Dimension: {len(annihilators)})\n" +
                 f"|    Queue/Basis Size: {len(todo)}/{len(bounded_bases)}",
                 end=''
             )
             count += 1
-        
+
         if len(sigma_todo) > max(degrees):
             break
 
@@ -207,7 +207,7 @@ def annihilators(f, annihilator_only=False, verbose = True):
                 annihilators.append(c)
 
         # check if zero character:
-        if not(p.terms): 
+        if not(p.terms):
             # Ann-Only degree update
             if annihilator_only:
                 if c.degree() < degrees[0]:
@@ -228,7 +228,7 @@ def annihilators(f, annihilator_only=False, verbose = True):
     # print(linear_dependence_filter.rank)
 
     if verbose:
-        print(f"\nFinished")
+        print("\nFinished")
         print(f"Total time -- {time.time()-start_time}")
 
     return (degrees, annihilators)
@@ -238,7 +238,8 @@ def ann_iterator(
 ):
     if verbose:
         print("Starting\n\n\n")
-        start_time = time.time()
+
+    start_time = time.time()
 
     f = BooleanANF.from_BooleanFunction(f)
     degrees = (f.degree(),0)
@@ -250,7 +251,7 @@ def ann_iterator(
     bounded_bases.append(starting_basis)
 
     count = 0
-    while todo:        
+    while todo:
         # pop minimum sigma (maybe PQ here later?)
         sigma_todo = min(todo, key=monomial_order)
         todo.remove(sigma_todo)
@@ -258,8 +259,8 @@ def ann_iterator(
         # update printed status:
         if verbose:
             print(
-                f"\r\x1B[3A" +
-                f"|    Iteration: {count+1}\n" + 
+                "\r\x1B[3A" +
+                f"|    Iteration: {count+1}\n" +
                 f"|    Progress: {min(len(sigma_todo),max(degrees))}/{max(degrees)}\n" +
                 f"|    Currently Found: (Degrees: {degrees} / Dimension: {len(annihilators)})\n" +
                 f"|    Queue/Basis Size: {len(todo)}/{len(bounded_bases)}",
@@ -269,7 +270,7 @@ def ann_iterator(
 
         if count % yield_rate == 0:
             yield (degrees, annihilators, todo, bounded_bases)
-        
+
         if len(sigma_todo) > max(degrees):
             break
 
@@ -292,7 +293,7 @@ def ann_iterator(
                 annihilators.append(c)
 
         # check if zero character:
-        if not(p.terms): 
+        if not(p.terms):
             # Ann-Only degree update
             if annihilator_only:
                 if c.degree() < degrees[0]:
@@ -308,7 +309,7 @@ def ann_iterator(
     annihilators = [a.to_BooleanFunction() for a in annihilators if a.terms]
 
     if verbose:
-        print(f"\nFinished")
+        print("\nFinished")
         print(f"Total time -- {time.time()-start_time}")
 
     return (degrees, annihilators)

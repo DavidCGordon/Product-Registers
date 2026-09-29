@@ -9,10 +9,8 @@ Tests here check structural properties — return type, positivity, symmetry,
 and agreement with hand-verified small cases — without reproducing the
 full combinatorial proof.
 """
-import pytest
 
 from PyPR.Tools.RootCounting.JordanPartition import JP_solve
-
 
 # ── Return type ────────────────────────────────────────────────────────────────
 
@@ -25,9 +23,8 @@ def test_jp_solve_elements_are_pairs():
     """Each element in the JP_solve output is a 2-tuple."""
     result = JP_solve(2, 3, 2)
     for item in result:
-        assert isinstance(item, tuple) and len(item) == 2, (
-            f"Expected 2-tuple, got {item!r}"
-        )
+        assert isinstance(item, tuple), f"Expected a tuple, got {item!r}"
+        assert len(item) == 2, f"Expected a 2-tuple, got {item!r}"
 
 def test_jp_solve_nonempty():
     """JP_solve always returns at least one block."""

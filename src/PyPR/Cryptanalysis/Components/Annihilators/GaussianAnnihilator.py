@@ -1,16 +1,15 @@
-from PyPR.BooleanLogic import BooleanFunction
-from PyPR.BooleanLogic.Gates import AND, XOR
-from PyPR.BooleanLogic.FunctionInputs import VAR, CONST
+from itertools import chain, combinations
 
+import numpy as np
+
+from PyPR.BooleanLogic import BooleanFunction
+from PyPR.BooleanLogic.FunctionInputs import CONST, VAR
+from PyPR.BooleanLogic.Gates import AND, XOR
+
+from PyPR.Cryptanalysis.Components.EquationSolving.GaussElim import reduce_matrix
 from PyPR.Cryptanalysis.Components.EquationStores.EqStore import EqStore
 from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
-from PyPR.Cryptanalysis.Components.EquationSolving.GaussElim import reduce_matrix
 
-from itertools import product,combinations,chain
-import numpy as np
-import numba 
-
-import time
 
 # internal use only:
 def _generate_monomials(bits, degree=None, verbose=False):
@@ -18,14 +17,14 @@ def _generate_monomials(bits, degree=None, verbose=False):
         degree = len(bits)
 
     combs = chain.from_iterable(
-        combinations(bits, r) 
+        combinations(bits, r)
         for r in range(degree+1)
     )
 
     count = 0
-    output: list["BooleanFunction"] = [CONST(1)]
+    output: list[BooleanFunction] = [CONST(1)]
     for comb in combs:
-        if comb != tuple():
+        if comb != ():
             if verbose:
                 print(f"\rBuilding Monomials: {count}",end='')
                 count += 1
@@ -56,7 +55,7 @@ def _generate_monomials(bits, degree=None, verbose=False):
 #     rows, cols = matrix.shape
 #     p_row, p_col = 0, 0
 #     free_vars = np.zeros((cols,),dtype='uint8')
-    
+
 #     while p_row < rows and p_col < cols:
 #         # Find the pivot element/swap rows
 #         for i in range(p_row + 1, rows):
@@ -81,12 +80,12 @@ def _generate_monomials(bits, degree=None, verbose=False):
 #     # make sure the last columns are counted as free:
 #     for i in range(p_col,cols):
 #         free_vars[i] = 1
- 
-#     return matrix[:p_row], free_vars, 
+
+#     return matrix[:p_row], free_vars,
 
 def build_constraint_data(
-    input_fn: BooleanFunction, 
-    candidate_anns: list[BooleanFunction], 
+    input_fn: BooleanFunction,
+    candidate_anns: list[BooleanFunction],
     verbose: bool = False
 ) -> tuple[int, tuple[
     np.ndarray[tuple[int,int],np.dtype[np.uint8]], EqStore,
@@ -133,7 +132,7 @@ def build_constraint_data(
 
     # build a matching basis for ann/mult constraints:
     for i,candidate in enumerate(candidate_anns):
-        if verbose: 
+        if verbose:
             print(f"\rBuilding Constraints: {i+1}/{len(candidate_anns)}",end='')
 
         candidate_anf = candidate.translate_ANF()
@@ -160,7 +159,7 @@ def build_constraint_data(
     )
 
 def ann_solve(
-    ann_degree: int, 
+    ann_degree: int,
     mult_degree: int,
     constraints: tuple[
         np.ndarray[tuple[int,int],np.dtype[np.uint8]], EqStore,
@@ -204,7 +203,7 @@ def ann_solve(
 
     ann_rows = [i for c,i in ann_idxs.items() if len(c) > ann_degree]
     mult_rows = [i for c,i in mult_idxs.items() if len(c) > mult_degree]
-    
+
     reduced_matrix, free_vars = reduce_matrix(np.concatenate((
         mult_constraints[mult_rows],
         ann_constraints[ann_rows]
@@ -283,12 +282,12 @@ def annihilators(
     if subspace == None:
         subspace = _generate_monomials(
             input_fn.idxs_used(),
-            input_fn.degree(), 
+            input_fn.degree(),
             verbose
         )
 
     # build contraints:
-    num_candidates, constraints = build_constraint_data(
+    _num_candidates, constraints = build_constraint_data(
         input_fn, subspace, verbose
     )
 
@@ -301,17 +300,17 @@ def annihilators(
     mult_degree = 0
     ann_degree = input_fn.degree()
     while (
-        mult_degree <= input_fn.degree() and 
+        mult_degree <= input_fn.degree() and
         ann_degree >= 0
     ):
         if verbose: print(
-            "\r\x1B[2A" + 
-            f"|   Annihilator Degree: {ann_degree}\n" + 
+            "\r\x1B[2A" +
+            f"|   Annihilator Degree: {ann_degree}\n" +
             f"|   Multiple Degree: {mult_degree}\n"
             ,end=''
         )
 
-        # solve system using contraints   
+        # solve system using contraints
         pivots, free_vars, reduced_matrix = ann_solve(
             ann_degree, mult_degree, constraints
         )
@@ -324,7 +323,7 @@ def annihilators(
             mult_degree += 1
             if annihilator_only:
                 break
- 
+
     if verbose:
         print("\nPOINTS: ", points.keys())
 
@@ -346,7 +345,7 @@ def annihilators(
     return degrees, outputs
 
 def ann_iterator(
-    input_fn: BooleanFunction, 
+    input_fn: BooleanFunction,
     subspace: list[BooleanFunction] | None = None,
     annihilator_only: bool = False,
     verbose: bool = True,
@@ -414,12 +413,12 @@ def ann_iterator(
     if subspace == None:
         subspace = _generate_monomials(
             input_fn.idxs_used(),
-            input_fn.degree(), 
+            input_fn.degree(),
             verbose
         )
 
     # build contraints:
-    num_candidates, constraints = build_constraint_data(
+    _num_candidates, constraints = build_constraint_data(
         input_fn, subspace, verbose
     )
 
@@ -434,19 +433,19 @@ def ann_iterator(
     ann_degree = input_fn.degree()
     count = 0
     while (
-        mult_degree <= input_fn.degree() and 
+        mult_degree <= input_fn.degree() and
         ann_degree >= 0
     ):
         count += 1
         if verbose: print(
-            "\r\x1B[3A" + 
-            f"|   Iteration: {count}\n" + 
-            f"|   Annihilator Degree: {ann_degree}\n" + 
+            "\r\x1B[3A" +
+            f"|   Iteration: {count}\n" +
+            f"|   Annihilator Degree: {ann_degree}\n" +
             f"|   Multiple Degree: {mult_degree}\n",
             end=''
         )
 
-        # solve system using contraints   
+        # solve system using contraints
         pivots, free_vars, reduced_matrix = ann_solve(
             ann_degree, mult_degree, constraints
         )
@@ -472,10 +471,10 @@ def ann_iterator(
             if annihilator_only:
                 break
 
-        # for convenience, calculate the best item. 
+        # for convenience, calculate the best item.
         # (This is different from main alg, where these values are only constructed at the end)
         selected = min(points.items(), key = lambda x: sorted(x[0],reverse=True))
-        
+
         # yield
         if count % yield_rate == 0:
             yield (
@@ -483,7 +482,7 @@ def ann_iterator(
                 selected,
                 points,
             )
- 
+
     if verbose:
         print("\nPOINTS: ", points.keys())
 

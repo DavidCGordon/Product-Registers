@@ -15,11 +15,12 @@ import random
 import numpy as np
 import pytest
 
-from PyPR.FeedbackRegister import FeedbackRegister
-from PyPR.FeedbackFunctions import MPR, Fibonacci, Galois, FCSR
-from PyPR.BooleanLogic import AND, XOR, VAR
-from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey
+from PyPR.BooleanLogic import AND, VAR, XOR
 
+from PyPR.FeedbackFunctions import FCSR, MPR, Fibonacci, Galois
+from PyPR.FeedbackRegister import FeedbackRegister
+
+from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey
 
 # ── Fibonacci / Galois equivalence ──────────────────────────────────────
 
@@ -181,7 +182,7 @@ def test_berlekamp_massey_known():
     F = Fibonacci(5, '12')
     reg = FeedbackRegister(31, F)
     seq = [state[0] for state in reg.run(compiled=False, limit=100)]
-    L, poly = berlekamp_massey(seq)
+    L, _poly = berlekamp_massey(seq)
     assert L == 5, f"Expected LC=5, got {L}"
 
 
@@ -374,7 +375,7 @@ def test_general_inversion_agrees_with_reciprocal_plus_flip(n):
     )
 
 
-@pytest.mark.parametrize("label,feedback", [
+@pytest.mark.parametrize(("label", "feedback"), [
     ("s0 ^ s1s2",     XOR(VAR(0), AND(VAR(1), VAR(2)))),
     ("s0 ^ s1 ^ s2s3", XOR(VAR(0), VAR(1), AND(VAR(2), VAR(3)))),
     ("s0 ^ s1s2s3s4",  XOR(VAR(0), AND(VAR(1), VAR(2), VAR(3), VAR(4)))),
@@ -411,7 +412,7 @@ def test_nonlinear_register_inverts_when_the_discarded_bit_is_linear(label, feed
         )
 
 
-@pytest.mark.parametrize("label,feedback", [
+@pytest.mark.parametrize(("label", "feedback"), [
     ("s1s2 -- bit 0 absent, A = 0",            AND(VAR(1), VAR(2))),
     ("s0s1 -- bit 0 only in a product, A = s1", AND(VAR(0), VAR(1))),
     ("s0 ^ s0s1 -- A = 1 ^ s1, not constant",   XOR(VAR(0), AND(VAR(0), VAR(1)))),

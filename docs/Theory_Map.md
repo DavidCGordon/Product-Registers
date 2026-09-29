@@ -37,6 +37,7 @@ Cryptanalysis/Components/EquationStores/*      → architecture/Components_Archi
 ```
 Tools/RootCounting/*            → theory/Roots and the Algebraic Closure.md, theory/Root Expressions and LC Estimation.md, theory/Root Multiplicities and Jordan Decomposition.md, theory/Monomial Profile Theory.md
 Tools/RootCounting/MeshOptimization.py → architecture/Mesh Optimization.md
+Tools/RootCounting/MonomialProfile.py → theory/Monomial Profile Theory.md, theory/Algebraic Attacks.md (Cube Attack section, for get_cube_candidates)
 Tools/ResolventSolving.py       → theory/Resolvent Analysis.md
 Tools/RegisterSynthesis/*       → conventions/Polynomial Conventions.md (Berlekamp-Massey section)
 Tools/RegisterSynthesis/lfsrSynthesis.py  → architecture/Bijective Register Synthesis.md
@@ -62,6 +63,7 @@ FeedbackFunctions/CrossJoin.py  → conventions/Notation and Terminology.md, the
 
 ```
 BooleanLogic/*                  → (no required theory docs — self-contained)
+BooleanLogic/SAT.py             → architecture/SAT Encoding.md (per-node encoding invariant, threading, fusion nodes)
 ```
 
 ## Division Property

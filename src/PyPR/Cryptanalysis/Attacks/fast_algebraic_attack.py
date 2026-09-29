@@ -1,25 +1,32 @@
+import random
+import time
 from typing import Any
 
+import numba
+import numpy as np
+
 from PyPR import FeedbackRegister
-from PyPR.FeedbackFunctions import FeedbackFunction
+
 from PyPR.BooleanLogic import BooleanFunction
 
-from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile
+from PyPR.FeedbackFunctions import FeedbackFunction
 
 from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey_iterator
+from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile
 
-from PyPR.Cryptanalysis.Components.EquationStores.EqStore import EqStore
-from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
-
-from PyPR.Cryptanalysis.Components.EquationGenerators.CubeEqGenerator import CubeEqGenerator, get_var_map
-from PyPR.Cryptanalysis.Components.EquationGenerators.SubstitutionEqGenerator import SubstitutionEqGenerator
-
+from PyPR.Cryptanalysis.Components.EquationGenerators.CubeEqGenerator import (
+    CubeEqGenerator,
+    get_var_map,
+)
+from PyPR.Cryptanalysis.Components.EquationGenerators.SubstitutionEqGenerator import (
+    SubstitutionEqGenerator,
+)
 from PyPR.Cryptanalysis.Components.EquationSolving.LU_Solver import LUSolver
-
-import numpy as np
-import numba
-import time
-import random
+from PyPR.Cryptanalysis.Components.EquationStores.EqStore import EqStore
+from PyPR.Cryptanalysis.Components.EquationStores.FilteringEqStore import (
+    FilteringEqStore,
+)
+from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
 
 u8 = numba.types.uint8
 u64 = numba.types.uint64
@@ -31,12 +38,12 @@ def indent(n:int) -> str:
 
 
 def FAA_offline(
-    feedback_fn: FeedbackFunction, 
-    annihilator: BooleanFunction, 
-    multiple: BooleanFunction, 
-    init_rounds: int, 
+    feedback_fn: FeedbackFunction,
+    annihilator: BooleanFunction,
+    multiple: BooleanFunction,
+    init_rounds: int,
     margin: int,
-    time_limit: int, 
+    time_limit: int,
     verbose: bool = False,
     _print_depth: int = 0,
 
@@ -56,7 +63,8 @@ def FAA_offline(
         if verbose:
             print(f"{indent(_print_depth+1)}using monomial profile optimization: True")
             print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Calculating monomial profile for annihilator:")
-            mp_a_time = time.time()
+
+        mp_a_time = time.time()
 
         annihilator_mp = annihilator.remap_constants([
             (0, MonomialProfile.logical_zero()),
@@ -67,7 +75,8 @@ def FAA_offline(
             print(f"{indent(_print_depth+1)}Monomial profile computed:")
             print(f"{indent(_print_depth+1)}Time: {time.time() - mp_a_time} s")
             print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Calculating monomial profile for low degree multiple:")
-            mp_m_time = time.time()
+
+        mp_m_time = time.time()
 
         # Precompute LC for low degree multiple:
         multiple_mp = multiple.remap_constants([
@@ -80,8 +89,9 @@ def FAA_offline(
             print(f"{indent(_print_depth+1)}Monomial profile computed:")
             print(f"{indent(_print_depth+1)}Time: {time.time() - mp_m_time} s")
             print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Calculating variable_map:")
-            var_map_time = time.time()
-        
+
+        var_map_time = time.time()
+
         # A map with all subsets filled in, to sum over cubes
         variable_indices = get_var_map(
             feedback_fn, annihilator_mp, variable_blocks, complete_subsets = True
@@ -91,14 +101,19 @@ def FAA_offline(
             print(f"{indent(_print_depth+1)}Variable map computed:")
             print(f"{indent(_print_depth+1)}Time: {time.time() - var_map_time} s")
             print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Calculating linear relation:")
-            lin_rel_time = time.time()
-       
+
+        lin_rel_time = time.time()
+
         # use berlekamp_massey to get the exact relation
         feedback_fn.compile()
         multiple_compiled = multiple.compile()
         test_register = FeedbackRegister(random.randint(0,2**feedback_fn.size-1), feedback_fn)
         max_count = 1000*((2*max_LC+256)//1000 + 1)
         count = 0
+        # berlekamp_massey_iterator always yields at least once, even for an
+        # empty sequence, so the loop replaces these before anything reads them
+        linear_complexity = 0
+        linear_relation = np.array([], dtype='uint8')
 
         for curr_LC, curr_relation in berlekamp_massey_iterator(
             seq = (multiple_compiled(state._state) for state in test_register.run(2*max_LC+256)),
@@ -108,7 +123,7 @@ def FAA_offline(
             if verbose:
                 print(
                     f"\r{indent(_print_depth+2)}Bits processed: {count} / {max_count}" +
-                    f"  --  Linear Complexity: {curr_LC} / {max_LC}", 
+                    f"  --  Linear Complexity: {curr_LC} / {max_LC}",
                     end=''
                 )
 
@@ -129,12 +144,15 @@ def FAA_offline(
         # use precomputed maps for faster eq generation and storage
         annihilator_eqs = EqStore(variable_indices)
         eq_gen = CubeEqGenerator(
-            feedback_fn, annihilator, (len(variable_indices) + margin), 
+            feedback_fn, annihilator, (len(variable_indices) + margin),
             variable_indices, verbose=True, _print_depth=_print_depth+2
         )
 
-        # additional flags
-        check_ranks = False
+        # No rank tracker on this path: the monomial profile already bounds the
+        # variable count, so there is nothing to check ranks against. Its
+        # absence *is* the flag -- see the guard in the equation loop below.
+        annihilator_LU = None
+        count_into_margin = 0
         max_LC = len(variable_indices)
 
     else:
@@ -145,11 +163,11 @@ def FAA_offline(
         annihilator_eqs = EqStore()
         annihilator_LU = LUEqStore()
         annihilator_LU.link(annihilator_eqs)
-        
+
         # ensure all variables are in the eq store:
         for v in range(len(feedback_fn)):
-            annihilator_eqs._update_known_monomials(tuple([v]))
-            annihilator_LU._update_known_monomials(tuple([v]))
+            annihilator_eqs._update_known_monomials((v,))
+            annihilator_LU._update_known_monomials((v,))
 
         eq_gen = SubstitutionEqGenerator(
             feedback_fn, annihilator, 2**feedback_fn.size
@@ -157,22 +175,26 @@ def FAA_offline(
 
         # have to check ranks, since number of
         # variables isnt known ahead of time
-        check_ranks = True
         count_into_margin = 0
 
         # Precompute LC for low degree multiple:
         # because max_LC isnt known, test until there are no changes:
         feedback_fn.compile()
         test_register = FeedbackRegister(random.getrandbits(feedback_fn.size), feedback_fn)
-        
+
 
         if verbose:
             print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Calculating linear complexity dynamically:")
-            lin_rel_time = time.time()
+
+        lin_rel_time = time.time()
 
         count = 0
         curr_LC = 0
         curr_relation = []
+        # berlekamp_massey_iterator always yields at least once, even for an
+        # empty sequence, so the loop replaces these before anything reads them
+        linear_complexity = 0
+        linear_relation = np.array([], dtype='uint8')
         for linear_complexity, linear_relation in berlekamp_massey_iterator(
             seq = (multiple.eval(state) for state in test_register.run(2**(feedback_fn.size))),
             yield_rate=1000
@@ -187,7 +209,7 @@ def FAA_offline(
             count += 1
             curr_LC = linear_complexity
             curr_relation = linear_relation
-        
+
         # flip linear relation, due to dot product vs convolution
         linear_relation = linear_relation[::-1]
         margin += linear_complexity
@@ -197,21 +219,22 @@ def FAA_offline(
             print(f"{indent(_print_depth+1)}Linear complexity: {curr_LC}")
             print(f"{indent(_print_depth+1)}Time: {time.time()-lin_rel_time} s")
 
-    
+
     if verbose:
         print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Generating Equations:")
-        eq_time = time.time()
-   
+
+    eq_time = time.time()
+
     # main equation loop
     for t, ann_eq in enumerate(eq_gen): #type: ignore  (to narrow types correctly)
         ann_eq: BooleanFunction | np.ndarray[tuple[int],np.dtype[np.uint8]]
 
         # don't generate equations for initialization rounds
         if t < init_rounds: continue
-        
+
         annihilator_eqs.insert_equation(ann_eq, identifier = t)
 
-        if verbose: 
+        if verbose:
             print(f'\r{indent(_print_depth+2)}Equations Found: {annihilator_eqs.num_eqs} / {annihilator_eqs.num_vars + margin}',end='')
 
         if time_limit and (time.time() - start_time >= time_limit):
@@ -221,10 +244,10 @@ def FAA_offline(
 
         # break step only necessary for dynamic stores:
         # reduces speed a fair bit, due to extra insert
-        if check_ranks:
+        if annihilator_LU is not None:
             ann_independent = annihilator_LU.insert_equation(ann_eq, identifier = t)
-        
-            # continue for margin more steps after hitting linear 
+
+            # continue for margin more steps after hitting linear
             # recurrent phase (not perfect but better than nothing)
             if not (ann_independent):
                 count_into_margin += 1
@@ -235,7 +258,7 @@ def FAA_offline(
         print(f'\r{indent(_print_depth+2)}Equations Found: {annihilator_eqs.num_eqs} / {annihilator_eqs.num_vars + margin}',end='\n')
         print(f"{indent(_print_depth+1)}Finished equation generation: ")
         print(f"{indent(_print_depth+1)}Time: {time.time() - eq_time} s")
-        print(f"Offline phase complete -- Total time: ", time.time() - start_time)
+        print("Offline phase complete -- Total time: ", time.time() - start_time)
 
     output = {}
     output['idx to comb map'] = annihilator_eqs.idx_to_comb
@@ -252,9 +275,9 @@ def FAA_offline(
 
 @numba.njit(u8[:](u64,u8[:],u8[:,:],u8[:]))
 def sum_over_linear_relationship(
-    start_idx: int, 
-    keystream: np.ndarray[tuple[int],np.dtype[np.uint8]], 
-    equations: np.ndarray[tuple[int,int],np.dtype[np.uint8]], 
+    start_idx: int,
+    keystream: np.ndarray[tuple[int],np.dtype[np.uint8]],
+    equations: np.ndarray[tuple[int,int],np.dtype[np.uint8]],
     linear_relation: np.ndarray[tuple[int],np.dtype[np.uint8]]
 ):
     coef_vector = np.zeros((equations.shape[1],), dtype="uint8")
@@ -312,7 +335,9 @@ def FAA_online(
     if verbose:
         print(f"{indent(_print_depth+1)}Starting Equation Substitution:")
 
-    from PyPR.Cryptanalysis.Components.Adapters.online_insertion import make_online_inserter
+    from PyPR.Cryptanalysis.Components.Adapters.online_insertion import (
+        make_online_inserter,
+    )
 
     total_online_eqs = num_eqs - len(linear_relation)
     insert_eq, finalize = make_online_inserter(
@@ -335,8 +360,8 @@ def FAA_online(
     finalize()
 
     if verbose:
-        if hasattr(online_store, 'solved_vars') and isinstance(online_store.solved_vars, dict):
-            solved_count = len(online_store.solved_vars)
+        if isinstance(online_store, FilteringEqStore):
+            solved_count = online_store.num_determined
         else:
             solved_count = online_store.num_eqs
         print(f"\n{indent(_print_depth+1)}Finished substituting key stream:")
@@ -361,4 +386,3 @@ def FAA_online(
         print(f"{indent(_print_depth)}Online phase complete -- Total time: {time.time() - start_time} s")
 
     return initial_state
- 

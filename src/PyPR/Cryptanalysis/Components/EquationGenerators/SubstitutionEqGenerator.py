@@ -1,13 +1,17 @@
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
+from PyPR.BooleanLogic import BooleanFunction
 from PyPR.BooleanLogic.FunctionInputs import VAR
-from PyPR.BooleanLogic import BooleanFunction, BooleanANF
+
 from PyPR.FeedbackFunctions import FeedbackFunction
+
 from PyPR.Cryptanalysis.Components.EquationGenerators._utils import normalize_output_fn
 
+
 def SubstitutionEqGenerator(
-    feedback_fn: FeedbackFunction, 
-    output_fn: BooleanFunction | list[BooleanFunction], 
+    feedback_fn: FeedbackFunction,
+    output_fn: BooleanFunction | list[BooleanFunction],
     limit: int,
     verbose: bool = False,
     _print_depth: int = 0
@@ -92,7 +96,7 @@ def SubstitutionEqGenerator(
 
     bits = set.union(*(output_fn.idxs_used() for output_fn in output_fn_list))
     fns: list[Any] = [
-        VAR(b) if b in bits else None 
+        VAR(b) if b in bits else None
         for b in range(feedback_fn.size)
     ]
 
@@ -107,10 +111,10 @@ def SubstitutionEqGenerator(
         # don't do final update if not needed
         if t == (limit):
             break
-        
+
         # update internal functions
         fns = [
-            fns[b].compose(feedback_fn.fn_list).translate_ANF() 
+            fns[b].compose(feedback_fn.fn_list).translate_ANF()
             if b in bits else None
             for b in range(feedback_fn.size)
         ]

@@ -1,14 +1,15 @@
-from PyPR.FeedbackFunctions import MPR, CMPR
-from PyPR.BooleanLogic import AND, XOR, CONST, VAR
+# Other libs
+
+from PyPR.BooleanLogic import AND, CONST, VAR
+
+from PyPR.FeedbackFunctions import CMPR, MPR
+
+from PyPR.Tools.RootCounting.Combinatorics import powerset
+from PyPR.Tools.RootCounting.JordanSet import JordanSet
 
 # Linear Complexity and Monomial estimation
-from PyPR.Tools.RootCounting.MonomialProfile import TermSet, MonomialProfile
-from PyPR.Tools.RootCounting.JordanSet import JordanSet
+from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile, TermSet
 from PyPR.Tools.RootCounting.RootExpression import RootExpression
-from PyPR.Tools.RootCounting.Combinatorics import powerset
-
-# Other libs
-import time
 
 # Single bit MPR
 _M1 = MPR(1,[1,1],[0,1])
@@ -68,11 +69,11 @@ class TFunction(CMPR):
                 for index_set in powerset(range(i))
             ] + [TermSet({i:1},{i:1})]))
         return mps[::-1]
-        
+
     def root_expressions(self, locked_list: list[int] | None = None, verbose: bool = False, force_default: bool = False) -> list[RootExpression]:
         #return super().root_expressions(locked_list, verbose, force_default)
         res = []
         for i in range(self.size):
             roots = JordanSet({},set(range(1,2**i+2)))
-            res.append(RootExpression({tuple():set([roots])}))
+            res.append(RootExpression({():{roots}}))
         return res[::-1]

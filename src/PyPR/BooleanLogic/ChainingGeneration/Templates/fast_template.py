@@ -1,6 +1,7 @@
 import PyPR.BooleanLogic.ChainingGeneration.TemplateBuilding as tb
-from PyPR.BooleanLogic.Gates import *
 from PyPR.BooleanLogic.FunctionInputs import *
+from PyPR.BooleanLogic.Gates import *
+
 
 def fast_function(reference_block, max_and):
   n = len(reference_block)
@@ -20,7 +21,7 @@ def fast_function(reference_block, max_and):
           ]
         )
       ]
-    )  
+    )
   )
 
 
@@ -31,7 +32,7 @@ def fast_template(max_and = 4):
       # don't add chaining to TFunction-like segments
       if len(cmpr.blocks[i-1]) == 1 and len(cmpr.blocks[i]) == 1:
         continue
-      
+
       template = fast_function(
         reference_block=set().union(*cmpr.blocks[:i]),
         max_and = max_and

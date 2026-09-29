@@ -1,15 +1,15 @@
-from typing import Any, Iterable
+from random import randint, sample
+from typing import Any
+
 import numpy as np
 
-from PyPR import FeedbackRegister
-from PyPR.FeedbackFunctions import FeedbackFunction, Fibonacci, CMPR
-from PyPR.BooleanLogic import BooleanFunction, BooleanANF, AND, XOR, VAR, CONST
+from PyPR.BooleanLogic import AND, CONST, VAR, XOR, BooleanANF, BooleanFunction
 
-from PyPR.Tools.RootCounting.MonomialProfile import TermSet, MonomialProfile
+from PyPR.FeedbackFunctions import FeedbackFunction, Fibonacci
+
 from PyPR.Tools.RootCounting.JordanSet import JordanSet
+from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile, TermSet
 from PyPR.Tools.RootCounting.RootExpression import RootExpression
-
-from random import randint, sample
 
 
 class CrossJoin(FeedbackFunction):
@@ -58,7 +58,7 @@ class CrossJoin(FeedbackFunction):
         # convert koopman string into polynomial:
         if isinstance(primitive_poly, str):
             primitive_poly = [int(x) for x in format(int(primitive_poly,16), f"0>{size}b")] + [1]
-            
+
         self.primitive_polynomial = primitive_poly
 
         # same as fibonacci ANF generation:
@@ -100,7 +100,7 @@ class CrossJoin(FeedbackFunction):
                 valid &= (var.index >= (idxA-idxB))
             if not valid:
                 raise ValueError("Invalid shift attempted for term: " + str(term))
-            
+
             newTerm = AND(*(VAR(var.index - idxA + idxB) for var in term.args))
 
             self.fn_list[idxA].args[-1].remove_arguments(term)
@@ -139,6 +139,9 @@ class CrossJoin(FeedbackFunction):
         :type maxAnds: int
         """
         minDest = maxDest = 0
+        # the guard is false on entry, so the body always runs and replaces
+        # this before anything reads it
+        newTerm = AND()
 
         while not (minDest < maxDest):
             numTaps = randint(2,maxAnds)
@@ -184,12 +187,12 @@ class CrossJoin(FeedbackFunction):
             if term.args[0].index >= self.tau: #type: ignore
                 self.fn_list[self.size-1].args[1].add_arguments(term)
                 self.fn_list[self.tau].args[1].add_arguments(term.shift_indices(self.tau-self.size+1))
-                
+
         # main loop:
         tapped = set()
         while len(tapped) < self.tau:
             self.addNonLinearTerm(maxAnds)
-            
+
             # for all nonlinear terms (tau & up)
             # determine which bits are tapped:
             for fn in self.fn_list[self.tau:]:
@@ -200,9 +203,8 @@ class CrossJoin(FeedbackFunction):
         for bit in range(self.size):
             nonlinear_terms = self.fn_list[bit].args[-1]
             if len(nonlinear_terms.args) == 0:
-                self.fn_list[bit].remove_arguments(nonlinear_terms) 
+                self.fn_list[bit].remove_arguments(nonlinear_terms)
 
-        return
 
     @property
     def linear_feedback(self) -> list[Any]:
@@ -255,10 +257,10 @@ class CrossJoin(FeedbackFunction):
             curr_fn = curr_fn.to_BooleanFunction()
 
             comp_list.append(curr_fn.shift_indices(-1))
-        
+
         # list is buit in reverse, so reverse when returning:
         return comp_list[::-1]
-        
+
     def root_expressions(self) -> list[RootExpression]:
         """Compute a root expression for each bit of the register.
 
@@ -279,7 +281,7 @@ class CrossJoin(FeedbackFunction):
             count = min(count,self.size)
             REs.append(
                 RootExpression({
-                    (self.size,): set([JordanSet({self.size: count}, {1})])
+                    (self.size,): {JordanSet({self.size: count}, {1})}
                 })
             )
         return REs

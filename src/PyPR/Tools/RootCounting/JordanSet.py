@@ -1,8 +1,9 @@
 from PyPR.Tools.RootCounting.JordanPartition import JP_solve
 
+
 class JordanSet:
     def __init__(self,roots, mults):
-        self.roots = roots # Dictionary 
+        self.roots = roots # Dictionary
         self.mults = mults # set
 
     # Jordan set x Jordan set = Jordan set
@@ -13,21 +14,21 @@ class JordanSet:
                 new_roots[basis] += count
             else:
                 new_roots[basis] = count
-        
+
         for basis,count in other.roots.items():
             if basis in new_roots:
                 new_roots[basis] += count
             else:
                 new_roots[basis] = count
-        
+
         # reduce the counts in each multiplication, so that they dont get big.
         for basis in new_roots:
             new_roots[basis] = min(basis,new_roots[basis])
-        
+
         multiplicities = set()
         for m1 in self.mults:
             for m2 in other.mults:
-                multiplicities |= set([mult for mult,count in JP_solve(m1,m2,2)])
+                multiplicities |= {mult for mult,count in JP_solve(m1,m2,2)}
 
         return JordanSet(new_roots, multiplicities)
 
@@ -36,13 +37,13 @@ class JordanSet:
             if self.roots[b] != b:
                 return False
         return True
-    
+
     def __str__(self):
         return  (
-            "<" + ", ".join(f"{k}:{v}" for k,v in self.roots.items()) + 
+            "<" + ", ".join(f"{k}:{v}" for k,v in self.roots.items()) +
             " (" + ",".join(str(m) for m in self.mults) +
             ")>"
         )
-        
+
     def __copy__(self):
-        return JordanSet({k:v for k,v, in self.roots.items()}, set(m for m in self.mults))
+        return JordanSet({k:v for k,v, in self.roots.items()}, set(self.mults))

@@ -1,48 +1,50 @@
-from PyPR.BooleanLogic.BooleanFunction import BooleanFunction, IndexableContainer
 from typing import Any, Self
+
+from PyPR.BooleanLogic.BooleanFunction import BooleanFunction, IndexableContainer
+
 
 class CONST(BooleanFunction):
     def __init__(self, value):
-        self.args = tuple()
+        self.args = ()
         self.arg_limit = 0
         self.value = value
 
-    def is_leaf(self) -> bool: 
+    def is_leaf(self) -> bool:
         return True
-    def max_idx(self) -> int: 
+    def max_idx(self) -> int:
         return -1
     def idxs_used(self) -> set[int]:
         return set()
 
 
     def _eval(self,
-        cache: dict[BooleanFunction,Any],
+        values: dict[BooleanFunction,Any],
         array: IndexableContainer[int, Any]
     ) -> Any:
         return self.value
     def _eval_ANF(self,
-        cache: dict[BooleanFunction,Any],
+        values: dict[BooleanFunction,Any],
         array: IndexableContainer[int, Any]
     ) -> Any:
         return self.value
 
 
-    def _generate_c(self, 
-        cache: dict[BooleanFunction,str],
+    def _generate_c(self,
+        c_strings: dict[BooleanFunction,str],
         array_name: str
     ) -> str:
         return f"{self.value}"
-    def _generate_VHDL(self, 
-        cache: dict[BooleanFunction,str],
+    def _generate_VHDL(self,
+        vhdl_strings: dict[BooleanFunction,str],
         array_name: str
     ) -> str:
         return f" '{self.value}' "
-    def _generate_python(self, 
-        cache: dict[BooleanFunction,str],
+    def _generate_python(self,
+        python_strings: dict[BooleanFunction,str],
         array_name: str
     ) -> str:
         return f"{self.value}"
-    def _generate_tex(self, 
+    def _generate_tex(self,
         cache: dict[BooleanFunction,str],
         array_name: str
     ) -> str:
@@ -59,7 +61,7 @@ class CONST(BooleanFunction):
                 }
             }]
         }
-    
+
     def dense_str(self) -> str:
         return f"CONST({self.value})"
 
@@ -75,11 +77,11 @@ class CONST(BooleanFunction):
                     break
             except:
                 pass
-    def _remap_indices(self, 
+    def _remap_indices(self,
         index_map: IndexableContainer[int,int]
     ):
         pass
-    def _shift_indices(self, 
+    def _shift_indices(self,
         shift_amount: int
     ):
         pass
@@ -89,7 +91,7 @@ class CONST(BooleanFunction):
         return type(self)(self.value)
 
     # overwriting BooleanFunction
-    def _compose(self, 
+    def _compose(self,
         input_map: IndexableContainer[int,BooleanFunction],
         in_place:bool = False
     ) -> "CONST":
@@ -103,15 +105,17 @@ class CONST(BooleanFunction):
         return {"CONST":1}
 
     #overwriting BooleanFunction
-    def inputs(self) -> set[BooleanFunction]:
-        return {self}
-    
-    def _binarize(self) -> Self:
+    def inputs(self) -> list[BooleanFunction]:
+        return [self]
+
+    def _binarize(self,
+        cache: dict["BooleanFunction", "BooleanFunction"]
+        ) -> Self:
         return self
-    
+
     def _tseytin_labels(self,
-        node_labels: dict['BooleanFunction',list[int]], 
-        variable_labels: dict[int,int], 
+        node_labels: dict['BooleanFunction',list[int]],
+        variable_labels: dict[int,int],
         next_idx: int
     ) -> int:
         """A helper function to generate the labels for this leaf
@@ -145,16 +149,18 @@ class CONST(BooleanFunction):
 
     def _tseytin_clauses(self,
         label_map: dict[BooleanFunction, list[int]]
-    ) -> list[tuple[int]]:
-        """Helper function to generate the tseytin clauses.
+    ) -> list[tuple[int, ...]]:
+        """Return no clauses: a leaf's wire carries its value by definition.
 
-        For this node (as a leaf node), those clauses are empty, and so this call
-        acts as a base case for the DAG traversal in the wrapper function.
+        `_tseytin_labels` has already bound this leaf to a solver variable, and
+        there is no relationship to assert about it -- a variable is free and a
+        constant is pinned where it was labelled. This is the base case of the
+        walk, reached like every other node rather than special-cased by it.
 
-        :param label_map: A map which connects each node to its label
+        :param label_map: Wires for every node encoded so far; unused here.
         :type label_map: dict[BooleanFunction, list[int]]
         :return: An (empty) list of clauses
-        :rtype: list[tuple[int]]
+        :rtype: list[tuple[int, ...]]
         """
         return []
 
@@ -166,46 +172,46 @@ class CONST(BooleanFunction):
 
 class VAR(BooleanFunction):
     def __init__(self, index):
-        self.args = tuple()
+        self.args = ()
         self.arg_limit = 0
         self.index = index
 
-    def is_leaf(self): 
+    def is_leaf(self):
         return True
-    def max_idx(self): 
+    def max_idx(self):
         return self.index
-    def idxs_used(self): 
-        return set([self.index])
+    def idxs_used(self):
+        return {self.index}
 
 
     def _eval(self,
-        cache: dict[BooleanFunction,Any],
+        values: dict[BooleanFunction,Any],
         array: IndexableContainer[int, Any]
     ):
         return array[self.index]
     def _eval_ANF(self,
-        cache: dict[BooleanFunction,Any],
-        array: IndexableContainer[int, Any]        
+        values: dict[BooleanFunction,Any],
+        array: IndexableContainer[int, Any]
     ):
         return array[self.index]
-    
 
-    def _generate_c(self, 
-        cache: dict[BooleanFunction,str],
+
+    def _generate_c(self,
+        c_strings: dict[BooleanFunction,str],
         array_name: str
     ) -> str:
         return f"{array_name}[{self.index}]"
-    def _generate_VHDL(self, 
-        cache: dict[BooleanFunction,str],
+    def _generate_VHDL(self,
+        vhdl_strings: dict[BooleanFunction,str],
         array_name: str
     ) -> str:
         return f"{array_name}({self.index})"
-    def _generate_python(self, 
-        cache: dict[BooleanFunction,str],
+    def _generate_python(self,
+        python_strings: dict[BooleanFunction,str],
         array_name: str
     ) -> str:
         return f"{array_name}[{self.index}]"
-    def _generate_tex(self, 
+    def _generate_tex(self,
         cache: dict[BooleanFunction,str],
         array_name: str
     ) -> str:
@@ -229,11 +235,11 @@ class VAR(BooleanFunction):
         return [f"VAR({self.index})"]
     def dense_str(self) -> str:
         return f"VAR({self.index})"
-    
+
 
     # overwriting BooleanFunction
     def _remap_constants(self,
-        constant_map: list[tuple[Any,Any]]
+        const_map: list[tuple[Any,Any]]
     ):
         pass
     def _remap_indices(self,
@@ -251,8 +257,8 @@ class VAR(BooleanFunction):
         return VAR(self.index)
 
     # overwriting BooleanFunction
-    def _compose(self, 
-        input_map: IndexableContainer[int,BooleanFunction], 
+    def _compose(self,
+        input_map: IndexableContainer[int,BooleanFunction],
         in_place: bool = False
     ) -> BooleanFunction:
         try:
@@ -269,15 +275,17 @@ class VAR(BooleanFunction):
         return {"VAR":1}
 
     # overwriting BooleanFunction
-    def inputs(self) -> set[BooleanFunction]:
-        return {self}
+    def inputs(self) -> list[BooleanFunction]:
+        return [self]
 
-    def _binarize(self) -> "VAR":
+    def _binarize(self,
+        cache: dict["BooleanFunction", "BooleanFunction"]
+        ) -> "VAR":
         return self
-    
+
     def _tseytin_labels(self,
-        node_labels: dict[BooleanFunction,list[int]], 
-        variable_labels: dict[int,int], 
+        node_labels: dict[BooleanFunction,list[int]],
+        variable_labels: dict[int,int],
         next_idx: int
     ) -> int:
         """A helper function to generate the labels for this leaf
@@ -304,26 +312,27 @@ class VAR(BooleanFunction):
         if self.index in variable_labels:
             node_labels[self] = [variable_labels[self.index]]
             return next_idx
-        
+
         variable_labels[self.index] = next_idx
         node_labels[self] = [next_idx]
         return next_idx + 1
-    
+
     def _tseytin_clauses(self,
         label_map: dict[BooleanFunction, list[int]]
-    ) -> list[tuple[int]]:
-        """Helper function to generate the tseytin clauses.
+    ) -> list[tuple[int, ...]]:
+        """Return no clauses: a leaf's wire carries its value by definition.
 
-        For this node (as a leaf node), those clauses are empty, and so this call
-        acts as a base case for the DAG traversal in the wrapper function.
+        `_tseytin_labels` has already bound this leaf to a solver variable, and
+        there is no relationship to assert about it -- a variable is free and a
+        constant is pinned where it was labelled. This is the base case of the
+        walk, reached like every other node rather than special-cased by it.
 
-        :param label_map: A map which connects each node to its label
+        :param label_map: Wires for every node encoded so far; unused here.
         :type label_map: dict[BooleanFunction, list[int]]
         :return: An (empty) list of clauses
-        :rtype: list[tuple[int]]
+        :rtype: list[tuple[int, ...]]
         """
         return []
 
     def num_nodes(self) -> int:
         return 1
-    

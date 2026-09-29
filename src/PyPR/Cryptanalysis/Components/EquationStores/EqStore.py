@@ -1,14 +1,14 @@
 from typing import Any
-from PyPR.BooleanLogic import BooleanFunction
 
 import numpy as np
-from numpy.typing import NDArray
 
-from PyPR.Cryptanalysis.Components.EquationStores.IndexedEqStore import IndexedEqStore
+from PyPR.BooleanLogic import BooleanFunction
+
 from PyPR.Cryptanalysis.Components.Adapters.equation_repr import (
-    extract_monomials,
     boolean_function_to_coef_vector,
+    extract_monomials,
 )
+from PyPR.Cryptanalysis.Components.EquationStores.IndexedEqStore import IndexedEqStore
 
 
 class EqStore(IndexedEqStore):

@@ -18,13 +18,14 @@ splitting continues from there.
 """
 import copy
 import time
+
 import numpy as np
+
+from PyPR.BooleanLogic.FunctionInputs import CONST, VAR
+from PyPR.BooleanLogic.Gates import XOR
 
 from PyPR.Cryptanalysis.Components.Adapters.store_repr import to_anf_list
 from PyPR.Cryptanalysis.Components.EquationStores.GrobnerEqStore import GroebnerEqStore
-from PyPR.BooleanLogic.FunctionInputs import VAR, CONST
-from PyPR.BooleanLogic.Gates import XOR
-
 
 _BRANCH_BATCH_SIZE = 50
 
@@ -82,7 +83,7 @@ def _replace_header(indent, text):
 def solve(
     equation_store,
     feedback_fn, output_fn, keystream,
-    test_length=1000, simplify_mode=None,
+    test_length=1000, verify=None, simplify_mode=None,
     verbose=False, _print_depth=0,
 ):
     """Solve a GF(2) system via batch branch-and-prune over Groebner bases.
@@ -115,6 +116,10 @@ def solve(
     :type keystream: np.ndarray[np.uint8]
     :param test_length: Number of keystream bits to use for verification.
     :type test_length: int
+    :param verify: Decides whether a candidate initial state is correct, in
+        place of comparing its keystream with `keystream` (which may then be
+        None). Forwarded to :func:`GuessSolver.guess_and_solve`.
+    :type verify: Callable[[np.ndarray[np.uint8]], bool] | None
     :param simplify_mode: Simplification strategy for the GroebnerEqStore.
     :type simplify_mode: str | None
     :param verbose: Whether to print progress.
@@ -126,7 +131,9 @@ def solve(
         independent guess dimensions after pruning.
     :rtype: tuple[list[int] | None, int, int]
     """
-    from PyPR.Cryptanalysis.Components.EquationSolving.GuessSolver import guess_and_solve
+    from PyPR.Cryptanalysis.Components.EquationSolving.GuessSolver import (
+        guess_and_solve,
+    )
 
     _indent_1 = '|   ' * (_print_depth + 1)
     _indent_2 = '|   ' * (_print_depth + 2)
@@ -155,17 +162,19 @@ def solve(
     confirmed = 0
 
     split = _split(grob_store, verbose, _indent_2)
-    if split is None:
-        finished = True
-    else:
-        var, store_0, store_1 = split
+    if split is not None:
         guesses_made += 1
-        finished = False
     processed_0 = processed_1 = 0
 
-    while not finished:
+    # `split` is the loop's state: a guessed variable and the two branch stores
+    # that assume it 0 and 1. It is None exactly when there is nothing left to
+    # guess, so testing it is both the termination check and the guarantee that
+    # the three names below are bound.
+    while split is not None:
+        var, store_0, store_1 = split
+
+        contradicted = 0
         try:
-            contradicted = 0
             processed_0 += store_0.process_pending(batch_size=_BRANCH_BATCH_SIZE)
             contradicted = 1
             processed_1 += store_1.process_pending(batch_size=_BRANCH_BATCH_SIZE)
@@ -185,12 +194,8 @@ def solve(
                 )
             grob_store = surviving
             split = _split(grob_store, verbose, _indent_2)
-            if split is None:
-                finished = True
-            else:
-                var, store_0, store_1 = split
+            if split is not None:
                 guesses_made += 1
-                finished = False
             processed_0 = processed_1 = 0
             continue
 
@@ -224,7 +229,7 @@ def solve(
             candidate[i] = val
         result = guess_and_solve(
             feedback_fn, output_fn, candidate, [], keystream,
-            test_length=test_length, verbose=False, _print_depth=_print_depth,
+            test_length=test_length, verify=verify, verbose=False, _print_depth=_print_depth,
         )
         if result[0] is not None:
             if verbose:
@@ -247,12 +252,8 @@ def solve(
             )
         grob_store = other
         split = _split(grob_store, verbose, _indent_2)
-        if split is None:
-            finished = True
-        else:
-            var, store_0, store_1 = split
+        if split is not None:
             guesses_made += 1
-            finished = False
         processed_0 = processed_1 = 0
 
     split_time = time.time() - split_start
@@ -278,7 +279,7 @@ def solve(
 
     return guess_and_solve(
         feedback_fn, output_fn, base_solution, effect_vectors,
-        keystream, test_length=test_length,
+        keystream, test_length=test_length, verify=verify,
         verbose=verbose, _print_depth=_print_depth,
     )
 
@@ -302,10 +303,10 @@ class SplitGrobnerSolver:
 
     def solve(
         self, equation_store, feedback_fn, output_fn, keystream, *,
-        test_length=1000, verbose=False, _print_depth=0,
+        test_length=1000, verify=None, verbose=False, _print_depth=0,
     ):
         return solve(
             equation_store, feedback_fn, output_fn, keystream,
-            test_length=test_length, simplify_mode=self.simplify_mode,
+            test_length=test_length, verify=verify, simplify_mode=self.simplify_mode,
             verbose=verbose, _print_depth=_print_depth,
         )

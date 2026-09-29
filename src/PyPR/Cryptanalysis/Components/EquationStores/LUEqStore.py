@@ -1,20 +1,30 @@
-from PyPR.BooleanLogic import BooleanFunction
-
-from PyPR.Cryptanalysis.Components.EquationStores.IndexedEqStore import IndexedEqStore
-from PyPR.Cryptanalysis.Components.Adapters.equation_repr import (
-    extract_monomials,
-    boolean_function_to_coef_vector,
-)
+import numba
 import numpy as np
 
-import numba
+from PyPR.BooleanLogic import BooleanFunction
+
+from PyPR.Cryptanalysis.Components.Adapters.equation_repr import (
+    boolean_function_to_coef_vector,
+    extract_monomials,
+)
+from PyPR.Cryptanalysis.Components.EquationStores.FilteringEqStore import (
+    FilteringEqStore,
+)
+from PyPR.Cryptanalysis.Components.EquationStores.IndexedEqStore import IndexedEqStore
+
 u8 = numba.types.uint8
 u64 = numba.types.uint64
+i64 = numba.types.int64
 b1 = numba.types.b1
 
 from typing import Any
 
-@numba.njit(numba.types.Tuple((b1,u64))(u8[:,:],u8[:,:],u8[:],u8[:],u8[:],u64,u64))
+
+# const_idx is signed because it bounds the first loop and offsets the second,
+# and the second loop's range(const_idx+1, len(coef_vector)) is int64: an
+# unsigned const_idx would make `idx` uint64 in one loop and int64 in the other,
+# which numba unifies to float64 where they meet.
+@numba.njit(numba.types.Tuple((b1,u64))(u8[:,:],u8[:,:],u8[:],u8[:],u8[:],u64,i64))
 def _LU_reduction_consistent(
     upper: np.ndarray[tuple[int,int],np.dtype[np.uint8]],
     lower: np.ndarray[tuple[int,int],np.dtype[np.uint8]],
@@ -122,6 +132,9 @@ def _LU_reduction_consistent(
     :rtype: tuple[bool, int]
     """
     linearly_independent = False
+    # only meaningful once linearly_independent is set, which happens inside
+    # the loop below that binds it
+    idx = 0
     coef_vector = coef_vector.copy()
     modification_vector = np.zeros_like(coef_vector)
 
@@ -219,6 +232,9 @@ def _LU_reduction(
     :rtype: tuple[bool, int]
     """
     linearly_independent = False
+    # only meaningful once linearly_independent is set, which happens inside
+    # the loop below that binds it
+    idx = 0
     coef_vector = coef_vector.copy()
     modification_vector = np.zeros_like(coef_vector)
     for idx in range(len(coef_vector)):
@@ -236,7 +252,7 @@ def _LU_reduction(
 
     return linearly_independent, idx
 
-class LUEqStore(IndexedEqStore):
+class LUEqStore(IndexedEqStore, FilteringEqStore):
     """Incremental LU decomposition store.
 
     Performs LU reduction on each inserted equation, rejecting linearly
@@ -249,25 +265,25 @@ class LUEqStore(IndexedEqStore):
         # set consistency flag:
         self.consistent = True
 
-        if tuple() not in self.comb_to_idx:
+        if () not in self.comb_to_idx:
             if self.dynamic:
-                # For Dynamic stores, we can just update the known 
+                # For Dynamic stores, we can just update the known
                 # monomials to support the declaration that CONST(1)=1
-                self._update_known_monomials(tuple())
+                self._update_known_monomials(())
             else:
                 # For static stores without a const idx, we cant support that declaration:
                 # thus, equation are consistent only when all inserted equations have
                 # zero constant term. Any linear combination also has zero constant,
                 # so 0=0 — never a contradiction. Insertion validates this at equation-
                 # insertion time (see _update_known_monomials).
-                
+
                 # Because we can't support the declaration, there is nothing to do here
                 return
-                
+
         # Constant column present: mark CONST(1) = 1 as an axiom so that
         # _LU_reduction_consistent can detect contradictions via accumulated constants.
-        if not self.solved_for[self.comb_to_idx[tuple()]]:
-            self.solved_for[self.comb_to_idx[tuple()]] = 1
+        if not self.solved_for[self.comb_to_idx[()]]:
+            self.solved_for[self.comb_to_idx[()]] = 1
             self.num_eqs += 1
         else:
             raise ValueError("Haven't implemented the case where const already has a definition.")
@@ -278,7 +294,6 @@ class LUEqStore(IndexedEqStore):
         consistent: bool = False
     ):
         super().__init__(comb_to_idx, consistent=False)
-        self.filtering = True
 
         if self.dynamic:
             self.lower_matrix = np.eye(256, dtype = 'uint8')
@@ -372,7 +387,7 @@ class LUEqStore(IndexedEqStore):
                 f"Equation must be a BooleanFunction or ndarray, not {type(equation)}."
             )
 
-        if self.consistent and tuple() in self.comb_to_idx:
+        if self.consistent and () in self.comb_to_idx:
             linearly_independent, insertion_idx = _LU_reduction_consistent(
                 self.upper_matrix,
                 self.lower_matrix,
@@ -380,7 +395,7 @@ class LUEqStore(IndexedEqStore):
                 self.solved_for,
                 coef_vector,
                 self.num_vars,
-                self.comb_to_idx[tuple()]
+                self.comb_to_idx[()]
             )
         else:
             linearly_independent, insertion_idx =  _LU_reduction(
@@ -400,6 +415,21 @@ class LUEqStore(IndexedEqStore):
     @property
     def rank(self):
         return self.num_eqs
+
+    @property
+    def num_determined(self) -> int:
+        """The rank -- one per pivot column, so one per independent equation.
+
+        LU rejects any equation its contents already imply, so this rises only
+        when the store has learned something new. It counts *constrained*
+        dimensions rather than known values: reaching ``num_vars`` means the
+        system is solvable, but the values themselves come from
+        back-substitution in ``LU_Solver``, not from here.
+
+        :return: The number of pivot columns.
+        :rtype: int
+        """
+        return self.rank
 
     @property
     def is_determined(self):

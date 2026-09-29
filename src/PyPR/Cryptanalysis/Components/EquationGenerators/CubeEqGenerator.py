@@ -1,13 +1,16 @@
-from typing import Iterator, Any
-
-from PyPR.BooleanLogic import BooleanFunction
-from PyPR.FeedbackFunctions import FeedbackFunction
-from PyPR.Cryptanalysis.Components.EquationGenerators._utils import normalize_output_fn
-
-import numpy as np
 import time
+from collections.abc import Iterator
+from typing import Any
 
 import numba
+import numpy as np
+
+from PyPR.BooleanLogic import BooleanFunction
+
+from PyPR.FeedbackFunctions import FeedbackFunction
+
+from PyPR.Cryptanalysis.Components.EquationGenerators._utils import normalize_output_fn
+
 u8 = numba.types.uint8
 i64 = numba.types.int64
 u64 = numba.types.uint64
@@ -31,7 +34,7 @@ def get_var_map(
         for block_idx in range(len(selectors)):
             for bit_idx in selectors[block_idx]:
                 mon.append(variable_blocks[block_idx][bit_idx])
-        
+
         # append to the appropriate list
         mon = tuple(sorted(mon))
         if len(mon) in mons_by_len:
@@ -41,7 +44,7 @@ def get_var_map(
 
     # replace length 1 segment if necessary:
     if include_variables:
-        mons_by_len[1] = [(i,) for i in range(feedback_fn.size)] 
+        mons_by_len[1] = [(i,) for i in range(feedback_fn.size)]
 
     # cosmetic changes to order:
     list_segments = []
@@ -77,10 +80,10 @@ def indent(n)->str:
 # main method
 def CubeEqGenerator(
     feedback_fn: FeedbackFunction,
-    output_fn: BooleanFunction | list[BooleanFunction], 
-    limit: int, 
+    output_fn: BooleanFunction | list[BooleanFunction],
+    limit: int,
     var_map: dict[tuple[int,...],int],
-    verbose: bool = False, 
+    verbose: bool = False,
     _print_depth: int = 0
 ) -> Iterator[
     np.ndarray[tuple[int],np.dtype[np.uint8]] |
@@ -167,8 +170,9 @@ def CubeEqGenerator(
 
     if verbose:
         print(f"{indent(_print_depth)}Precomputing splits for CubeEqGenerator:")
-        precomp_time = time.time()
-    
+
+    precomp_time = time.time()
+
     subcomb_precomputed, subcomb_evals, subcomb_bounds = compute_splits(var_map)
 
     if verbose:
@@ -181,7 +185,7 @@ def CubeEqGenerator(
 
         # compiled loop with some DP to reduce number of things to be summed:
         eq_vec = combine_vecs(
-            eq_vec, evaluations, 
+            eq_vec, evaluations,
             subcomb_precomputed, subcomb_evals, subcomb_bounds
         )
 
@@ -190,8 +194,8 @@ def CubeEqGenerator(
             yield [eq_vec[i] for i in range(len(output_fn_list))]
         else:
             yield eq_vec[0]
-           
-            
+
+
         # update the current states and evaluations:
         prev_states,curr_states = update_states(
             feedback_fn,prev_states,curr_states
@@ -235,7 +239,7 @@ def update_states(
 # update the evaluations array using a specifc output fn:
 @numba.njit((u8[:,:])(i64,output_function_type,u8[:,:],u8[:,:]))
 def update_evals(
-    fn_idx: int, 
+    fn_idx: int,
     output_fn: Any,
     curr_states: np.ndarray[tuple[int,int],np.dtype[np.uint8]],
     evals: np.ndarray[tuple[int,int],np.dtype[np.uint8]]
@@ -314,7 +318,7 @@ def combine_vecs(
         for i in range(subcomb_bounds[term_idx,0],subcomb_bounds[term_idx+1,0]):
             for fn_idx in range(eq_vec.shape[0]):
                 eq_vec[fn_idx, term_idx] ^= eq_vec[fn_idx,subcomb_precomputed[i]]
-        
+
         # second half of split add the remaining subcomb evaluations
         for i in range(subcomb_bounds[term_idx,1],subcomb_bounds[term_idx+1,1]):
             for fn_idx in range(eq_vec.shape[0]):
@@ -341,7 +345,7 @@ def compute_splits(
     subcomb_evals = []
 
     # use a random split:
-    for comb in var_map.keys():
+    for comb in var_map:
         split_1 = tuple(sorted(np.random.choice(comb,len(comb)//2, replace=False)))
         split_2 = tuple(sorted([x for x in comb if x not in split_1]))
 
@@ -355,7 +359,7 @@ def compute_splits(
     for term_idx,(precompute_vars, eval_vars) in enumerate(
         zip(subcomb_precomputed, subcomb_evals)
     ):
-        
+
         # precompute indices formed by holding eval variables fixed and
         # summing over a cube of the precompute variables (except all variables)
         for i in range(2**len(precompute_vars)-1):
@@ -364,7 +368,7 @@ def compute_splits(
                 precompute_vars[idx] for idx in range(len(precompute_vars))
                 if (i & (1 << idx))]
             )
-        
+
             subcomb = tuple(sorted(subcomb))
             precomputed_indices[output_bounds[term_idx,0] + np.uint64(i)] = var_map[subcomb]
         output_bounds[term_idx+1,0] = output_bounds[term_idx,0] + (2**len(precompute_vars)-1)
@@ -377,7 +381,7 @@ def compute_splits(
                 eval_vars[idx] for idx in range(len(eval_vars))
                 if (i & (1 << idx))]
             )
-        
+
             subcomb = tuple(sorted(subcomb))
             eval_indices[output_bounds[term_idx,1] + np.uint64(i)] = var_map[subcomb]
         output_bounds[term_idx+1,1] = output_bounds[term_idx,1] + (2**len(eval_vars))

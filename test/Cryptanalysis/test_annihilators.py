@@ -23,14 +23,14 @@ from itertools import product
 
 import pytest
 
-from PyPR.BooleanLogic import AND, XOR, OR, VAR, CONST, BooleanANF
+from PyPR.BooleanLogic import AND, CONST, VAR, XOR, BooleanANF
+
 from PyPR.Cryptanalysis.Components.Annihilators.GaussianAnnihilator import (
     annihilators as gaussian_annihilators,
 )
 from PyPR.Cryptanalysis.Components.Annihilators.SparseAnnihilator import (
     annihilators as sparse_annihilators,
 )
-
 
 # ── Gaussian annihilators ────────────────────────────────────────────────────
 
@@ -60,7 +60,8 @@ def test_gaussian_degree_pair_is_tuple():
     """The returned degree pair is a length-2 tuple of non-negative integers."""
     f = XOR(AND(VAR(0), VAR(1)), VAR(2))
     degrees, _ = gaussian_annihilators(f)
-    assert isinstance(degrees, tuple) and len(degrees) == 2
+    assert isinstance(degrees, tuple)
+    assert len(degrees) == 2
     assert all(isinstance(d, int) and d >= 0 for d in degrees)
 
 
@@ -118,7 +119,7 @@ def test_linear_function_annihilated_by_degree_1():
     annihilator has degree ≤ 1.
     """
     f = XOR(VAR(0), VAR(1), VAR(2))  # degree 1 (linear)
-    (ann_deg, mult_deg), anns = gaussian_annihilators(f)
+    (ann_deg, _mult_deg), anns = gaussian_annihilators(f)
     assert len(anns) > 0
     for inputs in product([0, 1], repeat=3):
         inp = list(inputs)
@@ -155,7 +156,7 @@ def search_quietly(algorithm, f):
         return algorithm(f, verbose=False)
 
 
-@pytest.mark.parametrize("name,algorithm", ALGORITHMS, ids=[n for n, _ in ALGORITHMS])
+@pytest.mark.parametrize(("name", "algorithm"), ALGORITHMS, ids=[n for n, _ in ALGORITHMS])
 @pytest.mark.parametrize("trial", range(6))
 def test_returned_degrees_bound_the_pair_they_describe(name, algorithm, trial):
     """`degrees` is (deg g, deg f*g), and both bounds are respected.
@@ -180,7 +181,7 @@ def test_returned_degrees_bound_the_pair_they_describe(name, algorithm, trial):
         )
 
 
-@pytest.mark.parametrize("name,algorithm", ALGORITHMS, ids=[n for n, _ in ALGORITHMS])
+@pytest.mark.parametrize(("name", "algorithm"), ALGORITHMS, ids=[n for n, _ in ALGORITHMS])
 @pytest.mark.parametrize("trial", range(6))
 def test_product_vanishes_exactly_when_the_multiple_degree_is_zero(name, algorithm, trial):
     """f*g == 0 on all inputs if and only if `degrees[1] == 0`.
@@ -220,7 +221,7 @@ def test_both_algorithms_find_the_same_optimal_degree_pair(trial):
     )
 
 
-@pytest.mark.parametrize("name,algorithm", ALGORITHMS, ids=[n for n, _ in ALGORITHMS])
+@pytest.mark.parametrize(("name", "algorithm"), ALGORITHMS, ids=[n for n, _ in ALGORITHMS])
 @pytest.mark.parametrize("trial", range(6))
 def test_annihilator_degree_never_exceeds_the_function_degree(name, algorithm, trial):
     """`degrees[0] <= deg(f)`, because 1+f always annihilates f.
@@ -247,7 +248,7 @@ def test_annihilator_degree_never_exceeds_the_function_degree(name, algorithm, t
     )
 
 
-@pytest.mark.parametrize("name,algorithm", ALGORITHMS, ids=[n for n, _ in ALGORITHMS])
+@pytest.mark.parametrize(("name", "algorithm"), ALGORITHMS, ids=[n for n, _ in ALGORITHMS])
 @pytest.mark.parametrize("trial", range(6))
 def test_returned_annihilators_are_nonzero(name, algorithm, trial):
     """No returned g is the zero function.

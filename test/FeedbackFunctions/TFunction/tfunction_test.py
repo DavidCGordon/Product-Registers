@@ -3,10 +3,10 @@
 Derived from ProductRegisters.ipynb (Library Basics > Other Function Families,
 and ANF Iteration > An interesting observation with a TFunction).
 """
-from PyPR.FeedbackRegister import FeedbackRegister
-from PyPR.FeedbackFunctions import TFunction, CMPR, MPR
 from PyPR.BooleanLogic.ChainingGeneration.Templates import arman_template
 
+from PyPR.FeedbackFunctions import CMPR, MPR, TFunction
+from PyPR.FeedbackRegister import FeedbackRegister
 
 # ── Construction ────────────────────────────────────────────────────────
 
@@ -30,7 +30,11 @@ def test_binary_counter_period():
     """Default TFunction(n) is a binary counter with period 2^n."""
     T = TFunction(4)
     reg = FeedbackRegister(0, T)
-    period, _ = reg.period(compiled=False)
+    # period() reports None when it hits its limit without closing a cycle;
+    # these registers always close, so pin that before unpacking
+    result = reg.period(compiled=False)
+    assert result is not None
+    period, _ = result
     assert period == 2**4, f"Expected period 16, got {period}"
 
 def test_binary_counter_full_orbit():

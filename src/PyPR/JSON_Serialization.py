@@ -1,5 +1,6 @@
 from typing import Any
 
+
 def all_subclasses(cls, seen = None):
     """Recursive (preorder) enumeration of all subclasses
 
@@ -11,7 +12,7 @@ def all_subclasses(cls, seen = None):
     :yield: Each subclass as it is encountered
     :rtype: class
     """
-    # create shared set for each new call because 
+    # create shared set for each new call because
     # default args are evaluated only once (at definition):
     if seen == None:
         seen = set()
@@ -51,17 +52,17 @@ def generate_JSON(
     for o in objs:
         # every object needs to specify it's IDs for this to work
         obj_ids = o.generate_ids(obj_ids)
-    
+
     # create the json:
     num_objs = max(obj_ids.values()) + 1
     obj_entries: list[Any] = [None for i in range(num_objs)]
     for obj, id in obj_ids.items():
         obj_entries[id] = {
-            'index': obj_ids[obj], # just for human readability
+            'index': id, # just for human readability
             'class': str(obj.__class__)[8:-2],
             'data': obj._generate_JSON_entry(obj_ids)
         }
-        
+
     # Annotate with return order:
     return {
         "objects": obj_entries,
@@ -94,13 +95,13 @@ def parse_JSON(json_object: dict[str,Any]) -> tuple[Any]:
     parsed_objects: list[Any] = [None for i in range(num_nodes)]
     for id in range(num_nodes):
         obj_json = json_obj_list[id]
-        
+
         # create information for the python object for this node
         object_data = obj_json['data']
         if obj_json['class'] in class_mapping:
             object_class: Any = class_mapping[obj_json['class']]
         else:
-            print([x for x in class_mapping.keys() if x[:4] == "PyPR"])
+            print([x for x in class_mapping if x[:4] == "PyPR"])
             print("PyPR.FeedbackRegister.FeedbackRegister" in class_mapping)
             raise TypeError(f"Type \'{obj_json['class']}\' not recognized.")
 
@@ -108,6 +109,6 @@ def parse_JSON(json_object: dict[str,Any]) -> tuple[Any]:
         parsed_objects[id] = object_class._parse_JSON_entry(
             object_data, parsed_objects
         )
-    
+
     # return the given objects:
     return tuple([parsed_objects[node_id] for node_id in return_ids])

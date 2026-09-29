@@ -9,12 +9,13 @@ Verifies:
 import random
 from math import gcd
 
-from PyPR.FeedbackRegister import FeedbackRegister
 from PyPR.FeedbackFunctions import Fibonacci
+from PyPR.FeedbackRegister import FeedbackRegister
+
 from PyPR.Tools.ClockControlled import (
-    shrinking_generator,
-    self_shrinking_generator,
     alternating_step_generator,
+    self_shrinking_generator,
+    shrinking_generator,
 )
 from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey
 

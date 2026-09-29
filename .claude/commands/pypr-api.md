@@ -57,10 +57,10 @@ from PyPR.FeedbackFunctions import MPR, CMPR, Fibonacci, Galois, CrossJoin, TFun
 | Method | Notes |
 |--------|-------|
 | `compile()` | Numba-JIT the function. Must call before `compiled=True` in register |
-| `copy()` | Deep copy |
+| `copy()` | Deep copy; `copy.copy` and `copy.deepcopy` are identical. Keeps node sharing and the compiled functions |
 | `iterator(n)` | Yields `list[BooleanFunction]` — one per bit, symbolically unrolled for n steps |
-| `gateSummary()` | `→ dict[str,int]` — counts of AND/XOR/NOT/VAR/CONST nodes |
-| `isLinear(allowAffine=False)` | `→ bool` |
+| `gateSummary()` | `→ dict[str,int]` — counts of AND/XOR/NOT/VAR/CONST nodes. Linear registers still contain AND (one per ANF monomial) |
+| `isLinear(allowAffine=False)` | `→ bool` — every bit's ANF has degree ≤ 1 and, unless `allowAffine`, no constant term. |
 | `dense_str()` / `pretty_str()` / `anf_str()` | String representations |
 | `to_JSON()` / `from_JSON(d)` / `to_file(p)` / `from_file(p)` | Serialization |
 
@@ -245,8 +245,13 @@ XNOR(*args)
 
 | Method | Notes |
 |--------|-------|
-| `tseytin_encode()` | `→ (clauses, node_labels, var_labels)` — CNF encoding |
-| `solve_SAT(assumptions=None, ...)` | `→ (bool, dict) \| None` — satisfying assignment |
+| `sat(solver_name="cadical195", verbose=False)` | `→ dict[int,bool] \| None` — a satisfying assignment (variables absent from the dict are don't-care), or `None` if unsatisfiable |
+| `enum_models(solver_name="cadical195", verbose=False)` | `→ Iterator[dict[int,bool]]` — every satisfying assignment, in the same partial form |
+| `functionally_equivalent(other)` | `→ bool` — same truth table, decided as unsatisfiability of `XOR(self, other)` |
+| `tseytin(prev_clauses=None, prev_node_labels=None, prev_variable_labels=None)` | `→ (clauses, node_labels, variable_labels)` — CNF encoding; pass a previous result back in to encode several circuits on shared wires |
+| `tseytin_labels(node_labels=None, variable_labels=None)` / `tseytin_clauses(label_map)` | The two passes `tseytin` runs, exposed separately. A node's last label is its result wire; labels ±1 are reserved for the constants, with the unit clause `(1,)` fixing them |
+
+`TseytinFuse(template)(*args)` (from `PyPR.BooleanLogic.SAT`, also re-exported by `PyPR.BooleanLogic`) builds a node that evaluates `template` on `args` but is encoded as one unit: its interior wires are private to the node, and a template that is a single n-input AND or OR is encoded directly on one wire in n+1 clauses instead of a chain of two-input gates. `node.verify()` checks the fused encoding against the expanded subtree (`node.expand()`) with a SAT equivalence call; it is not run during encoding. See `docs/architecture/SAT Encoding.md` for the per-node invariant every encoding, fused or not, satisfies.
 
 ---
 
@@ -412,9 +417,10 @@ LUEqStore(
 
 ```python
 from PyPR.Cryptanalysis.Components.EquationStores.EqStore import EqStore         # dense matrix, no reduction
-from PyPR.Cryptanalysis.Components.EquationStores.SymbolicEqStore import SymbolicEqStore  # Groebner-based
-from PyPR.Cryptanalysis.Components.EquationStores.GrobnerEqStore import GrobnerEqStore
-from PyPR.Cryptanalysis.Components.EquationStores.IndexedEqStore import IndexedEqStore    # base class
+from PyPR.Cryptanalysis.Components.EquationStores.SymbolicEqStore import SymbolicEqStore  # list[BooleanANF], no reduction
+from PyPR.Cryptanalysis.Components.EquationStores.GrobnerEqStore import GroebnerEqStore      # live Groebner basis, reducing
+from PyPR.Cryptanalysis.Components.EquationStores.IndexedEqStore import IndexedEqStore    # base class (monomial indexing)
+from PyPR.Cryptanalysis.Components.EquationStores.FilteringEqStore import FilteringEqStore  # base class (reducing stores; adds num_determined)
 ```
 
 All share `insert_equation(eq, identifier=None, translate_ANF=True)` interface.

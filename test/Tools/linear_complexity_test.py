@@ -20,14 +20,17 @@ import random
 import numpy as np
 import pytest
 
-from PyPR.FeedbackRegister import FeedbackRegister
-from PyPR.FeedbackFunctions import MPR, CMPR
 from PyPR.BooleanLogic import AND, VAR
 from PyPR.BooleanLogic.ChainingGeneration.Templates import (
-    old_ANF_template, arman_template, fast_template,
+    arman_template,
+    fast_template,
+    old_ANF_template,
 )
-from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey
 
+from PyPR.FeedbackFunctions import CMPR, MPR
+from PyPR.FeedbackRegister import FeedbackRegister
+
+from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey
 
 # ── Fixtures ────────────────────────────────────────────────────────────
 
@@ -50,7 +53,7 @@ def test_berlekamp_massey_cmpr():
     F = FeedbackRegister(2**C.size - 1, C)
     seq = [state[0] for state in F.run(limit=5000)]
 
-    lc, poly = berlekamp_massey(seq)
+    lc, _poly = berlekamp_massey(seq)
     assert lc > 0, "LC should be positive"
     assert lc > max(7, 5, 3), "CMPR with chaining should have LC > largest component"
 

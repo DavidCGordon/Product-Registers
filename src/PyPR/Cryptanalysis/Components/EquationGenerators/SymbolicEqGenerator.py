@@ -1,12 +1,16 @@
-from typing import Iterator
+from collections.abc import Iterator
+
 from PyPR.BooleanLogic import BooleanANF, BooleanFunction
+
 from PyPR.FeedbackFunctions import FeedbackFunction
+
 from PyPR.Cryptanalysis.Components.EquationGenerators._utils import normalize_output_fn
 
+
 def SymbolicEqGenerator(
-    feedback_fn: FeedbackFunction, 
-    output_fn: BooleanFunction | list[BooleanFunction], 
-    limit, 
+    feedback_fn: FeedbackFunction,
+    output_fn: BooleanFunction | list[BooleanFunction],
+    limit,
     initialization=None
 ) -> Iterator[
     BooleanFunction |
@@ -119,6 +123,6 @@ def SymbolicEqGenerator(
         # don't do final update if not needed
         if t == (limit):
             break
-        
+
         # update internal functions
         fns = [eval_list[b].eval_ANF(fns) for b in range(feedback_fn.size)]

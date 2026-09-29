@@ -5,11 +5,10 @@ and Cryptanalysis > Espresso Cryptanalysis).
 """
 import random
 
+from PyPR.FeedbackFunctions import CrossJoin, Fibonacci
 from PyPR.FeedbackRegister import FeedbackRegister
-from PyPR.FeedbackFunctions import Fibonacci, CrossJoin
-from PyPR.BooleanLogic import VAR
-from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey
 
+from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey
 
 # ── Construction ────────────────────────────────────────────────────────
 

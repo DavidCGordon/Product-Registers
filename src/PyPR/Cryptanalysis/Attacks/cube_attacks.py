@@ -1,12 +1,40 @@
+"""Cube attacks on CMPRs, with equations of any degree the monomial profile allows.
+
+Summing the output over every assignment of a set I of tweakable bits (a cube)
+leaves the superpoly of I: a polynomial in the remaining bits, whose monomials
+are those of the output that contain T_I, with T_I removed (see
+`docs/theory/Cube Equation Generation.md` for the identity). Each keystream
+position t gives one: an equation P_{I,t}(key) = S_{I,t}, where the offline
+phase recovers P_{I,t} by cube sums on a simulated register and the online
+phase measures S_{I,t} by the same cube sum on the target.
+
+The monomial profile bounds each superpoly's degree before any register is run
+(`MonomialProfile.get_cube_candidates`), so the offline phase computes every
+coefficient up to that bound exactly and candidates are tried lowest degree
+first. The resulting equations are ordinary polynomial equations over the
+initial state, so the online phase feeds them to any equation store and solver,
+as NAA, RAA and FAA do -- LU linearization for the linear ones, Groebner
+reduction where the degree makes linearization wasteful.
+
+The IV is public: the bits the attacker knows (`known_bits`) hold the same
+values in both phases, so a superpoly is a polynomial in the unknown bits alone.
+"""
 import time
+from itertools import chain, combinations, product
 
-import numba
 import numpy as np
-from itertools import combinations,chain,cycle,product,tee
 
-from PyPR import FeedbackRegister
-from PyPR.BooleanLogic import BooleanFunction
-from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile, TermSet
+from PyPR.BooleanLogic import AND, VAR, XOR
+
+from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile
+
+from PyPR.Cryptanalysis.Components.Adapters.online_insertion import make_online_inserter
+from PyPR.Cryptanalysis.Components.EquationSolving.LU_Solver import LUSolver
+from PyPR.Cryptanalysis.Components.EquationStores.FilteringEqStore import (
+    FilteringEqStore,
+)
+from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
+
 
 def indent(n):
     return ("|   " * n)
@@ -20,16 +48,16 @@ def access_fns(register, output_fn, tweakable_bits, init_rounds=100, keystream_l
         keystream_len = max(100,2*register.size)
 
     # compile as needed:
-    if not hasattr(register.fn,'_compiled'):
+    if getattr(register.fn, '_compiled', None) is None:
         register.fn.compile()
-    if not hasattr(output_fn,'_compiled'):
+    if getattr(output_fn, '_compiled', None) is None:
         output_fn.compile()
 
     for i in range(init_rounds):
         register.clock()
 
     keystream = [
-        output_fn._compiled(state._state) 
+        output_fn._compiled(state._state)
         for state in register.run(keystream_len)
     ]
 
@@ -43,7 +71,7 @@ def access_fns(register, output_fn, tweakable_bits, init_rounds=100, keystream_l
 
         # generate keystream as normal:
         keystream = [
-            output_fn._compiled(state._state) 
+            output_fn._compiled(state._state)
             for state in register.run(keystream_len)
         ]
 
@@ -55,25 +83,25 @@ def access_fns(register, output_fn, tweakable_bits, init_rounds=100, keystream_l
     # output may contain None to signify impossible values.
     def access_fn(state):
         register.reset()
-        
+
         # write only to tweakable bits
         for bit in tweakable_bits:
             if state[bit] != None:
                 register[bit] = state[bit]
-        
+
         # initialization rounds:
         for i in range(init_rounds):
             register.clock()
 
         # generate keystream as normal:
         keystream = [
-            output_fn._compiled(state._state) 
+            output_fn._compiled(state._state)
             for state in register.run(keystream_len)
         ]
 
         register.reset()
         return np.array(keystream, dtype = np.uint8)
-    
+
     # test a state to see if the keystream is correct
     def test_fn(state):
         register.set_state(state)
@@ -81,168 +109,14 @@ def access_fns(register, output_fn, tweakable_bits, init_rounds=100, keystream_l
             register.clock()
 
         test_keystream = [
-            output_fn._compiled(state._state) 
+            output_fn._compiled(state._state)
             for state in register.run(keystream_len)
         ]
 
         register.reset()
         return test_keystream == keystream
 
-    return access_fn,sim_fn,test_fn
-
-
-
-
-def insert_equation(
-    lower_matrix,upper_matrix, const_vec, cube_map, # structures we modify
-    maxterm, time, equation, const                  # data we update with
-    ):
-
-    linearly_independent = False
-    modification_vector  = np.zeros_like(equation)
-    for bit in range(len(equation)):
-        if equation[bit] == 1:
-            modification_vector[bit] = 1
-            if bit in cube_map:
-                equation ^= upper_matrix[bit]
-            else:
-                linearly_independent = True
-                cube_map[bit] = (maxterm, time)
-                const_vec[bit] = const
-                lower_matrix[bit] = modification_vector
-                upper_matrix[bit] = equation
-                break
-    return linearly_independent
-
-
-
-
-# def cube_attack_offline(
-#     feedback_fn, sim_fn, tweakable_vars, 
-#     time_limit = None, num_tests = 20, verbose = False
-#     ):
-
-#     tweakable_vars = set(tweakable_vars)
-#     start_time = time.time()
-    
-#     cube_map = {}
-#     lower_matrix = np.eye(feedback_fn.size,dtype=np.uint8)
-#     upper_matrix = np.eye(feedback_fn.size,dtype=np.uint8)
-#     const_vec = np.zeros([feedback_fn.size,1],dtype=np.uint8)
-
-#     failure_count = 0
-#     already_seen = set()
-#     cube_variables = set([list(tweakable_vars)[0]])
-#     while True:
-#         # check to make sure cubes are only checked once
-#         cube = tuple(sorted(list(cube_variables)))
-#         if cube in already_seen:
-#             failure_count += 1
-#             added_element = np.random.choice(list(tweakable_vars - cube_variables))
-#             removed_element = np.random.choice(cube)
-#             cube_variables.add(added_element)
-#             cube_variables.remove(removed_element)
-
-#             if failure_count > 100:
-#                 if verbose:
-#                     print("too many repeated cubes in random walk!")
-#                 break
-#             continue
-
-#         failure_count = 0
-#         already_seen.add(cube)
-#         print("Cube Candidate: ", cube)
-
-#         # get cube information:
-#         equations, constants = determine_equations(sim_fn,cube,feedback_fn.size)
-#         nonlinear_mask = get_nonlinear_mask(sim_fn,cube,feedback_fn.size,num_tests)
-#         constant_mask = get_constant_mask(sim_fn,cube,feedback_fn.size,num_tests)
-
-#         # counts for bookkeeping/printing:
-#         useful_count = 0
-#         constant_count = 0
-#         nonlinear_count = 0
-#         dependent_count = 0
-
-#         for t in range(len(nonlinear_mask)):
-#             # filter constant / nonlinear superpoly's
-#             if constant_mask[t]:
-#                 constant_count += 1
-#                 continue
-#             elif nonlinear_mask[t]:
-#                 nonlinear_count += 1
-#                 continue
-
-#             # attempt to insert equation, and determ
-#             linearly_independent = insert_equation(
-#                 lower_matrix, upper_matrix, const_vec, cube_map,
-#                 cube, t, equations[t], constants[t]
-#             )
-
-#             # determine whether the insert was successful
-#             if linearly_independent:
-#                 useful_count += 1
-#             if not linearly_independent:
-#                 dependent_count += 1
-            
-#         # add or remove elements randomly as needed:
-#         #  - move up when there are any nonlinear terms
-#         #  - move down when there are all constant terms
-#         #  - otherwise just swap a random element
-#         added_element = np.random.choice(list(tweakable_vars - cube_variables))
-#         removed_element = np.random.choice(cube)
-#         #print(added_element,removed_element, not np.all(constant_mask), not np.any(nonlinear_mask))
-#         if not np.all(constant_mask):
-#             cube_variables.add(added_element)
-#         if not np.any(nonlinear_mask):
-#             cube_variables.remove(removed_element)
-#         #print("New: ", cube_variables)
-#         # print to keep information up to date:
-#         if verbose: 
-#             print(
-#                 f" - Useful: {useful_count} -- " +
-#                 f"Constant: {constant_count} -- " +
-#                 f"Nonlinear: {nonlinear_count} -- " +
-#                 f"Dependent: {dependent_count}",
-#             )
-
-                
-#         # this breaks out of the loop indexing the keystream by time
-#         # the check at the top of this section breaks the individual cube loop
-#         if all([(bit in cube_map) for bit in range(feedback_fn.size)]):
-#             if verbose: print("all variables solved!")
-#             break
-#         if time_limit and time.time() - start_time > time_limit:
-#             if verbose: print("time limit reached!")
-#             break 
-    
-#     num_queries = 0
-#     distinct_cubes = set()
-#     for (cube, t) in cube_map.values():
-#         if cube not in distinct_cubes:
-#             num_queries += 2**len(cube)
-#             distinct_cubes.add(cube)
-
-#     if verbose:  
-#         print("Number of cubes tested: ", len(already_seen))
-#         print("Number of cubes found: ", len(cube_map))
-#         print("Num Queries: ", num_queries)
-
-#     output = {}
-#     output['cubes'] = cube_map
-#     output['lower matrix'] = lower_matrix
-#     output['upper matrix'] = upper_matrix
-#     output['constant vector'] = const_vec
-#     return output
-
-
-
-
-
-
-
-
-
+    return access_fn, sim_fn, test_fn
 
 
 def cmpr_cube_summary(cmpr_fn, output_fn,tweakable_vars, analyze_sources = False):
@@ -259,13 +133,14 @@ def cmpr_cube_summary(cmpr_fn, output_fn,tweakable_vars, analyze_sources = False
         (1, MonomialProfile.logical_one())
     ]).eval_ANF(monomial_profiles)
 
+    # lowest superpoly degree first, then smallest cube
     cube_candidates = sorted(
         output_profile.get_cube_candidates(),
-        key = (lambda x: sum(x[0].counts.values()))
+        key = (lambda x: (x[3], sum(x[0].counts.values())))
     )
 
     print('Analyzing Cube Candidates:')
-    for cube_profile, target_block, num_cubes, cube_failure_prob in cube_candidates:
+    for cube_profile, target_blocks, num_cubes, degree in cube_candidates:
         # calculate actual number of tweakable cubes:
         tweakable_cube_count = 1
 
@@ -277,7 +152,7 @@ def cmpr_cube_summary(cmpr_fn, output_fn,tweakable_vars, analyze_sources = False
                         (tweakable_counts[block_id] - i) /
                         (cube_profile.counts[block_id] - i)
                     )
-                
+
         # round float to get integer approximation for number of actual cubes
         # rounding errors should not be too significant here, as only general size is needed.
         tweakable_cube_count = round(tweakable_cube_count)
@@ -285,30 +160,33 @@ def cmpr_cube_summary(cmpr_fn, output_fn,tweakable_vars, analyze_sources = False
             print('Cube Profile: ', cube_profile, "- Not possible with current tweakable set.")
             continue
 
-        
-        if analyze_sources:
-            # reconstruct the parent term
-            parent_term = TermSet(
-                {k:v for k,v in cube_profile.totals.items()},
-                {k:v for k,v in cube_profile.counts.items()})
-            parent_term.counts[target_block] += 1
 
-            sources = []
+        # only populated and only read when analyze_sources is set
+        sources = []
+        if analyze_sources:
+            # the output terms that feed this superpoly: those whose profile has
+            # a term containing the cube with variables to spare
             for term in output_anf.args:
                 term_profile = term.remap_constants([
                     (0, MonomialProfile.logical_zero()),
                     (1, MonomialProfile.logical_one())
                 ]).eval_ANF(monomial_profiles)
 
-                # check if parent_term == output_term
+                is_source = False
                 for output_monomial in term_profile.terms:
-                    if ((output_monomial.totals == parent_term.totals) and
-                        (output_monomial.counts == parent_term.counts)
-                    ):
-                        sources.append(term)
+                    diffs = [
+                        (output_monomial.counts[i] if i in output_monomial.counts else 0) -
+                        (cube_profile.counts[i] if i in cube_profile.counts else 0)
+                        for i in set(output_monomial.counts) | set(cube_profile.counts)
+                    ]
+                    if all(x >= 0 for x in diffs) and sum(diffs) > 0:
+                        is_source = True
+                if is_source:
+                    sources.append(term)
 
         print('Cube Profile: ', cube_profile)
-        print('Target Block: ', target_block, '- Target Block Size:', len(cmpr_fn.blocks[target_block]))
+        print('Superpoly Degree (at most): ', degree)
+        print('Target Blocks: ', target_blocks, '- Target Block Size:', sum(len(cmpr_fn.blocks[t]) for t in target_blocks))
         print('Number of Cube Candidates (before restriction): ', num_cubes)
         print('Number of Cube Candidates (restricted to tweakable bits): ', tweakable_cube_count)
         if analyze_sources:
@@ -322,7 +200,7 @@ def cmpr_cube_summary(cmpr_fn, output_fn,tweakable_vars, analyze_sources = False
                         var_str += f'... ({len(monomial_profiles[var.index].terms)} terms)'
                     print(f"   - {var.index}: {var_str}")
         print('\n')
-        
+
     print("Summary Finished!")
 
 
@@ -344,39 +222,93 @@ def iproduct(*iterables):
         try:
             item = next(iterables[idx])
             # yield to products involving the new item:
-            yield from product(*saved[:idx], [item], *saved[idx+1:]) 
+            yield from product(*saved[:idx], [item], *saved[idx+1:])
             saved[idx].append(item)
 
         # Product is empty or all iterables exhausted.
         except StopIteration:
             exhausted.add(idx)
-            if not saved[idx] or len(exhausted) == N:  
+            if not saved[idx] or len(exhausted) == N:
                 return
     yield ()  # There are no iterables.
 
 def cmpr_cube_attack_offline(
-    cmpr_fn, output_fn, sim_fn, tweakable_vars,
-    time_limit = None, num_tests = 20, verbose = False, print_depth=0
+    cmpr_fn, output_fn, sim_fn, tweakable_vars, known_bits,
+    max_degree = None, time_limit = None, verbose = False, print_depth=0
     ):
+    """Find cubes and recover their superpolys as equations on the unknown bits.
+
+    Candidates come from the output's monomial profile, lowest superpoly degree
+    first. For a cube I whose superpoly has degree at most d over the unknown
+    bits U of its target blocks, the coefficient of each monomial x^m (m a subset
+    of U, |m| <= d) follows by Moebius inversion from the superpoly's values at
+    the points e_s, |s| <= d:
+
+        P(e_s) = XOR over u subset of s of coef(u),  so
+        coef(s) = P(e_s) XOR (XOR over u proper subset of s of coef(u)).
+
+    Each P(e_s) is one cube sum on the simulated register with the known bits at
+    their values and the bits of s set. Because the profile bounds the degree,
+    these coefficients are the whole superpoly, not an approximation of it.
+
+    An equation is kept when it is not constant and is linearly independent of
+    those kept so far, judged by an `LUEqStore` over the linearized monomials.
+    A candidate is skipped once every monomial it could produce is a pivot of
+    that store: nothing it yields could be independent.
+
+    :param cmpr_fn: The target register's feedback function.
+    :type cmpr_fn: CMPR
+    :param output_fn: The output function.
+    :type output_fn: BooleanFunction
+    :param sim_fn: Simulates the register from a full initial state, returning
+        the keystream after the initialization rounds (from `access_fns`).
+    :type sim_fn: Callable[[np.ndarray], np.ndarray]
+    :param tweakable_vars: Bits the attacker can set, from which cubes are drawn.
+    :type tweakable_vars: list[int]
+    :param known_bits: Values of the bits the attacker knows -- at least every
+        tweakable bit. The online phase must use the same values.
+    :type known_bits: dict[int, int]
+    :param max_degree: Skip candidates whose superpoly degree bound exceeds this.
+        The cost of one cube grows as the number of monomials up to its degree,
+        so this caps the work per cube. Defaults to no cap.
+    :type max_degree: int | None
+    :param time_limit: Seconds after which the search stops, defaults to None.
+    :type time_limit: float | None
+    :param verbose: Print progress, defaults to False.
+    :type verbose: bool
+    :param print_depth: Indentation level for verbose output, defaults to 0.
+    :type print_depth: int
+    :raises ValueError: If a tweakable bit has no known value.
+    :return: attack data for `cube_attack_online`.
+    :rtype: dict
+    """
+    unvalued = sorted(set(tweakable_vars) - set(known_bits))
+    if unvalued:
+        raise ValueError(
+            f"tweakable bits {unvalued} have no value in known_bits: the non-cube "
+            "tweakable bits are held at their known values in both phases"
+        )
+
     print_skipped_cubes = False
     if verbose:
-        print(f"{indent(print_depth)}Starting offline phase (Naive Algebraic Attack):")
+        print(f"{indent(print_depth)}Starting offline phase (Cube Attack):")
 
     start_time = time.time()
-    
-    cube_map = {}
-    lower_matrix = np.eye(cmpr_fn.size,dtype=np.uint8)
-    upper_matrix = np.eye(cmpr_fn.size,dtype=np.uint8)
-    const_vec = np.zeros([cmpr_fn.size,1],dtype=np.uint8)
 
     # break up tweakable variables by block and compute cube candidates:
     tweakable_set = set(tweakable_vars)
     tweakable_blocks = [set(block) & tweakable_set for block in cmpr_fn.blocks]
 
+    # the superpoly background: known bits at their values, unknown bits zero
+    background = np.zeros(cmpr_fn.size, dtype=np.uint8)
+    for bit, value in known_bits.items():
+        background[bit] = value
+
     if verbose:
         print(f"{indent(print_depth+1)}using monomial profile optimization: True")
         print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Calculating larger monomial profile:")
-        mp_time = time.time()
+
+    mp_time = time.time()
 
     monomial_profile = output_fn.translate_ANF().remap_constants([
         (0, MonomialProfile.logical_zero()),
@@ -386,12 +318,15 @@ def cmpr_cube_attack_offline(
     if verbose:
         print(f"{indent(print_depth+1)}Monomial profile computed:")
         print(f"{indent(print_depth+1)}Time: {time.time() - mp_time} s")
-        print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Calculating variable_map:")
-        cube_cand_time = time.time()
+        print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Calculating cube candidates:")
 
+    cube_cand_time = time.time()
+
+    # lowest superpoly degree first, then smallest cube
     cube_candidates = sorted(
-        monomial_profile.get_cube_candidates(),
-        key = (lambda x: sum(x[0].counts.values()))
+        (candidate for candidate in monomial_profile.get_cube_candidates()
+         if max_degree is None or candidate[3] <= max_degree),
+        key = (lambda x: (x[3], sum(x[0].counts.values())))
     )
 
     if verbose:
@@ -400,30 +335,48 @@ def cmpr_cube_attack_offline(
         print(f"{indent(print_depth+1)}")
         print(f"{indent(print_depth+1)}Identifying Cubes:")
 
+    # judges independence only; the equations themselves are kept below
+    rank_tracker = LUEqStore()
+    equations = []
+
     # Maxterm search
     maxterm_count = 0
-    for cube_profile, target_block, num_cubes in cube_candidates:
+    # rebuilt per candidate when verbose; only ever printed under that guard
+    profile_prefix = ""
+    for cube_profile, target_blocks, num_cubes, degree in cube_candidates:
         if verbose:
-           profile_prefix = f"{indent(print_depth+2)}Cube Candidate Profile: {cube_profile}"
+           profile_prefix = f"{indent(print_depth+2)}Cube Candidate Profile: {cube_profile} (degree <= {degree})"
 
-        # check to see if the block is saturated:
-        block_already_saturated = True
-        for t in target_block:
-            for bit in cmpr_fn.blocks[t]:
-                if not (bit in cube_map):
-                    block_already_saturated = False
-                    break
+        # the unknown bits this candidate's superpolys can involve, and the
+        # points e_s (|s| <= degree) that determine them, smallest first
+        region_bits = sorted(
+            bit for t in target_blocks for bit in cmpr_fn.blocks[t] if bit not in known_bits
+        )
+        points = [
+            s for size in range(min(degree, len(region_bits)) + 1)
+            for s in combinations(region_bits, size)
+        ]
+
+        # saturated: every monomial it could produce is already a pivot
+        region_saturated = True
+        for s in points[1:]:
+            if not (s in rank_tracker.comb_to_idx and
+                    rank_tracker.solved_for[rank_tracker.comb_to_idx[s]]):
+                region_saturated = False
+                break
 
         # create the iterators and calculate some statistics:
         tweakable_cube_count = 1
         variable_iterators = []
+        # zipped with variable_iterators below, outside the guard that used
+        # to bind this, so a saturated region reached that line unbound
+        loop_nums = []
 
-        # only compute tweakable bits for blocks which are not saturated
-        if not block_already_saturated:
-            loop_nums = []
+        # only compute tweakable bits for regions which are not saturated
+        if not region_saturated:
             for block_id in range(len(cmpr_fn.blocks)-1,-1,-1):
                 if block_id in cube_profile.counts:
-                    
+
                     variable_iterators.append(combinations(tweakable_blocks[block_id],cube_profile.counts[block_id]))
 
                     num_loops = 1
@@ -441,39 +394,31 @@ def cmpr_cube_attack_offline(
 
         # output message for empty cube profiles:
         if tweakable_cube_count == 0:
-            if print_skipped_cubes and verbose: 
+            if print_skipped_cubes and verbose:
                 print(f'{profile_prefix}: skipped (not possible with current tweakable bits)')
             continue
 
         # output message for cube profiles we won't use but could:
-        if block_already_saturated:
-            if print_skipped_cubes and verbose: 
-                print(f'{profile_prefix}: skipped (target block already saturated)')
+        if region_saturated:
+            if print_skipped_cubes and verbose:
+                print(f'{profile_prefix}: skipped (target region already saturated)')
             continue
 
         # test the individual cubes/maxterms:
         already_printed = False
         for cube_idx, var_selections in enumerate(iproduct(*variable_iterators)):
-            # break out of the specific cube candidate loop if needed
-            block_already_saturated = True
-            for t in target_block:
-                for bit in cmpr_fn.blocks[t]:
-                    if not (bit in cube_map):
-                        block_already_saturated = False
-                        break
-
-            if block_already_saturated:
+            if region_saturated:
                 break
             if time_limit and time.time() - start_time > time_limit:
-                break 
-            
+                break
+
             # print only inside the loop to make sure there are actual cubes
             # depending on the tweakable set, this iterator may be empty
             if not already_printed:
                 already_printed = True
                 if verbose:
                     print(f'{profile_prefix}:')
-                    print(f'{indent(print_depth+2)}Target Block: {target_block} - Target Block Size: {sum(len(cmpr_fn.blocks[t]) for t in target_block)}')
+                    print(f'{indent(print_depth+2)}Target Blocks: {target_blocks} - Unknown Bits: {len(region_bits)}')
                     print(f'{indent(print_depth+2)}Number of Cube Candidates (before restriction): {num_cubes}')
                     print(f'{indent(print_depth+2)}Number of Cube Candidates (restricted to tweakable bits): {tweakable_cube_count}')
 
@@ -482,274 +427,227 @@ def cmpr_cube_attack_offline(
             if verbose:
                 print(f'\r{indent(print_depth+3)}Cube {cube_idx+1}/{tweakable_cube_count}: {maxterm}',end='')
 
-            # counts for bookkeeping/printing:
-            useful_count = 0
-            constant_count = 0
-            nonlinear_count = 0
-            dependent_count = 0
+            # superpoly values at each point, then Moebius inversion to the
+            # coefficients, both as vectors over the keystream positions
+            coefs = {}
+            for s in points:
+                state = background.copy()
+                for bit in s:
+                    state[bit] = 1
+                coef = evaluate_super_poly(sim_fn, maxterm, state)
+                for size in range(len(s)):
+                    for u in combinations(s, size):
+                        coef ^= coefs[u]
+                coefs[s] = coef
 
-            # cube information:
-            equations, constants = determine_equations(sim_fn,maxterm,cmpr_fn.size)
-            nonlinear_mask = get_nonlinear_mask(sim_fn,maxterm,cmpr_fn.size,num_tests)
-            constant_mask = get_constant_mask(sim_fn,maxterm,cmpr_fn.size,num_tests)
-            
-            for t in range(len(constant_mask)):
-                # filter constant / nonlinear superpoly's
-                if constant_mask[t]:
-                    constant_count += 1
+            for t in range(len(coefs[()])):
+                monomials = [s for s in points[1:] if coefs[s][t]]
+                # a constant superpoly says nothing about the unknown bits
+                if not monomials:
                     continue
-                # elif nonlinear_mask[t]:
-                #     nonlinear_count += 1
-                #     continue
 
-                # attempt to insert equation, and determ
-                linearly_independent = insert_equation(
-                    lower_matrix, upper_matrix, const_vec, cube_map,
-                    maxterm, t, equations[t], constants[t]
-                )
+                equation = XOR(*[AND(*[VAR(bit) for bit in s]) for s in monomials])
+                if rank_tracker.insert_equation(equation, identifier=(maxterm, t), translate_ANF=False):
+                    equations.append((maxterm, t, monomials, int(coefs[()][t])))
 
-                # determine whether the insert was successful
-                if linearly_independent:
-                    useful_count += 1
-                if not linearly_independent:
-                    dependent_count += 1
-                
-                # print to keep information up to date:
-                # if verbose: 
-                    # print(
-                        
-                    #     f"Useful: {useful_count} -- " +
-                    #     f"Constant: {constant_count} -- " +
-                    #     f"Nonlinear: {nonlinear_count} -- " +
-                    #     f"Dependent: {dependent_count}",
-                    # end='')
-
-                # this breaks out of the loop indexing the keystream by time
-                # the check at the top of this section breaks the individual cube loop
-                block_already_saturated = True
-                for t in target_block:
-                    for bit in cmpr_fn.blocks[t]:
-                        if not (bit in cube_map):
-                            block_already_saturated = False
+                    region_saturated = True
+                    for s in points[1:]:
+                        if not (s in rank_tracker.comb_to_idx and
+                                rank_tracker.solved_for[rank_tracker.comb_to_idx[s]]):
+                            region_saturated = False
                             break
+                    if region_saturated:
+                        if verbose: print(f'\n{indent(print_depth+2)}Target Region Saturated!')
+                        break
 
-                if block_already_saturated:
-                    if verbose: print(f'\n{indent(print_depth+2)}Target Block Saturated!')
-                    break
                 if time_limit and time.time() - start_time > time_limit:
                     break
 
-            # flush the print statements with a newline
-            # if verbose: print(f'{indent(print_depth+2)}')
-
         # This check breaks out of the monomial profile loop
-        # no block saturated check because those are profile-specific
+        # no saturation check because regions are profile-specific
         if time_limit and time.time() - start_time > time_limit:
-            break  
+            break
 
+    # every state bit is a variable, so solvers can read the state back, and the
+    # constant is a column, so a consistent store can hold the right-hand sides
+    comb_to_idx: dict[tuple[int, ...], int] = {(): 0}
+    for bit in range(cmpr_fn.size):
+        comb_to_idx[(bit,)] = len(comb_to_idx)
+    for _maxterm, _t, monomials, _constant in equations:
+        for s in monomials:
+            if s not in comb_to_idx:
+                comb_to_idx[s] = len(comb_to_idx)
 
     num_queries = 0
     distinct_cubes = set()
-    for (cube, t) in cube_map.values():
-        if cube not in distinct_cubes:
-            num_queries += 2**len(cube)
-            distinct_cubes.add(cube)
+    for maxterm, _t, _monomials, _constant in equations:
+        if maxterm not in distinct_cubes:
+            num_queries += 2**len(maxterm)
+            distinct_cubes.add(maxterm)
 
     if verbose:
         print(f'{indent(print_depth+1)}Finished equation generation: ')
         print(f'{indent(print_depth+1)}Time: {time.time() - cube_cand_time} s')
         print(f'{indent(print_depth+1)}')
-        print(f'{indent(print_depth+1)}Number of equations found: {len(cube_map)}')
-        print(f'{indent(print_depth+1)}Number of cube tested: {maxterm_count}')
+        print(f'{indent(print_depth+1)}Number of equations found: {len(equations)}')
+        print(f'{indent(print_depth+1)}Number of cubes tested: {maxterm_count}')
         print(f'{indent(print_depth+1)}Number of queries in attack: {num_queries}')
-        print(f'Offline phase complete -- Total time: ', time.time() - start_time)
-    
+        print('Offline phase complete -- Total time: ', time.time() - start_time)
+
     output = {}
-    output['cubes'] = cube_map
-    output['lower matrix'] = lower_matrix
-    output['upper matrix'] = upper_matrix
-    output['constant vector'] = const_vec
+    output['equations'] = equations
+    output['known bits'] = dict(known_bits)
+    output['comb to idx map'] = comb_to_idx
+    output['idx to comb map'] = {idx: comb for comb, idx in comb_to_idx.items()}
+    output['num variables'] = len(comb_to_idx)
     return output
 
 
+def cube_attack_online(
+    feedback_fn, output_fn, access_fn, test_fn, attack_data,
+    time_limit=None, verbose=False, print_depth=0,
+    solver=None, online_store=None,
+):
+    """Measure each cube on the target and solve the resulting equations.
 
+    For every equation P_{I,t}(x) = S_{I,t} from the offline phase, S_{I,t} is
+    the cube sum over I of the target's keystream at position t, with the known
+    bits at the values the offline phase used. The known bits enter as the
+    equations x_i = v_i, so the store's system pins the whole initial state and
+    any store and solver pairing that RAA and FAA accept works here.
 
-u8 = numba.types.uint8
-@numba.njit(u8[:,:](u8[:,:],u8[:,:],u8[:,:]))
-def lu_solve(L,U,b):
-    c = b.copy()
+    The target is reached only through `access_fn` and `test_fn`, as an
+    attacker would reach it: the solver checks each candidate state with
+    `test_fn`, so the target's keystream and initialization rounds never leave
+    the interface.
 
-    # backsolve L
-    for i in range(len(b)-1):
-        for j in range(i+1,len(b)):
-            c[j] ^= L[j,i] * c[i]
-
-    # backsolve U
-    for i in range(len(b)-1,0,-1):
-        for j in range(i):
-            c[j] ^= U[j,i] * c[i]
-
-    return c
-
-
-
-
-def cube_attack_online(access_fn, test_fn, state_size, known_bits, cube_data, verbose = False, print_depth=0):
+    :param feedback_fn: The target register's feedback function.
+    :type feedback_fn: FeedbackFunction
+    :param output_fn: The output function.
+    :type output_fn: BooleanFunction
+    :param access_fn: Queries the target with the tweakable bits set as given
+        (from `access_fns`).
+    :type access_fn: Callable[[np.ndarray], np.ndarray]
+    :param test_fn: Whether a candidate initial state reproduces the target's
+        keystream (from `access_fns`).
+    :type test_fn: Callable[[np.ndarray], bool]
+    :param attack_data: The output of `cmpr_cube_attack_offline`.
+    :type attack_data: dict
+    :param time_limit: Seconds after which to give up, defaults to None.
+    :type time_limit: float | None
+    :param verbose: Print progress, defaults to False.
+    :type verbose: bool
+    :param print_depth: Indentation level for verbose output, defaults to 0.
+    :type print_depth: int
+    :param solver: Defaults to `LUSolver()`.
+    :type solver: LUSolver | GaussElimSolver | GrobnerSolver | SplitGrobnerSolver | None
+    :param online_store: Defaults to a consistent `LUEqStore` over the attack's monomials.
+    :type online_store: BaseEqStore | None
+    :raises ValueError: If the offline phase found no equations.
+    :return: The recovered initial state, or None.
+    :rtype: list[int] | None
+    """
     if verbose:
         print(f"{indent(print_depth)}Starting online phase (Cube Attack):")
+    start_time = time.time()
 
-    cube_map = cube_data['cubes']
-    lower_matrix = cube_data['lower matrix']
-    upper_matrix = cube_data['upper matrix']
-    total_matrix = (lower_matrix @ upper_matrix) % 2
-    consts = cube_data ['constant vector']
+    equations = attack_data['equations']
+    known_bits = attack_data['known bits']
+    comb_to_idx = attack_data['comb to idx map']
+    idx_to_comb = attack_data['idx to comb map']
+    num_vars = attack_data['num variables']
 
-    # create copies to prevent known-variable reduction from deleting important information
-    secret_bits = [i for i in range(state_size) if i not in known_bits]
-    guess_bits = [i for i in secret_bits if i not in cube_map]
-    if verbose: 
-        print(f"{indent(print_depth+1)}Guessing Bits: {tuple(sorted(guess_bits))}")
-
-    # if no cube bits, then cube attack is slower than brute force:
+    # if no cubes, then cube attack is slower than brute force:
     # exit immediately
-    if not cube_map:
+    if not equations:
         raise ValueError(
-            'No cubes given; consider either providing ' + 
+            'No cubes given; consider either providing ' +
             'cubes for the attack or a brute force approach'
         )
 
-    # using known vars and equations found, re-do the LU factorization:
-    # this is slightly slower, but saves cube evaluations
-    # for big cubes, this could save a lot of time
-    reduced_cube_map = {bit: (None,None) for bit in set(known_bits) | set(guess_bits)}
-    reduced_consts = np.zeros_like(consts,dtype=np.uint8)
-    reduced_upper_matrix = np.eye(total_matrix.shape[0],dtype=np.uint8)
-    reduced_lower_matrix = np.eye(total_matrix.shape[0],dtype=np.uint8)
+    if solver is None:
+        solver = LUSolver()
+    if online_store is None:
+        online_store = LUEqStore(comb_to_idx, consistent=True)
 
-    # Re-insert each equation and upper matrix to get new system:
-    if verbose:
-        print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Simplifying with known variables:")
-
-    for eq_idx in range(len(total_matrix)):
-        print(f"\r{indent(print_depth+2)}Equations simplified: {eq_idx+1}/{len(total_matrix)}", end='')
-        
-        # mark cube / time as None for known / guess bits
-        if eq_idx in cube_map: cube,t = cube_map[eq_idx]
-        else: cube,t = None,None
-        
-        linearly_independent = insert_equation(
-            reduced_lower_matrix, reduced_upper_matrix, reduced_consts, reduced_cube_map,
-            cube, t, total_matrix[eq_idx], consts[eq_idx]
-        )
+    # the known IV; access_fn writes only the tweakable bits, so the other
+    # known bits come from the target as they are
+    background = np.array([None] * feedback_fn.size)
+    for bit, value in known_bits.items():
+        background[bit] = value
 
     if verbose:
-        print(f"\n{indent(print_depth+1)}Finished Simplying:")
-        print(f"{indent(print_depth+1)}Time: xxxxxx")
+        print(f"{indent(print_depth+1)}Summing cubes to generate equations:")
 
-    # use the new reduced data going forward:
-    lower_matrix = reduced_lower_matrix
-    upper_matrix = reduced_upper_matrix
-    total_matrix = (lower_matrix @ upper_matrix) % 2
-    cube_map = reduced_cube_map
-    consts = reduced_consts
+    insert_eq, finalize = make_online_inserter(
+        online_store, idx_to_comb,
+        total_eqs=len(known_bits) + len(equations), num_vars=num_vars,
+        verbose=verbose, print_depth=print_depth+2,
+    )
 
-    # fill in known values:
-    known_values = np.zeros([state_size,1],dtype=np.uint8)
-    cube_background = np.array([None] * state_size)
-    for bit,val in known_bits.items():
-        cube_background[bit] = val
-        known_values[bit] = val
-    
-    # assume guess bits are 0 for the base cube calculation
-    for bit in guess_bits:
-        cube_background[bit] = 0
-
-    if verbose:
-        print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Summing cubes to generate equations:")
-
-    # calculate the base cube values
-    start_time = time.time()
-    query_count = 0
-    base_cube_values = np.zeros([state_size,1],dtype=np.uint8)
-
-
-    if verbose:
-        eq_idx = 0
-        total_eqs = len([x for x in cube_map if x != None])
-
-    # only calculate each cube once and re-use for different times:
-    cube_cache = {}
-    for bit, (cube,t) in cube_map.items():
-        if verbose:
-            eq_idx += 1
-            print(f'\r{indent(print_depth+2)}Equations generated: {eq_idx}/{total_eqs}', end = '')
-
-        if cube != None:
-            if cube not in cube_cache:
-                query_count += 2**len(cube)
-                cube_cache[cube] = evaluate_super_poly(access_fn, cube, cube_background)
-            base_cube_values[bit] = consts[bit] ^ cube_cache[cube][t]
-    query_time = time.time() - start_time
-    if verbose:
-        print(f'\n{indent(print_depth+1)}Finished summing cubes:')
-        print(f'{indent(print_depth+1)}Time: xxxxxx')
-    
-    # guess assignment of the guess bits and solve
-    print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Starting to Guess:")
-    guess_start_time = time.time()
-    
-    found = False
-    guess_count = 0
-    total_values = np.zeros([state_size,1],dtype=np.uint8)
-    for assignment in product((0,1), repeat = len(guess_bits)):
-        guess_count += 1
-        if verbose:
-            print(f"\r{indent(print_depth+2)}Guess count: {guess_count}",end='')
-
-        # reset total values to default state (guess 0, known and base cube values in place):
-        total_values[:] = known_values | base_cube_values
-
-        # cubes are calculated with the ground truth state, 
-        # this means changes to the guesses dont change the cube values
-        # and changes need to be made to the value vector (other than setting the guess values)
-        for i in range(len(assignment)):
-            if assignment[i]:
-                total_values[guess_bits[i]] ^= 1
-
-        # Solve the matrix to recover the initial state:
-        state_candidate = lu_solve(
-            lower_matrix,
-            upper_matrix,
-            total_values
-        )[:,0]
-        
-        # test if candidate is correct
-        if test_fn(state_candidate):
-            found = True
-            #print("MATCH FOUND", state_candidate)
+    eq_idx = 0
+    determined = False
+    for bit, value in sorted(known_bits.items()):
+        coef_vector = np.zeros([num_vars], dtype=np.uint8)
+        coef_vector[comb_to_idx[(bit,)]] = 1
+        coef_vector[comb_to_idx[()]] = value
+        determined = insert_eq(coef_vector, eq_idx)
+        eq_idx += 1
+        if determined:
             break
 
-    guess_time = time.time() - start_time
-    if verbose:
-        print(f"\n{indent(print_depth+1)}Guessing Finished:")
-        print(f"{indent(print_depth+1)}Time: {time.time() - guess_start_time} s")
+    # only calculate each cube once and re-use for different times:
+    query_count = 0
+    cube_sums = {}
+    if not determined:
+        for maxterm, t, monomials, constant in equations:
+            if maxterm not in cube_sums:
+                query_count += 2**len(maxterm)
+                cube_sums[maxterm] = evaluate_super_poly(access_fn, maxterm, background)
 
-    if found:
+            coef_vector = np.zeros([num_vars], dtype=np.uint8)
+            for s in monomials:
+                coef_vector[comb_to_idx[s]] = 1
+            coef_vector[comb_to_idx[()]] = constant ^ cube_sums[maxterm][t]
+
+            if insert_eq(coef_vector, eq_idx):
+                break
+            eq_idx += 1
+            if time_limit and (time.time() - start_time >= time_limit):
+                if verbose:
+                    print(f"\n{indent(print_depth+1)}Time limit reached during cube summation.")
+                break
+
+    finalize()
+
+    if verbose:
+        if isinstance(online_store, FilteringEqStore):
+            solved_count = online_store.num_determined
+        else:
+            solved_count = online_store.num_eqs
+        print(f"\n{indent(print_depth+1)}Finished summing cubes:")
+        print(f"{indent(print_depth+1)}Queries: {query_count}")
+        print(f"{indent(print_depth+1)}Variables Solved: {solved_count}/{num_vars}")
+        print(f"{indent(print_depth+1)}Time: {time.time() - start_time} s")
+
+    if time_limit and (time.time() - start_time >= time_limit):
         if verbose:
-            print(f'{indent(print_depth+1)}\n{indent(print_depth+1)}Solution Found!')
-            print(f'{indent(print_depth+1)}Total number of Queries: {query_count}')
-            print(f'{indent(print_depth+1)}Time: {query_time}')
-        return state_candidate
-    else:
+            print(f"{indent(print_depth)}Online phase timed out -- Total time: {time.time() - start_time} s")
         return None
 
+    if verbose:
+        print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Starting solve:")
 
+    initial_state, _, _ = solver.solve(
+        online_store, feedback_fn, output_fn, None,
+        verify=test_fn,
+        verbose=verbose, _print_depth=print_depth+1,
+    )
 
+    if verbose:
+        print(f"{indent(print_depth)}Online phase complete -- Total time: {time.time() - start_time} s")
 
-
-
-
-
+    return initial_state
 
 
 # returns a vector of outputs
@@ -768,55 +666,3 @@ def evaluate_super_poly(sim_fn, index_set, state, verbose=False):
         if verbose: print(assigment, a)
         xor_total ^= a
     return xor_total
-
-def get_nonlinear_mask(sim_fn, index_set, state_size, num_tests):
-    offset = np.zeros(state_size,'uint8')
-    nonlinear_mask = np.zeros_like(sim_fn(offset))
-
-    for n in range(num_tests):
-        state = np.random.randint(0,2,state_size,'uint8')
-        delta = np.random.randint(0,2,state_size,'uint8')
-        diff = state ^ delta
-
-        # BLR test for a nonlinear relationship:
-        nonlinear_mask |= (
-            evaluate_super_poly(sim_fn,index_set,state.copy()) ^ 
-            evaluate_super_poly(sim_fn,index_set,delta.copy()) ^
-            evaluate_super_poly(sim_fn,index_set,diff.copy()) ^
-            evaluate_super_poly(sim_fn,index_set,offset.copy())
-        )
-
-    return nonlinear_mask
-
-def get_constant_mask(sim_fn, index_set, state_size, num_tests):
-    state = np.zeros(state_size,'uint8')
-    comparison_vector = evaluate_super_poly(sim_fn,index_set,state.copy())
-    constant_mask = np.ones_like(comparison_vector)
-    comparison_vector ^= 1
-
-    for n in range(num_tests):
-        state = np.random.randint(0,2,state_size,'uint8')
-        constant_mask &= (
-            comparison_vector ^
-            evaluate_super_poly(sim_fn,index_set,state.copy())
-        )
-
-    return constant_mask
-
-def determine_equations(fn, index_set, state_size, target_set = None):
-    if target_set == None: target_set = range(state_size)
-
-    state = np.zeros(state_size, dtype = np.uint8)
-    consts = evaluate_super_poly(fn,index_set,state.copy())
-
-    keystream_len = len(consts)
-    coefs = np.zeros([state_size,keystream_len], dtype=np.uint8)
-    
-    for i in target_set:
-        state[i] = 1
-        coefs[i] = consts ^ evaluate_super_poly(fn,index_set,state.copy())
-        state[i] = 0
-
-    # transpose coefs to be [time, bit] instead.
-    return coefs.T, consts
-

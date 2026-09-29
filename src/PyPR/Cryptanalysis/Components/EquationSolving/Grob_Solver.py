@@ -4,8 +4,9 @@ Accepts equations from any store (via ``to_anf_list``), feeds them
 into a fresh :class:`GroebnerEqStore`, and returns the solved
 variable assignments from Buchberger reduction + unit propagation.
 """
-import numpy as np
 import time
+
+import numpy as np
 
 from PyPR.Cryptanalysis.Components.Adapters.store_repr import to_anf_list
 from PyPR.Cryptanalysis.Components.EquationStores.GrobnerEqStore import GroebnerEqStore
@@ -50,7 +51,7 @@ def reduce(equation_store, simplify_mode=None, verbose=False, _print_depth=0):
 def solve(
     equation_store,
     feedback_fn, output_fn, keystream,
-    test_length=1000, simplify_mode=None,
+    test_length=1000, verify=None, simplify_mode=None,
     verbose=False, _print_depth=0,
 ):
     """Solve a system of GF(2) equations via Gröbner reduction + exhaustive guess.
@@ -77,6 +78,10 @@ def solve(
     :type keystream: np.ndarray[np.uint8]
     :param test_length: Number of keystream bits to use for verification.
     :type test_length: int
+    :param verify: Decides whether a candidate initial state is correct, in
+        place of comparing its keystream with `keystream` (which may then be
+        None). Forwarded to :func:`GuessSolver.guess_and_solve`.
+    :type verify: Callable[[np.ndarray[np.uint8]], bool] | None
     :param simplify_mode: Simplification strategy for the GroebnerEqStore.
     :type simplify_mode: str | None
     :param verbose: Whether to print progress.
@@ -88,7 +93,9 @@ def solve(
         independent guess dimensions after pruning.
     :rtype: tuple[list[int] | None, int, int]
     """
-    from PyPR.Cryptanalysis.Components.EquationSolving.GuessSolver import guess_and_solve
+    from PyPR.Cryptanalysis.Components.EquationSolving.GuessSolver import (
+        guess_and_solve,
+    )
 
     reduction_start = time.time()
     grob_store = reduce(
@@ -117,7 +124,7 @@ def solve(
 
     return guess_and_solve(
         feedback_fn, output_fn, base_solution, effect_vectors,
-        keystream, test_length=test_length,
+        keystream, test_length=test_length, verify=verify,
         verbose=verbose, _print_depth=_print_depth,
     )
 
@@ -138,10 +145,10 @@ class GrobnerSolver:
 
     def solve(
         self, equation_store, feedback_fn, output_fn, keystream, *,
-        test_length=1000, verbose=False, _print_depth=0,
+        test_length=1000, verify=None, verbose=False, _print_depth=0,
     ):
         return solve(
             equation_store, feedback_fn, output_fn, keystream,
-            test_length=test_length, simplify_mode=self.simplify_mode,
+            test_length=test_length, verify=verify, simplify_mode=self.simplify_mode,
             verbose=verbose, _print_depth=_print_depth,
         )

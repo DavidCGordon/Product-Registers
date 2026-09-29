@@ -8,8 +8,9 @@ and non-constant linear-lead propagation.
 Follows the same function + thin-wrapper-class convention as
 the other solvers (see ``EquationSolving/__init__.py``).
 """
-import numpy as np
 import time
+
+import numpy as np
 
 from PyPR.Cryptanalysis.Components.Adapters.store_repr import to_anf_list
 from PyPR.Cryptanalysis.Components.EquationStores.GrobnerEqStore2 import (
@@ -60,7 +61,7 @@ def reduce(equation_store, simplify_mode=None, linear_sub_threshold=4,
 def solve(
     equation_store,
     feedback_fn, output_fn, keystream,
-    test_length=1000, simplify_mode=None, linear_sub_threshold=4,
+    test_length=1000, verify=None, simplify_mode=None, linear_sub_threshold=4,
     verbose=False, _print_depth=0,
 ):
     """Solve a GF(2) system via Gröbner (GM) reduction + exhaustive guess.
@@ -80,6 +81,10 @@ def solve(
     :type keystream: np.ndarray[np.uint8]
     :param test_length: Number of keystream bits for verification.
     :type test_length: int
+    :param verify: Decides whether a candidate initial state is correct, in
+        place of comparing its keystream with `keystream` (which may then be
+        None). Forwarded to :func:`GuessSolver.guess_and_solve`.
+    :type verify: Callable[[np.ndarray[np.uint8]], bool] | None
     :param simplify_mode: Simplification strategy for GroebnerEqStore2.
     :type simplify_mode: str | None
     :param linear_sub_threshold: Maximum monomial count in a linear
@@ -128,7 +133,7 @@ def solve(
 
     return guess_and_solve(
         feedback_fn, output_fn, base_solution, effect_vectors,
-        keystream, test_length=test_length,
+        keystream, test_length=test_length, verify=verify,
         verbose=verbose, _print_depth=_print_depth,
     )
 
@@ -159,11 +164,11 @@ class GrobnerSolver2:
 
     def solve(
         self, equation_store, feedback_fn, output_fn, keystream, *,
-        test_length=1000, verbose=False, _print_depth=0,
+        test_length=1000, verify=None, verbose=False, _print_depth=0,
     ):
         return solve(
             equation_store, feedback_fn, output_fn, keystream,
-            test_length=test_length,
+            test_length=test_length, verify=verify,
             simplify_mode=self.simplify_mode,
             linear_sub_threshold=self.linear_sub_threshold,
             verbose=verbose,

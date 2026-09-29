@@ -14,10 +14,10 @@ import random
 
 import pytest
 
-from PyPR.FeedbackRegister import FeedbackRegister
 from PyPR.FeedbackFunctions import FCSR
-from PyPR.Tools.RegisterSynthesis.fcsrSynthesis import BM_FCSR, FCSR_size, fcsr_eval
+from PyPR.FeedbackRegister import FeedbackRegister
 
+from PyPR.Tools.RegisterSynthesis.fcsrSynthesis import BM_FCSR, FCSR_size
 
 # ── Construction ────────────────────────────────────────────────────────
 
@@ -99,9 +99,11 @@ def test_bm_fcsr_returns_valid():
     random.seed(7)
     seq = [random.randint(0, 1) for _ in range(60)]
     size, num, den = BM_FCSR(seq)
-    assert isinstance(size, int) and size >= 1
+    assert isinstance(size, int)
+    assert size >= 1
     assert isinstance(num, int)
-    assert isinstance(den, int) and den >= 1
+    assert isinstance(den, int)
+    assert den >= 1
 
 def test_bm_fcsr_all_zeros():
     """All-zero sequence should return minimal complexity."""
@@ -125,7 +127,7 @@ def test_carries_values():
 CONNECTIONS = [(4, 13), (5, 19), (5, 29), (5, 37), (6, 43)]
 
 
-@pytest.mark.parametrize("complexity,q", CONNECTIONS, ids=lambda v: str(v))
+@pytest.mark.parametrize(("complexity", "q"), CONNECTIONS, ids=lambda v: str(v))
 def test_longest_cycle_has_length_equal_to_the_order_of_two_mod_q(complexity, q):
     """The maximum period over all states is exactly ord_q(2), and it is attained.
 
@@ -154,7 +156,7 @@ def test_longest_cycle_has_length_equal_to_the_order_of_two_mod_q(complexity, q)
     )
 
 
-@pytest.mark.parametrize("complexity,q", CONNECTIONS, ids=lambda v: str(v))
+@pytest.mark.parametrize(("complexity", "q"), CONNECTIONS, ids=lambda v: str(v))
 def test_period_spectrum_is_exactly_one_and_the_order_of_two(complexity, q):
     """For prime q the only cycle lengths are 1 and ord_q(2).
 
@@ -184,7 +186,7 @@ def test_period_spectrum_is_exactly_one_and_the_order_of_two(complexity, q):
     )
 
 
-@pytest.mark.parametrize("complexity,q", CONNECTIONS, ids=lambda v: str(v))
+@pytest.mark.parametrize(("complexity", "q"), CONNECTIONS, ids=lambda v: str(v))
 def test_every_period_divides_the_order_of_two_mod_q(complexity, q):
     """No state's period exceeds or fails to divide ord_q(2).
 
@@ -211,7 +213,7 @@ def test_every_period_divides_the_order_of_two_mod_q(complexity, q):
         )
 
 
-@pytest.mark.parametrize("complexity,q", CONNECTIONS, ids=lambda v: str(v))
+@pytest.mark.parametrize(("complexity", "q"), CONNECTIONS, ids=lambda v: str(v))
 def test_register_width_is_twice_the_complexity_minus_one(complexity, q):
     """An FCSR of 2-adic complexity d occupies 2d - 1 bits: d values, d - 1 carries.
 
@@ -222,7 +224,7 @@ def test_register_width_is_twice_the_complexity_minus_one(complexity, q):
     assert len(FCSR(complexity, q)) == 2 * complexity - 1
 
 
-@pytest.mark.parametrize("complexity,q", CONNECTIONS, ids=lambda v: str(v))
+@pytest.mark.parametrize(("complexity", "q"), CONNECTIONS, ids=lambda v: str(v))
 def test_some_states_lie_on_a_transient_into_the_cycle(complexity, q):
     """At least one seed has a nonzero preperiod.
 
@@ -256,7 +258,7 @@ def test_some_states_lie_on_a_transient_into_the_cycle(complexity, q):
 # The sweep matters here: p = q = 1 is the single input where the log-based size
 # is tight against that bound, and two fixed round-trip cases will not find it.
 
-@pytest.mark.parametrize("num,den", [
+@pytest.mark.parametrize(("num", "den"), [
     (1, 1),     # the tight case: needs size 2, not 1
     (-1, 1),    # all ones -- distinct from 1/1, and the pair is the regression
     (0, 1),

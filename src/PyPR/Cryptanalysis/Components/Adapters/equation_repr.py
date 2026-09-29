@@ -5,10 +5,12 @@ Bridges between the three equation representations:
   - BooleanANF (frozenset of frozensets) — used by GroebnerEqStore, SymbolicEqStore
   - BooleanFunction (DAG of gates) — used by equation generators
 """
+from typing import cast
+
 import numpy as np
 from numpy.typing import NDArray
 
-from PyPR.BooleanLogic import BooleanFunction, BooleanANF, XOR, AND, VAR, CONST
+from PyPR.BooleanLogic import CONST, VAR, BooleanANF, BooleanFunction
 
 
 def extract_monomials(
@@ -36,9 +38,11 @@ def extract_monomials(
     monomials = []
     for term in equation_anf.args:
         if type(term) != CONST:
-            comb = tuple(sorted([var.index for var in term.args]))
+            # in an ANF a non-constant term is a product of VARs, which the
+            # BooleanFunction-typed args cannot say; narrowed once per term
+            comb = tuple(sorted([var.index for var in cast("tuple[VAR, ...]", term.args)]))
         elif term.value == 1:
-            comb = tuple()
+            comb = ()
         else:
             continue
         monomials.append(comb)

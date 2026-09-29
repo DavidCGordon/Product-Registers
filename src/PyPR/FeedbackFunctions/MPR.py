@@ -1,10 +1,13 @@
-from PyPR.FeedbackFunctions import FeedbackFunction
-from PyPR.BooleanLogic import BooleanFunction, BooleanANF
+from functools import cached_property
 
 from PyPR import FeedbackRegister
+
+from PyPR.BooleanLogic import BooleanANF
+
+from PyPR.FeedbackFunctions import FeedbackFunction
+
 from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey
 
-from functools import cached_property
 
 class MPR(FeedbackFunction):
     """A Mersenne Product Register over the finite field GF(2^n).
@@ -95,7 +98,7 @@ class MPR(FeedbackFunction):
         if isinstance(primitive_poly, str):
             primitive_poly = [int(x) for x in format(int(primitive_poly,16), f"0>{size}b")] + [1]
             # primitive_poly = list(BitVector(intVal = int(primitive_poly, 16), size = size))+[1]
-            
+
         self.primitive_polynomial = primitive_poly
         primitive_powers = [(idx) for (idx, t) in enumerate(primitive_poly) if t == 1]
 
@@ -104,7 +107,7 @@ class MPR(FeedbackFunction):
         # the anf also includes n-1 "hypothetical bits" for higher powers
         # anf[:size] are real bits, anf [size:] are hypothetical bits
         functions = [[] for i in range(2*size)]
-        
+
         # Multiply by update polynomial U
         for idx in range(size):
             for power in update_powers:

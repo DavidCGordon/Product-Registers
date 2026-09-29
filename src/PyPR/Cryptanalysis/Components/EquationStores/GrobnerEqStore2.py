@@ -43,8 +43,10 @@ from functools import cmp_to_key
 
 from PyPR.BooleanLogic.BooleanANF import BooleanANF
 from PyPR.BooleanLogic.FunctionInputs import CONST
-from PyPR.Cryptanalysis.Components.EquationStores.BaseEqStore import BaseEqStore
 
+from PyPR.Cryptanalysis.Components.EquationStores.FilteringEqStore import (
+    FilteringEqStore,
+)
 
 # ── monomial helpers (same order as GrobnerEqStore) ──────────────────
 
@@ -91,7 +93,7 @@ class _PairEntry:
     let :meth:`GroebnerEqStore2._pop_fresh_pair` detect and skip
     stale entries without a global ``seen`` set.
     """
-    __slots__ = ('lcm', 'i', 'j', 'gen_i', 'gen_j')
+    __slots__ = ('gen_i', 'gen_j', 'i', 'j', 'lcm')
 
     def __init__(self, lcm, i, j, gen_i, gen_j):
         self.lcm = lcm
@@ -149,7 +151,7 @@ def _substitute_var(poly, var, tail):
 _DEFAULT_LINEAR_THRESHOLD = 4
 
 
-class GroebnerEqStore2(BaseEqStore):
+class GroebnerEqStore2(FilteringEqStore):
     """GF(2) polynomial equation store with Gebauer-Möller pair management.
 
     Drop-in replacement for :class:`GroebnerEqStore` with the same
@@ -171,7 +173,6 @@ class GroebnerEqStore2(BaseEqStore):
                  linear_sub_threshold=_DEFAULT_LINEAR_THRESHOLD):
         super().__init__(consistent=False)
         self.eager = False
-        self.filtering = True
 
         self._simplify_mode = simplify_mode
         self._linear_threshold = linear_sub_threshold
@@ -184,6 +185,7 @@ class GroebnerEqStore2(BaseEqStore):
         self._gen: list[int] = []
 
         self.num_eqs: int = 0
+        self.num_vars: int = 0
 
         # Deferred pair queue
         self._pairs: list[_PairEntry] = []
@@ -201,6 +203,18 @@ class GroebnerEqStore2(BaseEqStore):
     def queue(self):
         """List whose length equals the combined input + pair queue size."""
         return [None] * (len(self._inputs) + len(self._pairs))
+
+    @property
+    def num_determined(self) -> int:
+        """The number of variables reduction has driven to a constant.
+
+        Unlike an LU store's rank, these are known *values*: each entry of
+        ``solved_vars`` maps a variable to the constant it was pinned to.
+
+        :return: The number of solved variables.
+        :rtype: int
+        """
+        return len(self.solved_vars)
 
     @property
     def is_determined(self):
@@ -226,7 +240,15 @@ class GroebnerEqStore2(BaseEqStore):
         equation = equation.compose({
             var: CONST(val) for var, val in self.solved_vars.items()
         })
+        # num_vars counts the variables this store has ever seen. Solved
+        # variables were composed out above, so they cannot reappear in
+        # idxs_used() and the growth of unknown_vars is exactly the number of
+        # new ones. This is the only place the set grows; every other site
+        # moves a variable to solved_vars, which leaves the total alone.
+        prev_unknown = len(self.unknown_vars)
         self.unknown_vars |= set(equation.idxs_used())
+        self.num_vars += len(self.unknown_vars) - prev_unknown
+
         anf = BooleanANF.from_BooleanFunction(equation)
         if anf.terms:
             self._inputs.append(anf)

@@ -17,9 +17,8 @@ from itertools import product as iter_product
 
 import pytest
 
-from PyPR.BooleanLogic import AND, XOR, OR, NOT, VAR, CONST, BooleanFunction
+from PyPR.BooleanLogic import AND, CONST, NOT, OR, VAR, XOR, BooleanFunction
 from PyPR.BooleanLogic.BooleanANF import BooleanANF
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -337,3 +336,27 @@ def test_constant_and_zero_functions_have_the_expected_anf():
     assert set(BooleanANF.from_BooleanFunction(CONST(0))) == set()
     # negation adds the constant term, since NOT(x) = 1 + x over GF(2)
     assert set(BooleanANF.from_BooleanFunction(NOT(VAR(0)))) == {frozenset(), frozenset({0})}
+
+
+# ── equality against other types ─────────────────────────────────────────────
+# __eq__ used to assume its operand was a BooleanANF and read `other.terms`, so
+# comparing against anything else raised AttributeError -- including the implicit
+# comparisons `in` performs. The data model requires __eq__ to accept any object
+# and return NotImplemented for types it does not handle.
+
+def test_anf_equality_is_by_term_set():
+    assert BooleanANF([(0, 1)]) == BooleanANF([(0, 1)])
+    assert BooleanANF([(0, 1)]) != BooleanANF([(1,)])
+
+@pytest.mark.parametrize("other", [5, "x0", None, (0, 1), [(0, 1)]],
+                         ids=["int", "str", "None", "tuple", "list"])
+def test_anf_compares_unequal_to_other_types(other):
+    anf = BooleanANF([(0, 1)])
+    assert (anf == other) is False
+    assert anf != other
+
+def test_anf_membership_among_other_types():
+    """`in` compares against every element, so a mixed list used to raise."""
+    anf = BooleanANF([(0, 1)])
+    assert anf not in [1, "x", None]
+    assert anf in [1, BooleanANF([(0, 1)])]

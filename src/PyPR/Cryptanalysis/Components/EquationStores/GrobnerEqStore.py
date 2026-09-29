@@ -1,13 +1,14 @@
-from PyPR.BooleanLogic.BooleanANF import BooleanANF
-from PyPR.BooleanLogic.FunctionInputs import CONST, VAR
-from PyPR.BooleanLogic.Gates import XOR
-
-from PyPR.Cryptanalysis.Components.EquationStores.BaseEqStore import BaseEqStore
-
+import bisect
+import heapq
 from functools import cmp_to_key
 
-import heapq
-import bisect
+from PyPR.BooleanLogic.BooleanANF import BooleanANF
+from PyPR.BooleanLogic.FunctionInputs import CONST
+
+from PyPR.Cryptanalysis.Components.EquationStores.FilteringEqStore import (
+    FilteringEqStore,
+)
+
 
 def monomial_compare(term_1,term_2):
     """
@@ -26,7 +27,7 @@ def monomial_compare(term_1,term_2):
         return 1
     if len(term_1) < len(term_2):
         return -1
-    
+
     # differentiate based on sorted:
     if (
         sorted(term_1, reverse=True) >=
@@ -41,7 +42,7 @@ class pq_node:
     def __init__(self,lead_monomial,poly):
         self.poly = poly
         self.lead_term = lead_monomial
-    
+
     # since we dont care in the equality case, we can use leq
     # but heapq checks for __lt__, so thats what we call it
     def __lt__(self,other):
@@ -50,7 +51,7 @@ class pq_node:
         if len(self.lead_term) > len(other.lead_term):
             return False
         return (
-            sorted(self.lead_term, reverse=True) <= 
+            sorted(self.lead_term, reverse=True) <=
             sorted(other.lead_term, reverse=True)
         )
 
@@ -63,14 +64,13 @@ def lead_term(f) -> frozenset[int] | None:
     else:
         return None
 
-class GroebnerEqStore(BaseEqStore):
+class GroebnerEqStore(FilteringEqStore):
     lead_terms: list[frozenset[int]]
     equations: list[BooleanANF]
 
     def __init__(self, simplify_mode):
         super().__init__(consistent=False)
         self.eager = False
-        self.filtering = True
 
         # TODO: Make impl. optional
         # simplify = substitution
@@ -94,33 +94,45 @@ class GroebnerEqStore(BaseEqStore):
 
         while curr_lead:
             selected = next(
-                (i for i in range(self.num_eqs) if self.lead_terms[i] <= curr_lead), 
+                (i for i in range(self.num_eqs) if self.lead_terms[i] <= curr_lead),
                 None # default to value to return for empty polynomials
             )
 
             if selected == None:
                 return poly
-            
+
             poly += (
                 BooleanANF([curr_lead - self.lead_terms[selected]]) *
                 self.equations[selected]
             )
-            
+
             curr_lead = lead_term(poly)
         return poly
 
     def syzygy(self,i,j):
         return (
             self.equations[i] * BooleanANF([self.lead_terms[j]-self.lead_terms[i]]) +
-            self.equations[j] * BooleanANF([self.lead_terms[i]-self.lead_terms[j]]) 
+            self.equations[j] * BooleanANF([self.lead_terms[i]-self.lead_terms[j]])
         )
-    
+
     def insert_equation(self, equation, identifier=None, translate_ANF = True):
         self.enqueue_equation(equation)
         self.process_pending()
 
     def queue_equation(self, equation, identifier=None, translate_ANF=True):
         self.enqueue_equation(equation)
+
+    @property
+    def num_determined(self) -> int:
+        """The number of variables reduction has driven to a constant.
+
+        Unlike an LU store's rank, these are known *values*: each entry of
+        ``solved_vars`` maps a variable to the constant it was pinned to.
+
+        :return: The number of solved variables.
+        :rtype: int
+        """
+        return len(self.solved_vars)
 
     @property
     def is_determined(self):
@@ -131,9 +143,17 @@ class GroebnerEqStore(BaseEqStore):
             var: CONST(val) for var,val in self.solved_vars.items()
         })
 
+        # num_vars counts the variables this store has ever seen. Solved
+        # variables were composed out above, so they cannot reappear in
+        # idxs_used() and the growth of unknown_vars is exactly the number of
+        # new ones. This is the only place the set grows; every other site
+        # moves a variable to solved_vars, which leaves the total alone.
+        prev_unknown = len(self.unknown_vars)
         self.unknown_vars |= set(equation.idxs_used())
+        self.num_vars += len(self.unknown_vars) - prev_unknown
+
         equation = BooleanANF.from_BooleanFunction(equation)
-        
+
         if equation.terms and equation not in self.seen:
             heapq.heappush(self.queue, pq_node(lead_term(equation), equation))
             self.seen.add(equation)
@@ -265,7 +285,7 @@ class GroebnerEqStore(BaseEqStore):
             print()
 
         return consumed
-    
+
     def _simplify(self):
         seen_set = set()
         new_eqs = []
@@ -286,26 +306,26 @@ class GroebnerEqStore(BaseEqStore):
                     filtered_terms.add(term)
                 else:
                     filtered_terms.remove(term)
-            
+
             new_equation = BooleanANF(frozenset(filtered_terms),fast_init=True)
             if new_equation.terms == frozenset([frozenset()]):
                 raise ValueError("Inconsistent")
-            
+
             if new_equation.terms and new_equation not in seen_set:
                 seen_set.add(new_equation)
                 new_eqs.append(new_equation)
-        
+
         # May need to add in a way to filter old eqs!!
         # ADD IN LINEAR EQs:
         prefix = [BooleanANF([[v],val]) for v,val in self.solved_vars.items()]
         self.equations = prefix + new_eqs
         self.num_eqs = len(self.equations)
         self.lead_terms = []
-        for eq in self.equations: 
+        for eq in self.equations:
             lt = lead_term(eq)
-            if lt: 
+            if lt:
                 self.lead_terms.append(lt)
-        
+
 
 
 
@@ -352,7 +372,7 @@ class GroebnerEqStore(BaseEqStore):
 #             else:
 #                 termset.add(new_term)
 #         return GroebnerEquation(sorted(termset), key=monomial_order)
-        
+
 #     def __add__(self, other):
 #         output = []
 #         merged = heapq.merge(self.terms, other.terms, key=monomial_order)
@@ -374,10 +394,10 @@ class GroebnerEqStore(BaseEqStore):
 #         if len(self.lead_term) > len(other.lead_term):
 #             return False
 #         return (
-#             sorted(self.lead_term, reverse=True) <= 
+#             sorted(self.lead_term, reverse=True) <=
 #             sorted(other.lead_term, reverse=True)
 #         )
-    
+
 
 
 
@@ -402,9 +422,9 @@ class GroebnerEqStore(BaseEqStore):
 #         g = self.equations[j]
 #         return (
 #             f.poly * BooleanANF([g.lead_term-f.lead_term]) +
-#             g.poly * BooleanANF([f.lead_term-g.lead_term]) 
+#             g.poly * BooleanANF([f.lead_term-g.lead_term])
 #         )
-    
+
 #     # full-reduce
 #     # TODO: This needs attention (prob correct but NOT good)
 #     def reduce(self, poly):
@@ -413,22 +433,22 @@ class GroebnerEqStore(BaseEqStore):
 
 #         while curr_term:
 #             selected = next(
-#                 (eq for eq in self.equations if eq.lead_term <= curr_term), 
+#                 (eq for eq in self.equations if eq.lead_term <= curr_term),
 #                 None # default to value to return for empty polynomials
 #             )
 
 #             if selected == None:
 #                 output.terms ^= frozenset([curr_term])
 #                 selected = pq_node(curr_term,BooleanANF([curr_term]))
-            
+
 #             poly += (
 #                 BooleanANF([curr_term - selected.lead_term]) *
 #                 selected.poly
 #             )
-            
+
 #             curr_term = lead_term(poly)
-#         return output + poly 
-    
+#         return output + poly
+
 
 
 #     def enqueue_equation(self, equation, extra_const = 0, identifier=None, translate_ANF = True):
@@ -461,7 +481,7 @@ class GroebnerEqStore(BaseEqStore):
 #                         print("REORDER COST: ", reorder)
 #                         reorder = 0
 #                         num -= 1
-                        
+
 #                     break
 
 #             # check equation validity:
@@ -484,8 +504,8 @@ class GroebnerEqStore(BaseEqStore):
 #                     self.solved_vars[tuple(reduced_lead)[0]] = 0
 #                 if reduced.terms == {reduced_lead,frozenset()}:
 #                     self.solved_vars[tuple(reduced_lead)[0]] = 1
-                
-                    
+
+
 #             # split and reinsert equations (queue 0)
 #             node = pq_node(reduced_lead,reduced)
 #             insertion_idx = bisect.bisect(self.equations, node)
@@ -495,14 +515,14 @@ class GroebnerEqStore(BaseEqStore):
 
 #             self.equations = self.equations[:insertion_idx]
 #             self.equations.append(node)
-        
+
 #             # compute/add syzygies:
 #             if queue_idx == 1: #VALIDATE THIS LINE
 #                 count = 0
 #                 for eq_idx in range(len(self.equations) - 1):
 #                     # coprime lead terms won't lead to good sysygies
 #                     if not (
-#                         self.equations[-1].lead_term & 
+#                         self.equations[-1].lead_term &
 #                         self.equations[eq_idx].lead_term
 #                     ):
 #                         continue
@@ -514,10 +534,10 @@ class GroebnerEqStore(BaseEqStore):
 #                         count += 1
 
 #                 if verbose: print(f"added {count} to queue. Queue length: {len(self.queue)}")
-                
+
 #         self.num_eqs = len(self.equations)
 #         return True
-    
+
 #     def solved_vars2(self):
 #         new_vars = {}
 #         for v in self.known_vars:

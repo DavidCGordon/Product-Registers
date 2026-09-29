@@ -6,8 +6,7 @@ checked against the standard library or by hand.
 """
 import math
 
-from PyPR.Tools.RootCounting.Combinatorics import choose, binsum, powerset
-
+from PyPR.Tools.RootCounting.Combinatorics import binsum, choose, powerset
 
 # ── choose ────────────────────────────────────────────────────────────────────
 

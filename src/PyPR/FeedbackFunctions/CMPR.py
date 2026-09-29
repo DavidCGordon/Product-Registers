@@ -1,25 +1,28 @@
 from __future__ import annotations
-from typing import Any, Iterable
 
-from PyPR.BooleanLogic import BooleanANF, XOR, AND, CONST, VAR
-from PyPR.FeedbackFunctions import FeedbackFunction
-from PyPR.FeedbackFunctions import MPR
-
-from PyPR.Tools.RootCounting.MonomialProfile import TermSet, MonomialProfile
-from PyPR.Tools.RootCounting.JordanSet import JordanSet
-from PyPR.Tools.RootCounting.RootExpression import RootExpression
-import PyPR.Tools.RootCounting.MeshOptimization as mesh_optimization
-
-import PyPR.Tools.ResolventSolving as ResolventSolving
-from PyPR.BooleanLogic.BooleanGF import BooleanGF
-from PyPR.Tools.MersenneTools import expected_period, expected_period_ratio, max_period, cycle_lengths
-
-import random
-import numpy as np
-import galois as gl
 import time
-
 from functools import cached_property
+from typing import Any
+
+import galois as gl
+import numpy as np
+
+from PyPR.BooleanLogic import CONST, VAR, XOR
+
+from PyPR.FeedbackFunctions import MPR, FeedbackFunction
+
+import PyPR.Tools.RootCounting.MeshOptimization as mesh_optimization
+from PyPR.Tools import ResolventSolving
+from PyPR.Tools.MersenneTools import (
+    cycle_lengths,
+    expected_period,
+    expected_period_ratio,
+    max_period,
+)
+from PyPR.Tools.RootCounting.JordanSet import JordanSet
+from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile, TermSet
+from PyPR.Tools.RootCounting.RootExpression import RootExpression
+
 
 class CMPR(FeedbackFunction):
     """A Composite Mersenne Product Register.
@@ -55,7 +58,7 @@ class CMPR(FeedbackFunction):
     divisions: list[int]
 
     def __init__(self,
-        components: list["FeedbackFunction | MPR | CMPR"]
+        components: list[FeedbackFunction | MPR | CMPR]
     ) -> None:
         """Construct a CMPR from a list of MPR (or nested CMPR) components.
 
@@ -72,7 +75,7 @@ class CMPR(FeedbackFunction):
 
         self.primitive_polynomials = []
         self.update_polynomials = []
-        self.divisions = [] 
+        self.divisions = []
 
         shift_amount = 0
         self.fn_list = []
@@ -84,7 +87,7 @@ class CMPR(FeedbackFunction):
                 self.update_polynomials += component.update_polynomials
                 self.num_components += component.num_components-1
                 self.fn_list += [f.shift_indices(shift_amount) for f in component.fn_list]
-            elif isinstance(component,MPR): 
+            elif isinstance(component,MPR):
                 self.divisions.append(shift_amount)
                 self.primitive_polynomials += [component.primitive_polynomial]
                 self.update_polynomials += [component.update_polynomial]
@@ -105,7 +108,7 @@ class CMPR(FeedbackFunction):
 
         self.size = len(self.fn_list)
         self.divisions.append(self.size)
-        
+
         # reverse polynomials to match block indices
         self.primitive_polynomials = self.primitive_polynomials[::-1]
         self.update_polynomials = self.update_polynomials[::-1]
@@ -149,10 +152,10 @@ class CMPR(FeedbackFunction):
             if `new_update_poly` has the wrong length.
         """
         if mpr_index == 0 and self.primitive_polynomials[0] == None:
-            raise ValueError(f"Can't update Update Polynomial for block 0, because it is not an MPR.")
+            raise ValueError("Can't update Update Polynomial for block 0, because it is not an MPR.")
         if len(new_update_poly) != len(self.blocks[mpr_index]):
             raise ValueError(f"Update polynomial must be {len(self.blocks[mpr_index])} bits.")
-        
+
         # create new MPR
         new_mpr = MPR(
             len(self.blocks[mpr_index]),
@@ -168,7 +171,7 @@ class CMPR(FeedbackFunction):
                 new_mpr.fn_list[mpr_bit].shift_indices(shift),
                 *self.fn_list[cmpr_bit].args[1:]
             )
-        
+
         # update stored polynomials
         self.update_polynomials[mpr_index] = new_update_poly
 
@@ -315,7 +318,7 @@ class CMPR(FeedbackFunction):
         """
         propagation_matrices = []
         for resolvent_matrix in self.resolvent_matrices:
-            mask = np.zeros_like(resolvent_matrix) # ignoring error cause by dtype being object 
+            mask = np.zeros_like(resolvent_matrix) # ignoring error cause by dtype being object
             mask[resolvent_matrix != resolvent_matrix.dtype.zero] = 1 #type: ignore
             propagation_matrices.append(mask)
         return propagation_matrices
@@ -442,13 +445,13 @@ class CMPR(FeedbackFunction):
                 if verbose: print("Found duplicate size")
                 break
             block_sizes.add(len(self.blocks[block_id]))
-            
+
             # check if optimization not valid due to complex chaining
             allowed_bits = set(self.blocks[block_id]) | set(self.blocks[block_id-1])
             used_bits = set().union(*(
                 self.fn_list[bit].idxs_used() for bit in self.blocks[block_id]
             ))
-            
+
             if not (used_bits <= allowed_bits):
                 use_mesh_optimization = False
                 if verbose: print("Found non-simple chaining function")
@@ -463,7 +466,7 @@ class CMPR(FeedbackFunction):
         if verbose: print("Running default monomial profile algorithm")
         prof_table = [MonomialProfile() for i in range(self.size)] # map: bit -> expression
         block_table = [MonomialProfile() for i in range(len(self.blocks))]
-        
+
         #fill in the following blocks:
         for block_id in range(len(self.blocks)):
             start_time = time.time()
@@ -486,15 +489,15 @@ class CMPR(FeedbackFunction):
 
             start_time = time.time()
             if verbose:
-                print("Starting ANF Composition")    
-            
+                print("Starting ANF Composition")
+
             # compose MPs into the block table:
-            block_table[block_id] = block_fn.eval_ANF(block_table) 
+            block_table[block_id] = block_fn.eval_ANF(block_table)
             block_table[block_id] += MonomialProfile([TermSet(
                 {block_id: len(self.blocks[block_id])},
                 {block_id: 1}
             )])
-            
+
             # fill in table entries
             for bit in self.blocks[block_id]:
                 prof_table[bit] = block_table[block_id].__copy__()
@@ -508,7 +511,7 @@ class CMPR(FeedbackFunction):
 
     def _mp_mesh_optimization(self, verbose: bool = False) -> list[Any]:
         if verbose: print("Running monomial profile algorithm with the mesh optimization")
-                
+
         expr_table: list[Any] = [None for i in range(self.size)]
 
         # compute degree list used for the pass:
@@ -531,7 +534,7 @@ class CMPR(FeedbackFunction):
                 else:
                     degree = max(degree,len(term.args))
             degrees.append(degree)
-        
+
 
         # write the first block directly:
         size = len(self.blocks[0])
@@ -620,13 +623,13 @@ class CMPR(FeedbackFunction):
                 if verbose: print("Found duplicate size")
                 break
             block_sizes.add(len(self.blocks[block_id]))
-            
+
             # check if optimization not valid due to complex chaining
             allowed_bits = set(self.blocks[block_id]) | set(self.blocks[block_id-1])
             used_bits = set().union(*(
                 self.fn_list[bit].idxs_used() for bit in self.blocks[block_id]
             ))
-            
+
             if not (used_bits <= allowed_bits):
                 use_mesh_optimization = False
                 if verbose: print("Found non-simple chaining function")
@@ -644,11 +647,11 @@ class CMPR(FeedbackFunction):
         if verbose: print("Running default root expression algorithm")
         expr_table = [RootExpression({}) for i in range(self.size)] # map: bit -> expression
         block_table = [RootExpression({}) for i in range(len(self.blocks))]
-        
+
         #fill in the following blocks:
         for block_id in range(len(self.blocks)):
             start_time = time.time()
-            
+
             if verbose: print("Profiling Chaining")
 
             monomial_profile = MonomialProfile.from_merged(
@@ -668,11 +671,11 @@ class CMPR(FeedbackFunction):
             start_time = time.time()
 
             if verbose:
-                print("Starting ANF Composition")    
+                print("Starting ANF Composition")
 
             block_table[block_id] = block_fn.eval_ANF(block_table)
 
-            # if this one isn't locked, extend it. 
+            # if this one isn't locked, extend it.
             if (not locked_list) or (locked_list[block_id]):
                 size = len(self.blocks[block_id])
 
@@ -690,20 +693,20 @@ class CMPR(FeedbackFunction):
             #fill in table entries
             for bit in self.blocks[block_id]:
                 expr_table[bit] = block_table[block_id].__copy__()
-            
+
             if verbose:
                 num_terms = sum(len(table_entry) for table_entry in block_table[block_id].root_table.values())
                 print(f'Block {block_id} finished  -  Num Terms: {num_terms}')
                 print(f"ANF Composition Time: {time.time()-start_time}\n\n\n")
 
         return expr_table
-    
+
     def _re_mesh_optimization(self,
         locked_list: list[int] | None = None,
         verbose: bool = False
     ) -> list[Any]:
         if verbose: print("Running root expression algorithm with the mesh optimization")
-                
+
         expr_table: list[Any] = [None for i in range(self.size)]
 
         # compute lists used for the pass:
@@ -724,7 +727,7 @@ class CMPR(FeedbackFunction):
                 elif type(term) == CONST and term.value == 1:
                     constants_possible[block_id] = True
             degrees.append(degree)
-        
+
         # if no locked list is passed, default to all registers unlocked:
         if not locked_list:
             locked_list = [1]*len(sizes)
@@ -732,8 +735,8 @@ class CMPR(FeedbackFunction):
         # write the first block directly:
         size = len(self.blocks[0])
         for bit in self.blocks[0]:
-            js = JordanSet({size:1}, set([1]))
-            expr_table[bit] = RootExpression({(size,):set([js])})
+            js = JordanSet({size:1}, {1})
+            expr_table[bit] = RootExpression({(size,):{js}})
 
         # calculate the RE for each subsequent block:
         for block_id in range(1,len(self.blocks)):
@@ -765,7 +768,7 @@ class CMPR(FeedbackFunction):
 
         return expr_table
 
-               
+
 
     def estimate_LC(self,
         output_bit: int,
@@ -789,7 +792,17 @@ class CMPR(FeedbackFunction):
         :type verbose: bool
         :return: A (lower, upper) pair bounding the linear complexity.
         :rtype: tuple[int, int]
+        :raises ValueError: If `output_bit` is not a bit of this register.
         """
+        # Checked before any work is done. A negative index would otherwise
+        # sail through `REs[output_bit]` and only surface much further down,
+        # where no block contains it.
+        if not 0 <= output_bit < self.size:
+            raise ValueError(
+                f"output_bit must be a bit of this register, in "
+                f"[0, {self.size}), but got {output_bit}"
+            )
+
         t1 = time.time()
         REs = self.root_expressions(locked_list,verbose = verbose)
         bitRE = REs[output_bit]
@@ -800,15 +813,15 @@ class CMPR(FeedbackFunction):
 
         t1 = time.time()
         #get the length of the block bit is in.
+        # the blocks partition the register, and output_bit was checked above,
+        # so exactly one block contains it
         blocks = self.blocks
-        for block in blocks:
-            if output_bit in block:
-                blockLen = len(block)
-        
+        blockLen = next(len(block) for block in blocks if output_bit in block)
+
         #lower the minimum if this block is locked:
         if locked_list and blockLen in locked_list:
             blockLen = 1
-                  
+
         upper = bitRE.upper()
         lower = max(blockLen,bitRE.lower())
 
@@ -915,7 +928,7 @@ class CMPR(FeedbackFunction):
         overrides = {}
         vhdl_str = "\n    "
         for i in range(self.size - 1, -1 , -1):
-            
+
             # write the current function:
             if self.has_chaining[i] and include_mpr:
                 chaining_lines = self.chaining_feedback[i].merge_redundant().generate_VHDL(
@@ -923,7 +936,7 @@ class CMPR(FeedbackFunction):
                     array_name = "curr_state",
                     subfunction_prefix = f"fn_{i}",
                     overrides = overrides
-                ) 
+                )
 
                 # add in all subfunction lines:
                 vhdl_str += ("\n    ".join(chaining_lines[:-1]) + "\n    ")
@@ -946,7 +959,7 @@ class CMPR(FeedbackFunction):
                     subfunction_prefix = f"fn_{i}",
                     overrides = overrides
                 )) + "\n    ")
-                
+
             elif not self.has_chaining[i] and include_mpr:
                 vhdl_str += (self.component_feedback[i].merge_redundant().generate_VHDL(
                     output_name = f"next_state({i})",

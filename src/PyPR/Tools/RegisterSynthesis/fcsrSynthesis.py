@@ -8,18 +8,15 @@ See `docs/theory/2-adic Integers and Rational Sequences.md` for the arithmetic
 and `docs/architecture/FCSR Implementation.md` for how a fraction is realized as
 a register.
 """
-from math import ceil, copysign
-
 # May be very optimiseable, but nicely leans on pythons integer
-# implementations right now - 
+# implementations right now -
 # uses python bigInts to represent p_adic integer operations
 # http://cs.engr.uky.edu/~klapper/pdf/fcsr.pdf primarily
 # some modifications/ideas taken from https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=1056960
-
 # http://ijns.jalaxy.com.tw/contents/ijns-v21-n1/ijns-2019-v21-n1-p1-6.pdf
 # - 2-adic complexity of T-Functions (we can beat them)
+from math import ceil, log2
 
-from math import log2
 
 def BM_FCSR(seq):
     k = 0
@@ -29,7 +26,7 @@ def BM_FCSR(seq):
     # handle all zero case
     if k == len(seq):
         return 1,0,1
-    
+
     m = k
     seq_approx = 2**k
 
@@ -41,7 +38,7 @@ def BM_FCSR(seq):
 
     for i in range(k+1,len(seq)):
         seq_approx += int(seq[i])*(2**i)
-        
+
         #discrepancy check
         if (seq_approx * den_curr - num_curr) % (2**(i+1)) != 0:
             scale = 2**(i-m)
@@ -92,25 +89,25 @@ def BM_FCSR_iterator(seq, yield_rate):
     den_curr = 1
 
     for i, bit in seq:
-        
+
         #if it's time, yield:
         if i % yield_rate == 0:
             if den_curr < 0:
                 yield (
-                    FCSR_size(num_curr * -1,den_curr * -1), 
-                    num_curr * -1, 
+                    FCSR_size(num_curr * -1,den_curr * -1),
+                    num_curr * -1,
                     den_curr * -1
                 )
             else:
                 yield (
-                    FCSR_size(num_curr,den_curr), 
+                    FCSR_size(num_curr,den_curr),
                     num_curr,
                     den_curr
                 )
 
 
         seq_approx += int(bit)*(2**i)
-        
+
         #discrepancy check
         if (seq_approx * den_curr - num_curr) % (2**(i+1)) != 0:
             scale = 2**(i-m)
@@ -137,13 +134,13 @@ def BM_FCSR_iterator(seq, yield_rate):
     # fix numerator and denominator signs:
     if den_curr < 0:
         yield (
-            FCSR_size(num_curr * -1,den_curr * -1), 
-            num_curr * -1, 
+            FCSR_size(num_curr * -1,den_curr * -1),
+            num_curr * -1,
             den_curr * -1
         )
     else:
         yield (
-            FCSR_size(num_curr,den_curr), 
+            FCSR_size(num_curr,den_curr),
             num_curr,
             den_curr
         )
@@ -171,7 +168,7 @@ def odd_round(x):
     v = ceil(x) // 2 * 2 + 1
     return (v, v-2)
 
-def phi(num,den): 
+def phi(num,den):
     return max(abs(num),abs(den))
 
 # Determine the FCSR size for this numerator and denominator

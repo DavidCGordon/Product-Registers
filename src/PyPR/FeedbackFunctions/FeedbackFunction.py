@@ -1,24 +1,23 @@
+
+from copy import deepcopy
 from functools import cached_property
 from typing import Any, Self
 
-from PyPR.BooleanLogic import BooleanFunction, VAR
-from PyPR.BooleanLogic.BooleanANF import BooleanANF
-import PyPR.JSON_Serialization
-
-# for compiling to c to iterate faster
-import tempfile
-import subprocess
-from shutil import rmtree
-import contextlib
+import numba
 
 # for compiling to python
-import numpy as np
-import numba
+import numpy as np  # noqa: F401 -- used by the source compile() execs
+
+import PyPR.JSON_Serialization
+
+from PyPR.BooleanLogic import VAR, BooleanANF, BooleanFunction
+
 u8 = numba.types.u8
 void = numba.types.void
 
 # For Storing and loading as JSON files.
 import json
+
 
 class FeedbackFunction:
     fn_list: list[BooleanFunction]
@@ -32,21 +31,38 @@ class FeedbackFunction:
         self.size = len(fn_list)
         self._compiled = None
         self._compiled_inplace = None
-    
-    def __copy__(self):
-        new_obj = object.__new__(type(self))
-        new_obj.__dict__ = self.__dict__
-        new_obj.fn_list = [f.__copy__() for f in self.fn_list]
 
-        # dont bring over compiled versions:
-        new_obj._compiled = None
-        new_obj._compiled_inplace = None
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self:
+        """Create a copy which shares no mutable state with the original.
+
+        Every attribute is deep-copied through the shared `memo`, so anything
+        reachable twice -- a node referenced by several bits, or an attribute
+        pointing into `fn_list` -- is copied once and stays shared in the copy.
+        The compiled functions are the exception: they are immutable numba
+        dispatchers generated from `fn_list`, which the copy reproduces
+        exactly, so the copy shares them and runs compiled without recompiling.
+
+        :param memo: The `copy.deepcopy` memo, mapping `id` of an original to its copy.
+        :type memo: dict[int, Any]
+        :return: A copy of the feedback function.
+        :rtype: Self
+        """
+        new_obj = object.__new__(type(self))
+        memo[id(self)] = new_obj
+        for name, value in self.__dict__.items():
+            if name in ('_compiled', '_compiled_inplace'):
+                new_obj.__dict__[name] = value
+            else:
+                new_obj.__dict__[name] = deepcopy(value, memo)
         return new_obj
 
-    #TODO: expand on this
-    def copy(self):
-        return self.__copy__()
-    
+    # copies are always deep: a shallow copy would share fn_list with the original
+    def __copy__(self) -> Self:
+        return deepcopy(self)
+
+    def copy(self) -> Self:
+        return deepcopy(self)
+
     def __getitem__(self, idx): return self.fn_list[idx]
 
     def __setitem__(self, idx, val): self.fn_list[idx] = val
@@ -60,7 +76,7 @@ class FeedbackFunction:
             outstr += str(i) + "="
             outstr += str(self.fn_list[i]) + ";\n"
         return outstr[:-1]
-    
+
     def pretty_str(self):
         outstr = ""
         for i in range(self.size-1,-1,-1):
@@ -81,7 +97,7 @@ class FeedbackFunction:
             outstr += str(i) + "="
             outstr += self.fn_list[i].anf_str() + ";\n"
         return outstr[:-1]
-    
+
 
     # Convenient Manipulations
     def flip(self):
@@ -133,7 +149,7 @@ class FeedbackFunction:
         """
         if not previous_ids:
             ids = {}
-        elif in_place: 
+        elif in_place:
             ids = previous_ids
         else:
             # shallow copy to maintain objects, but new id dict
@@ -142,11 +158,11 @@ class FeedbackFunction:
         # create ids for all functions:
         for fn in self.fn_list:
             ids = fn.generate_ids(ids)
-        
+
         # lastly, add id for self:
         ids[self] = max(ids.values()) + 1
         return ids
-  
+
     def _generate_JSON_entry(self,
         ids: dict[Any, int]
     ) -> dict[str, Any]:
@@ -222,13 +238,13 @@ class FeedbackFunction:
             # Use previously parsed functions for args
             if key == 'fn_list':
                 new_obj.fn_list = [parsed_objects[fn_id] for fn_id in value]
-            
+
             # for other fields, just set directly
             else:
                 setattr(new_obj,key,value)
-                
+
         return new_obj
-        
+
     def to_JSON(self):
         """An alias for `PyPR.JSON_Serialization.generate_JSON(fn)`
         
@@ -242,9 +258,9 @@ class FeedbackFunction:
         :rtype: dict[str,Any]
         """
         return PyPR.JSON_Serialization.generate_JSON(self)
-    
+
     @classmethod
-    def from_JSON(cls, 
+    def from_JSON(cls,
         json_object: dict[str,Any]
     ) -> Self:
         """An alias for `PyPR.JSON_Serialization.parse_JSON(json_object)[0]`
@@ -268,19 +284,19 @@ class FeedbackFunction:
         """
         return_idx = json_object['return order'][0]
         json_class = json_object['objects'][return_idx]['class']
-        subclasses = set((
-            str(cls)[8:-2] for cls in 
+        subclasses = {
+            str(cls)[8:-2] for cls in
             PyPR.JSON_Serialization.all_subclasses(cls)
-        ))
+        }
 
         if json_class not in subclasses:
             raise ValueError(
-                f"JSON encodes {json_class}, which is not " + 
+                f"JSON encodes {json_class}, which is not " +
                 f"a subclass of class {str(cls)[8:-2]}"
             )
-        
+
         return PyPR.JSON_Serialization.parse_JSON(json_object)[0]
-    
+
     def to_file(self,
         filename: str
     ) -> None:
@@ -299,12 +315,12 @@ class FeedbackFunction:
         # json files only:
         if filename[-5:] != ".json":
             raise ValueError("Filename must end with the \".json\" file extension")
-        
+
         with open(filename, 'w') as f:
             f.write(json.dumps(self.to_JSON(), indent = 2))
 
     @classmethod
-    def from_file(cls, 
+    def from_file(cls,
         filename: str
     ) -> Self:
         """Reads a single function from the file with the given filename.
@@ -362,7 +378,7 @@ begin
             curr_state <= next_state;
         end if;
     end process;\n"""
-        
+
         vhdl_str += "\n    "
         for i in range(self.size - 1, -1 , -1):
             vhdl_str += ("\n    ".join(self.fn_list[i].generate_VHDL(
@@ -377,7 +393,7 @@ begin
                     overrides[node] = f'fn_{i}_{j+1}'
 
         vhdl_str += """
-    output <= currstate;
+    output <= curr_state;
 
 end run;
 
@@ -393,7 +409,7 @@ end run;
     # Compilation
     def compile(self):
         exec_locals = {}
-        
+
         # return a new answer
         overrides = {}
         exec_str = """
@@ -412,7 +428,7 @@ def _compiled(curr_state):
             for j, node in enumerate(self.fn_list[i].subfunctions()):
                 if node not in overrides:
                     overrides[node] = f'fn_{i}_{j+1}'
-            
+
         exec_str += "return next_state\n\n"
         exec(exec_str, globals(), exec_locals)
 
@@ -441,8 +457,6 @@ def _compiled_inplace(curr_state,output_buffer):
         exec_str += "return\n\n"
         exec(exec_str, globals(), exec_locals)
 
-        fn = exec_locals["_compiled_inplace"]
-        
         # u8[:](u8[:])
         self._compiled = numba.njit()(
             exec_locals["_compiled"]
@@ -460,7 +474,7 @@ def _compiled_inplace(curr_state,output_buffer):
         fns = [VAR(i) for i in range(self.size)]
         yield fns
 
-        for i in range(1,n+1): 
+        for i in range(1,n+1):
             fns = [self.fn_list[b].compose(fns) for b in range(self.size)]
             yield fns
 
@@ -478,9 +492,25 @@ def _compiled_inplace(curr_state,output_buffer):
                 output[key] += d.get(key, 0)
         return output
 
-    def isLinear(self, allowAfine = False):
-        for component in self.gateSummary().keys():
-            if component not in ['XOR','CONST','VAR']:
+    def isLinear(self, allowAffine: bool = False) -> bool:
+        """Whether every bit's update is a linear (or affine) function of the state.
+
+        Decided on each bit's ANF, not on the gate types: ANF-derived DAGs wrap
+        every monomial in an AND, even single-variable ones, so a linear register
+        can contain AND nodes. An update is affine when every monomial has degree
+        at most 1, and linear when it is affine and has no constant monomial
+        (the empty term), so that it maps the zero state to zero.
+
+        :param allowAffine: Whether to accept a constant term, i.e. test for affine
+            rather than linear updates.
+        :type allowAffine: bool
+        :return: True if every bit's update is linear (affine, if `allowAffine`).
+        :rtype: bool
+        """
+        for f in self.fn_list:
+            anf = BooleanANF.from_BooleanFunction(f)
+            if anf.degree() > 1:
                 return False
-            else:
-                return True
+            if not allowAffine and frozenset() in anf.terms:
+                return False
+        return True

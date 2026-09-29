@@ -1,6 +1,7 @@
-import numpy as np
-import numba
 import time
+
+import numba
+import numpy as np
 
 from PyPR.Cryptanalysis.Components.Adapters.store_repr import to_coef_matrix
 
@@ -70,8 +71,8 @@ def reduce(equation_store, additional_constants=None):
     else:
         constant_vector = additional_constants.copy()
 
-    if equation_store.consistent and tuple() in equation_store.comb_to_idx:
-        constant_vector[equation_store.comb_to_idx[tuple()]] = 1
+    if equation_store.consistent and () in equation_store.comb_to_idx:
+        constant_vector[equation_store.comb_to_idx[()]] = 1
 
     n = equation_store.num_vars
     solution = lu_solve(
@@ -85,7 +86,7 @@ def reduce(equation_store, additional_constants=None):
 
 def solve(
     equation_store, feedback_fn, output_fn, keystream, *,
-    test_length=1000, additional_constants=None,
+    test_length=1000, verify=None, additional_constants=None,
     verbose=False, _print_depth=0,
 ):
     """Solve a system of GF(2) equations via LU reduction + exhaustive guess.
@@ -110,6 +111,10 @@ def solve(
     :type keystream: np.ndarray[np.uint8]
     :param test_length: Number of keystream bits to use for verification.
     :type test_length: int
+    :param verify: Decides whether a candidate initial state is correct, in
+        place of comparing its keystream with `keystream` (which may then be
+        None). Forwarded to :func:`GuessSolver.guess_and_solve`.
+    :type verify: Callable[[np.ndarray[np.uint8]], bool] | None
     :param additional_constants: Base constant vector for the LU reduce.
         For NAA this contains keystream values at equation positions.
         For FAA/RAA (which use consistency mode) this is None.
@@ -123,7 +128,9 @@ def solve(
         independent guess dimensions after pruning.
     :rtype: tuple[list[int] | None, int, int]
     """
-    from PyPR.Cryptanalysis.Components.EquationSolving.GuessSolver import guess_and_solve
+    from PyPR.Cryptanalysis.Components.EquationSolving.GuessSolver import (
+        guess_and_solve,
+    )
 
     equation_store = _as_lu_store(equation_store)
     num_vars = equation_store.num_vars
@@ -175,7 +182,7 @@ def solve(
 
     return guess_and_solve(
         feedback_fn, output_fn, base_solution, pruned_effects,
-        keystream, test_length=test_length,
+        keystream, test_length=test_length, verify=verify,
         verbose=verbose, _print_depth=_print_depth,
     )
 
@@ -197,11 +204,11 @@ class LUSolver:
 
     def solve(
         self, equation_store, feedback_fn, output_fn, keystream, *,
-        test_length=1000, verbose=False, _print_depth=0,
+        test_length=1000, verify=None, verbose=False, _print_depth=0,
     ):
         return solve(
             equation_store, feedback_fn, output_fn, keystream,
-            test_length=test_length,
+            test_length=test_length, verify=verify,
             additional_constants=self.additional_constants,
             verbose=verbose, _print_depth=_print_depth,
         )

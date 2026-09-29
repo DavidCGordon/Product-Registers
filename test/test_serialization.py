@@ -8,10 +8,18 @@ import os
 import random
 import tempfile
 
-from PyPR.FeedbackRegister import FeedbackRegister
-from PyPR.FeedbackFunctions import MPR, CMPR, Fibonacci, Galois, FCSR, CrossJoin, TFunction
-from PyPR.BooleanLogic.ChainingGeneration.Templates import fast_template, arman_template
+from PyPR.BooleanLogic.ChainingGeneration.Templates import fast_template
 
+from PyPR.FeedbackFunctions import (
+    CMPR,
+    FCSR,
+    MPR,
+    CrossJoin,
+    Fibonacci,
+    Galois,
+    TFunction,
+)
+from PyPR.FeedbackRegister import FeedbackRegister
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 

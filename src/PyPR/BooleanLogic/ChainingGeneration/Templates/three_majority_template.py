@@ -1,8 +1,8 @@
 from typing import Any
 
 import PyPR.BooleanLogic.ChainingGeneration.TemplateBuilding as tb
-from PyPR.BooleanLogic.Gates import *
 from PyPR.BooleanLogic.FunctionInputs import *
+from PyPR.BooleanLogic.Gates import *
 
 MAJ3 = (
   XOR(
@@ -39,7 +39,7 @@ def maj_function(reference_block,algebraic_degree,correlation_immunity,require_u
         ]
       )
     )
-  
+
   def maj_node(degree_remaining):
     # BASE CASE:
     if degree_remaining == 1:
@@ -82,19 +82,39 @@ def num_necessary_vars(algebraic_degree,correlation_immunity):
 
 # default value only works when chaining from registers at least 31
 def three_majority_template(
-  correlation_immunity: Any = 3, 
-  algebraic_degree: Any  = 4, 
+  correlation_immunity: Any = 3,
+  algebraic_degree: Any  = 4,
   require_unique: bool = False
 ):
 
   def template_fn(cmpr):
     # input handling:
 
+    # both requirements are consumed per block below, so a single int is a
+    # request for the same value in every block and anything else is already
+    # the per-block sequence
     if type(correlation_immunity) == int:
       correlation_list = [correlation_immunity]*cmpr.num_components
+    else:
+      correlation_list = list(correlation_immunity)
+
     if type(algebraic_degree) == int:
       degree_list = [algebraic_degree]*cmpr.num_components
-    
+    else:
+      degree_list = list(algebraic_degree)
+
+    # block i's entry shapes the functions it feeds into block i+1, so every
+    # block but the last needs one; the last chains into nothing, and an entry
+    # for it (as the int form supplies) is accepted and unused
+    for name, values in (("correlation_immunity", correlation_list),
+                         ("algebraic_degree", degree_list)):
+      if len(values) not in (cmpr.num_components - 1, cmpr.num_components):
+        raise ValueError(
+          f"{name} has {len(values)} entries, but this CMPR has "
+          f"{cmpr.num_components} blocks: give one per block "
+          f"({cmpr.num_components}) or one per chained block ({cmpr.num_components - 1})."
+        )
+
     for block_idx in range(cmpr.num_components-1):
       threshold = num_necessary_vars(degree_list[block_idx], correlation_list[block_idx])
       if len(cmpr.blocks[block_idx]) < threshold:
@@ -116,7 +136,7 @@ def three_majority_template(
 
       template = maj_function(
         reference_block = cmpr.blocks[block_idx],
-        algebraic_degree = degree_list[block_idx], 
+        algebraic_degree = degree_list[block_idx],
         correlation_immunity = correlation_list[block_idx],
         require_unique = require_unique
       )

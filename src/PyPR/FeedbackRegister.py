@@ -1,12 +1,15 @@
-from PyPR.FeedbackFunctions import FeedbackFunction
-from PyPR.BooleanLogic.BooleanFunction import BooleanFunction
+import json
+from collections.abc import Iterator
+from copy import deepcopy
+from typing import Any, Self
+
+import numba
+import numpy as np
+
 import PyPR.JSON_Serialization
 
-import numpy as np
-import numba
-import json
+from PyPR.FeedbackFunctions import FeedbackFunction
 
-from typing import Iterator, Any, Self
 #import system
 
 class FeedbackRegister:
@@ -18,8 +21,8 @@ class FeedbackRegister:
 
     #INITIALIATION/DATA:
     def __init__(self,
-        seed: int | list[int] | np.ndarray[tuple[int],np.dtype[np.uint8]], 
-        fn: FeedbackFunction, 
+        seed: int | list[int] | np.ndarray[tuple[int],np.dtype[np.uint8]],
+        fn: FeedbackFunction,
         compile: bool = False
     ):
         # attributes
@@ -33,7 +36,7 @@ class FeedbackRegister:
         self._state = self._seed.copy()
         self._prev_state = np.zeros_like(self._seed)
 
-        # eat the compilation costs up-front 
+        # eat the compilation costs up-front
         if compile:
             self.fn.compile()
             self.period(limit=1)
@@ -66,17 +69,14 @@ class FeedbackRegister:
         """
         # For a given seed
         if type(seed) == int:
-            if seed >= 2**self.size: raise ValueError(f"Seed {seed} larger than register capacity")
+            if seed < 0 or seed >= 2**self.size: raise ValueError(f"Seed {seed} outside register capacity")
             self._seed = np.asarray([int(x) for x in format(seed, f'0{self.size}b')[::-1]], dtype='uint8')
-        elif type(seed) == list:
-            if len(seed) > self.size: raise ValueError(f"Seed {seed} larger than register capacity")
-            self._seed = np.asarray(seed, dtype='uint8')
-        elif type(seed) == np.ndarray:
-            if len(seed) > self.size: raise ValueError(f"Seed {seed} larger than register capacity")
-            self._seed = seed
+        elif type(seed) == list or type(seed) == np.ndarray:
+            if len(seed) != self.size: raise ValueError(f"Seed {seed} must have exactly {self.size} bits")
+            self._seed = np.array(seed, dtype='uint8')
         else:
             raise ValueError(f'Unexpected seed type {type(seed)}')
-        
+
     def reset(self):
         """Resets the register state (`register._state`) to whatever value is held in `register._seed`
         """
@@ -103,39 +103,38 @@ class FeedbackRegister:
         """
         # For a given seed
         if type(state) == int:
-            if state >= 2**self.size: raise ValueError(f"State {state} larger than register capacity")
+            if state < 0 or state >= 2**self.size: raise ValueError(f"State {state} outside register capacity")
             self._state = np.asarray([int(x) for x in format(state, f'0{self.size}b')[::-1]], dtype='uint8')
-        elif type(state) == list:
-            if len(state) > self.size: raise ValueError(f"State {state} larger than register capacity")
-            self._state = np.asarray(state, dtype='uint8')
-        elif type(state) == np.ndarray:
-            if len(state) > self.size: raise ValueError(f"State {state} larger than register capacity")
-            self._state = state.copy()
+        elif type(state) == list or type(state) == np.ndarray:
+            if len(state) != self.size: raise ValueError(f"State {state} must have exactly {self.size} bits")
+            self._state = np.array(state, dtype='uint8')
         else:
             raise ValueError(f'Unexpected state type {type(state)}')
 
     # key forwards to the state array, so a slice is valid and yields an ndarray
     def __getitem__(self, key: int | slice) -> Any: return self._state[key].copy()
     def __setitem__(self, key: int, val: int): self._state[key] = val
-    
+
     #ITERATION THROUGH REGISTER BITS:
     def __iter__(self): return iter(self._state)
     def __reversed__(self): return reversed(self._state)
 
-    def __copy__(self):
-        new_register = FeedbackRegister(0,self.fn.copy())
-        new_register._seed = self._seed.copy()
-        new_register._state = self._state.copy()
-        new_register._prev_state = self._prev_state.copy()
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self:
+        # every attribute goes through the shared memo, so the feedback
+        # function (and anything it references) is copied exactly once
+        new_register = object.__new__(type(self))
+        memo[id(self)] = new_register
+        for name, value in self.__dict__.items():
+            new_register.__dict__[name] = deepcopy(value, memo)
         return new_register
-    
-    def copy(self):
-        new_register = FeedbackRegister(0,self.fn.copy())
-        new_register._seed = self._seed.copy()
-        new_register._state = self._state.copy()
-        new_register._prev_state = self._prev_state.copy()
-        return new_register
-    
+
+    # copies are always deep: a shallow copy would share state arrays and fn
+    def __copy__(self) -> Self:
+        return deepcopy(self)
+
+    def copy(self) -> Self:
+        return deepcopy(self)
+
     #CLOCKING AND RUNNING THE REGISTER:
     def clock(self, compiled = True):
         """Update the state held in the state by 1 clock cycle.
@@ -149,12 +148,12 @@ class FeedbackRegister:
         :raises ValueError: If you try to call the compiled implementation while the 
             function has not been compiled
         """
-        if compiled and not hasattr(self.fn, "_compiled"):
+        if compiled and getattr(self.fn, "_compiled", None) is None:
             raise ValueError(
-                "Register Feedback Function is not compiled! " + 
+                "Register Feedback Function is not compiled! " +
                 "Either set compiled = False, or compile the function"
             )
-        
+
         if compiled:
             self._clock_compiled()
         else:
@@ -218,12 +217,12 @@ class FeedbackRegister:
         :raises ValueError: If you try to call the compiled implementation while the 
             function has not been compiled
         """
-        if compiled and not hasattr(self.fn, "_compiled"):
+        if compiled and getattr(self.fn, "_compiled", None) is None:
             raise ValueError(
-                "Register Feedback Function is not compiled! " + 
+                "Register Feedback Function is not compiled! " +
                 "Either set compiled = False, or compile the function"
             )
-        
+
         if compiled:
             generator = self._run_compiled(limit)
         else:
@@ -231,7 +230,7 @@ class FeedbackRegister:
 
         for state in generator:
             yield state
-        
+
     def _run_compiled(self, limit: int | None = None) -> Iterator["FeedbackRegister"]:
         """The compiled branch of the `run` method.
 
@@ -304,7 +303,7 @@ class FeedbackRegister:
             for _ in range(limit):
                 yield self
                 self._clock_uncompiled()
-                
+
         #no limit
         elif limit == None:
             while True:
@@ -313,9 +312,9 @@ class FeedbackRegister:
 
 
     # PERIOD CALCULATION:
-    def period(self, 
-        compiled: bool = True, 
-        safe: bool = True, 
+    def period(self,
+        compiled: bool = True,
+        safe: bool = True,
         limit: int | None = None
     ) -> tuple[int,int] | None:
         """Determine the period of the register with the given state
@@ -351,21 +350,21 @@ class FeedbackRegister:
         :rtype: int
         """
         if compiled:
-            if not hasattr(self.fn, "_compiled"):
+            if getattr(self.fn, "_compiled", None) is None:
                 raise ValueError(
-                    "Register Feedback Function is not compiled! " + 
+                    "Register Feedback Function is not compiled! " +
                     "Either set compiled = False, or compile the function"
                 )
             if limit and limit >= 2**64-1:
                 raise ValueError(
                     "For compiled mode, the largest allowed limit is 2^64-1"
                 )
-                
+
         # cases (in order of speed):
         if compiled and not safe:
             if limit == None: limit = 2**26
             return self._period_compiled_unsafe(limit)
-        elif compiled and safe: 
+        elif compiled and safe:
             if limit == None: limit = 2**25
             return self._period_compiled_safe(limit)
         elif not compiled and not safe:
@@ -374,7 +373,7 @@ class FeedbackRegister:
         elif not compiled and safe:
             if limit == None: limit = 2**14
             return self._period_uncompiled_safe(limit)
-            
+
     def _period_compiled_unsafe(self, limit: int) -> tuple[int,int] | None:
         """The compiled, unsafe branch of the period function
 
@@ -393,7 +392,7 @@ class FeedbackRegister:
         # This is here so you can call this branch directly from the object
         # The main implementation is below, outside of the class
         return _period_compiled_unsafe_(
-            self._state, 
+            self._state,
             self.fn._compiled_inplace,
             limit
         )
@@ -414,11 +413,11 @@ class FeedbackRegister:
         # This is here so you can call  this branch directly from the object
         # The main implementation is below, outside of the class
         return _period_compiled_safe_(
-            self._state, 
+            self._state,
             self.fn._compiled_inplace,
             limit
         )
-  
+
     def _period_uncompiled_unsafe(self,limit: int) -> tuple[int,int] | None:
         """The uncompiled, unsafe branch of the period function
 
@@ -483,9 +482,9 @@ class FeedbackRegister:
             fast._clock_uncompiled()
             period += 1
 
-            if period > limit: 
+            if period > limit:
                 return None
-            
+
         # Find the position of the first repetition of length lambda
         slow.reset()
         fast.reset()
@@ -498,7 +497,7 @@ class FeedbackRegister:
             slow._clock_uncompiled()
             fast._clock_uncompiled()
             preperiod += 1
-    
+
         return period, preperiod
 
 
@@ -532,7 +531,7 @@ class FeedbackRegister:
         """
         if not previous_ids:
             ids = {}
-        elif in_place: 
+        elif in_place:
             ids = previous_ids
         else:
             # shallow copy to maintain objects, but new id dict
@@ -540,11 +539,11 @@ class FeedbackRegister:
 
         # create for function:
         ids = self.fn.generate_ids(ids)
-        
+
         # lastly, add id for self:
         ids[self] = max(ids.values()) + 1
         return ids
-  
+
     def _generate_JSON_entry(self,
         ids: dict[Any, int]
     ) -> dict[str, Any]:
@@ -611,9 +610,9 @@ class FeedbackRegister:
             elif key == "_prev_state":
                 new_obj._prev_state = np.asarray(value,dtype='uint8')
             else:
-                setattr(new_obj,key,value)   
+                setattr(new_obj,key,value)
         return new_obj
-        
+
     def to_JSON(self):
         """An alias for `PyPR.JSON_Serialization.generate_JSON(register)`
         
@@ -627,9 +626,9 @@ class FeedbackRegister:
         :rtype: dict[str,Any]
         """
         return PyPR.JSON_Serialization.generate_JSON(self)
-    
+
     @classmethod
-    def from_JSON(cls, 
+    def from_JSON(cls,
         json_object: dict[str,Any]
     ) -> Self:
         """An alias for `PyPR.JSON_Serialization.parse_JSON(json_object)[0]`
@@ -653,19 +652,19 @@ class FeedbackRegister:
         """
         return_idx = json_object['return order'][0]
         json_class = json_object['objects'][return_idx]['class']
-        subclasses = set((
-            str(cls)[8:-2] for cls in 
+        subclasses = {
+            str(cls)[8:-2] for cls in
             PyPR.JSON_Serialization.all_subclasses(cls)
-        ))
-        
+        }
+
         if json_class not in subclasses:
             raise ValueError(
-                f"JSON encodes {json_class}, which is not " + 
+                f"JSON encodes {json_class}, which is not " +
                 f"a subclass of class {str(cls)[8:-2]}"
             )
-        
+
         return PyPR.JSON_Serialization.parse_JSON(json_object)[0]
-    
+
     def to_file(self,
         filename: str
     ) -> None:
@@ -684,12 +683,12 @@ class FeedbackRegister:
         # json files only:
         if filename[-5:] != ".json":
             raise ValueError("Filename must end with the \".json\" file extension")
-        
+
         with open(filename, 'w') as f:
             f.write(json.dumps(self.to_JSON(), indent = 2))
 
     @classmethod
-    def from_file(cls, 
+    def from_file(cls,
         filename: str
     ) -> Self:
         """Reads a single register from the file with the given filename.
@@ -745,7 +744,7 @@ def _period_compiled_unsafe_(state, update_fn, limit: int) -> tuple[int,int] | N
     for count in range(1,limit+1):
         if np.all(state == init_state):
             return (count,0)
-        
+
         # compiled clock inlined:
         state, prev_state = prev_state, state
         update_fn(prev_state,state)
@@ -765,7 +764,7 @@ def _period_compiled_safe_(state, update_fn, limit: int) -> tuple[int,int] | Non
     :return: Either a tuple containing the period and preperiod, or `None` if the method fails.
     :rtype: tuple[int,int] | None
     """
-    
+
     # Source: slightly modified version of wikipedia's
     # implementation of Brent's algorithm
     slow_state = state.copy()
@@ -791,9 +790,9 @@ def _period_compiled_safe_(state, update_fn, limit: int) -> tuple[int,int] | Non
         update_fn(fast_prev_state,fast_state)
         period += 1
 
-        if period > limit: 
+        if period > limit:
             return None
-        
+
     # Find the position of the first repetition of length λ
     slow_state = state.copy()
     fast_state = state.copy()
@@ -818,8 +817,8 @@ def _period_compiled_safe_(state, update_fn, limit: int) -> tuple[int,int] | Non
 @numba.njit(numba.void(u8[:],u8[:],update_type,numba.types.Optional(u64)))
 def _run_compiled_(
     state: np.ndarray,
-    prev_state: np.ndarray, 
-    update_fn: Any, 
+    prev_state: np.ndarray,
+    update_fn: Any,
     limit: int | None = None
 ) -> Iterator[Any]:
     """The compiled branch of the `run` method.

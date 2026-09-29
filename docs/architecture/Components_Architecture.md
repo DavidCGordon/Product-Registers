@@ -21,19 +21,50 @@ All stores share a minimal contract defined in `BaseEqStore` (`EquationStores/Ba
 - `filtering` — discard redundant info as equations arrive (progressively "more solved") vs. accumulate everything as a bag
 - `insert_equation` / `queue_equation` / `process_pending` / `is_determined`
 
+`filtering` is declared on the class, not assigned per instance: it is `True`
+exactly for subclasses of `FilteringEqStore`
+(`EquationStores/FilteringEqStore.py:12`), so `store.filtering` and
+`isinstance(store, FilteringEqStore)` are the same question and cannot drift
+apart. That class is the second axis of the hierarchy, crossing `IndexedEqStore`
+rather than nesting under it — `LUEqStore` is both, the Gröbner stores are only
+filtering, `EqStore`/`SymbolicEqStore` are only indexed.
+
+What it adds is `num_determined`: how much of the system the store has pinned
+down. The two families measure it by different means — an LU store counts pivot
+columns (its rank), a Gröbner store counts variables reduction has driven to a
+constant — and those are **not** the same notion of "solved": rank counts
+constrained dimensions, which still need back-substitution before any variable
+has a known value. The quantities are therefore not comparable between stores.
+What they share is the part consumers rely on: each rises only when its store
+has genuinely learned something, and each reaches `num_vars` exactly when
+`is_determined` becomes `True`.
+
+That invariant is why `num_vars` has to mean "variables ever seen". The Gröbner
+stores maintain it in `enqueue_equation`, where `unknown_vars` grows; solved
+variables are composed out before `idxs_used()` runs, so they cannot be counted
+twice, and every other mutation site moves a variable from `unknown_vars` into
+`solved_vars`, which leaves the total alone.
+
+**Why this is a class and not a duck-typed check**: the progress figure is read
+by the online inserter's stall detector (`Adapters/online_insertion.py`) and by
+FAA/RAA's progress reporting. Before `FilteringEqStore` those three sites each
+carried their own `hasattr(store, 'solved_vars')` chain reaching past the
+interface into Gröbner-specific storage, so a fourth filtering store would have
+had to be discovered in all three. Now each store answers for itself.
+
 A second shared layer, `IndexedEqStore` (`EquationStores/IndexedEqStore.py:17`),
 factors out monomial-indexing logic shared by `EqStore`, `LUEqStore`, and
 `SymbolicEqStore` (but **not** `GroebnerEqStore` — see below):
 - **Dynamic mode** (`comb_to_idx=None`): monomials discovered on insertion, backing arrays grow as needed.
 - **Static mode** (`comb_to_idx` given): fixed monomial set known ahead of time; accepts raw `ndarray` rows directly; raises `ValueError` on an unseen monomial.
-- **Linking** (`link()`, `IndexedEqStore.py:62-77`): one store propagates newly-discovered monomials to others — how RAA's offline phase keeps parallel `g`/`h` stores and their LU rank-trackers in sync (`reduced_algebraic_attack.py:88-93`).
+- **Linking** (`link()`, `IndexedEqStore.py:62-77`): one store propagates newly-discovered monomials to others — how RAA's offline phase keeps parallel `g`/`h` stores and their LU rank-trackers in sync (`reduced_algebraic_attack.py:92-97`).
 
 | Store | Base | Representation | Reduces? | Notes |
 |---|---|---|---|---|
 | `EqStore` | `IndexedEqStore` | dense `ndarray[uint8]` coefficient matrix, one row per equation | No — pure accumulator (`eager=True`, `filtering=False`) | Fed to a batch solver later (Gauss-elim, Gröbner via conversion, etc.) |
 | `SymbolicEqStore` | `IndexedEqStore` | `list[BooleanANF]` | No — "the symbolic analog of EqStore" (own docstring) | Same bag semantics as `EqStore`, but keeps `comb_to_idx`/`idx_to_comb` like `EqStore`, so it interoperates with matrix stores via linking/Adapters |
-| `LUEqStore` | `IndexedEqStore` | incremental LU decomposition (`upper_matrix`, `lower_matrix`, `solved_for` bit-vector = rank/pivot columns, **not** variable values) | Yes — rejects linearly dependent rows (`filtering=True`, `eager=True`) | Real variable values require back-substitution via `LU_Solver`; `rank`/`is_determined` exposed directly |
-| `GroebnerEqStore` | `BaseEqStore` only (**not** `IndexedEqStore`) | `list[BooleanANF]`, no index map — monomials are `frozenset[int]`s directly | Yes — incremental Buchberger algorithm (`eager=False`, `filtering=True`); insertions are queued and only processed via `process_pending`/`_consume_queue` | The genuine odd one out: a live Gröbner basis, not a coefficient-matrix accumulator. This is exactly why Adapters needs a special case for it (§2) |
+| `LUEqStore` | `IndexedEqStore` + `FilteringEqStore` | incremental LU decomposition (`upper_matrix`, `lower_matrix`, `solved_for` bit-vector = rank/pivot columns, **not** variable values) | Yes — rejects linearly dependent rows (`filtering=True`, `eager=True`) | Real variable values require back-substitution via `LU_Solver`; `rank`/`is_determined` exposed directly |
+| `GroebnerEqStore` | `FilteringEqStore` only (**not** `IndexedEqStore`) | `list[BooleanANF]`, no index map — monomials are `frozenset[int]`s directly | Yes — incremental Buchberger algorithm (`eager=False`, `filtering=True`); insertions are queued and only processed via `process_pending`/`_consume_queue` | The genuine odd one out: a live Gröbner basis, not a coefficient-matrix accumulator. This is exactly why Adapters needs a special case for it (§2) |
 
 **Mental model**: `EqStore`/`SymbolicEqStore` are dual representations (matrix vs.
 symbolic-list) of the same "no-reduction bag" concept. `LUEqStore` is a
@@ -134,6 +165,13 @@ section covers which store each solver actually wants.
 | `SplitGrob_Solver` | `GroebnerEqStore` only | `to_anf_list(store)`, re-`enqueue_equation`'d into a fresh `GroebnerEqStore` |
 | `GuessSolver` | N/A — takes an already-extracted `base_solution`/`effect_vectors`, no store awareness at all | N/A |
 
+Every `solve()` takes `verify` (default None), forwarded to `guess_and_solve`:
+a function deciding whether a candidate initial state is correct, used in place
+of the default check that its keystream matches the one passed in. It exists for
+attacks that reach the target only through an interface -- the cube attack
+passes the `test_fn` of its `access_fns` emulation, so the target's keystream
+never reaches the solver. NAA, RAA and FAA leave it unset.
+
 **Pattern**: each solver has exactly one native store type, and reaches every
 other store type through the Adapters conversion functions — always at a
 described cost premium (rebuilding a store from scratch instead of reusing
@@ -166,7 +204,8 @@ and hard-code `LUEqStore` as their online store — not because anything else
 is incompatible, but because their online-phase equations are fully combined
 and consistent by construction (no deferred-constants problem exists for
 them). A caller *could* pass `GrobnerSolver`/`SplitGrobnerSolver` with a
-`GroebnerEqStore` as FAA/RAA's `online_store` and it should work (via
+`GroebnerEqStore` as FAA/RAA's `online_store` and it does work (via
 `to_anf_list` conversion where needed), just without the LU speed benefit.
-This is an absence of a restriction, not a tested guarantee — nothing
-exercises this combination.
+`test/Cryptanalysis/test_attacks.py` runs exactly that combination, with both
+`GrobnerSolver` and `SplitGrobnerSolver`, and requires the full round trip to
+recover the secret state.
