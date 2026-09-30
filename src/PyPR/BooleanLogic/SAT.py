@@ -13,7 +13,7 @@ emits without changing the function it computes.
 See `docs/architecture/SAT Encoding.md` for the per-node invariant the walks
 rely on and fusion nodes exploit.
 """
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Mapping
 from typing import Any, Self
 
 from pysat.formula import CNF
@@ -22,6 +22,7 @@ from pysat.solvers import Solver
 from PyPR.BooleanLogic.BooleanFunction import BooleanFunction
 from PyPR.BooleanLogic.FunctionInputs import VAR
 from PyPR.BooleanLogic.Gates import AND, OR, XOR
+from PyPR.BooleanLogic.Latex import LatexStyle, LatexTerm
 
 
 def tseytin(self,
@@ -165,26 +166,11 @@ def tseytin_labels(self,
         2, max(max(labels) for labels in node_labels.values()) + 1
     )
 
-    stack = [self]
-    while stack:
-        curr_node = stack[-1]
-
-        # a node carried in from a previous call keeps its wires, and so does
-        # everything beneath it -- this is what lets labels be threaded across
-        # several circuits so shared subexpressions reuse variables
-        if curr_node in node_labels:
-            stack.pop()
-
-        # ready once every argument is labelled (vacuously true of a leaf)
-        elif all(arg in node_labels for arg in curr_node.args):
-            next_idx = curr_node._tseytin_labels(
-                node_labels, variable_labels, next_idx
-            )
-            stack.pop()
-
-        else:
-            for child in reversed(curr_node.args):
-                stack.append(child)
+    # a node carried in from a previous call keeps its wires, and so does
+    # everything beneath it -- this is what lets labels be threaded across
+    # several circuits so shared subexpressions reuse variables
+    for node in self.postorder(stop=node_labels.__contains__):
+        next_idx = node._tseytin_labels(node_labels, variable_labels, next_idx)
 
     return node_labels,variable_labels
 
@@ -207,28 +193,11 @@ def tseytin_clauses(self,
     :return: clauses which encode the given function for a sat solver.
     :rtype: list[tuple[int, ...]],
     """
-    visited = set()
-    stack = [self]
-    # a shared subexpression is reached once per path; the dict keeps one copy
-    # of each clause while preserving the order they were first emitted in
+    # distinct nodes can emit the same clause (two CONSTs pinning one literal);
+    # the dict keeps one copy of each, in the order they were first emitted
     clauses: dict[tuple,None] = {}
-
-    while stack:
-        curr_node = stack[-1]
-
-        if curr_node in visited:
-            stack.pop()
-
-        # ready once every argument has been handled (vacuously true of a leaf)
-        elif all(arg in visited for arg in curr_node.args):
-            clauses.update(dict.fromkeys(curr_node._tseytin_clauses(label_map)))
-            visited.add(curr_node)
-            stack.pop()
-
-        else:
-            for child in reversed(curr_node.args):
-                stack.append(child)
-
+    for node in self.postorder():
+        clauses.update(dict.fromkeys(node._tseytin_clauses(label_map)))
     return list(clauses.keys())
 
 def satisfiable(self,
@@ -493,51 +462,44 @@ class _TseytinFuse(BooleanFunction):
 
     def _template_code(
         self,
-        hook: str,
-        arg_strings: dict[BooleanFunction, str],
-        array_name: str
-    ) -> str:
+        render: Callable[[BooleanFunction, Mapping[BooleanFunction, Any]], Any],
+        arg_values: Mapping[BooleanFunction, Any]
+    ) -> Any:
         """Generate the template's expression over its arguments' expressions.
 
         Fusion only changes the SAT encoding; generated code is the template's
         own gates, with each input replaced by the code already generated for
         the argument that supplies it. The template is walked in post-order and
-        every node other than an input is asked for its expression through the
-        same hook the caller is using.
+        every node other than an input is rendered the way the caller renders
+        its own nodes.
 
-        :param hook: The per-node generation hook, e.g. `_generate_c`.
-        :type hook: str
-        :param arg_strings: Code already generated for this node's arguments.
-        :type arg_strings: dict[BooleanFunction, str]
-        :param array_name: The name of the state array in the generated code.
-        :type array_name: str
+        :param render: Renders one template node given its arguments' renderings,
+            e.g. `lambda node, strings: node._generate_c(strings, array_name)`.
+        :type render: Callable[[BooleanFunction, Mapping[BooleanFunction, Any]], Any]
+        :param arg_values: The renderings already made for this node's arguments.
+        :type arg_values: Mapping[BooleanFunction, Any]
         :return: One expression computing this node.
-        :rtype: str
+        :rtype: Any
         """
-        strings: dict[BooleanFunction, str] = {}
-        stack: list[BooleanFunction] = [self.template]
-        while stack:
-            node = stack[-1]
-            if node in strings:
-                stack.pop()
-            elif isinstance(node, VAR):
-                strings[node] = arg_strings[self.args[node.index]]
-                stack.pop()
-            elif all(arg in strings for arg in node.args):
-                strings[node] = getattr(node, hook)(strings, array_name)
-                stack.pop()
+        values: dict[BooleanFunction, Any] = {}
+        for node in self.template.postorder():
+            if isinstance(node, VAR):
+                values[node] = arg_values[self.args[node.index]]
             else:
-                stack.extend(reversed(node.args))
-        return strings[self.template]
+                values[node] = render(node, values)
+        return values[self.template]
 
-    def _generate_c(self, c_strings: dict[BooleanFunction, str], array_name: str) -> str:
-        return self._template_code("_generate_c", c_strings, array_name)
+    def _generate_c(self, c_strings: Mapping[BooleanFunction, str], array_name: str) -> str:
+        return self._template_code(lambda node, strings: node._generate_c(strings, array_name), c_strings)
 
-    def _generate_VHDL(self, vhdl_strings: dict[BooleanFunction, str], array_name: str) -> str:
-        return self._template_code("_generate_VHDL", vhdl_strings, array_name)
+    def _generate_VHDL(self, vhdl_strings: Mapping[BooleanFunction, str], array_name: str) -> str:
+        return self._template_code(lambda node, strings: node._generate_VHDL(strings, array_name), vhdl_strings)
 
-    def _generate_python(self, python_strings: dict[BooleanFunction, str], array_name: str) -> str:
-        return self._template_code("_generate_python", python_strings, array_name)
+    def _generate_python(self, python_strings: Mapping[BooleanFunction, str], array_name: str) -> str:
+        return self._template_code(lambda node, strings: node._generate_python(strings, array_name), python_strings)
+
+    def _generate_latex(self, terms: Mapping[BooleanFunction, LatexTerm | str], style: LatexStyle) -> LatexTerm:
+        return self._template_code(lambda node, inner: node._generate_latex(inner, style), terms)
 
     def _binarize(self, cache: dict[BooleanFunction, BooleanFunction]) -> "_TseytinFuse":
         """Binarize below the fusion boundary, but not across it.

@@ -1,4 +1,5 @@
 
+from collections.abc import Callable
 from copy import deepcopy
 from functools import cached_property
 from typing import Any, Self
@@ -11,6 +12,7 @@ import numpy as np  # noqa: F401 -- used by the source compile() execs
 import PyPR.JSON_Serialization
 
 from PyPR.BooleanLogic import VAR, BooleanANF, BooleanFunction
+from PyPR.BooleanLogic.Latex import LatexStyle, fill_template, partial_name
 
 u8 = numba.types.u8
 void = numba.types.void
@@ -349,7 +351,32 @@ class FeedbackFunction:
     def write_VHDL(self, filename):
         #writes a VHDL file
         #Credit: Anna Hemingway
+
+        # generate the assignments first: each subfunction split out of a bit
+        # becomes a signal, and every one of them has to be declared up front
         overrides = {}
+        assignments = []
+        for i in range(self.size - 1, -1 , -1):
+            assignments += self.fn_list[i].generate_VHDL(
+                output_name = f"next_state({i})",
+                array_name = "curr_state",
+                subfunction_prefix = f"fn_{i}",
+                overrides = overrides
+            )
+
+            # later bits refer to this bit's subfunctions by their signal
+            for j, node in enumerate(self.fn_list[i].subfunctions()):
+                if node not in overrides:
+                    overrides[node] = f'fn_{i}_{j+1}'
+
+        subfunction_signals = [
+            line.split(" <= ")[0] for line in assignments
+            if not line.startswith("next_state(")
+        ]
+        declarations = ""
+        if subfunction_signals:
+            declarations = f"    signal {', '.join(subfunction_signals)}: std_logic;\n"
+
         vhdl_str = f"""
 library ieee;
 use ieee.std_logic_1164.all;
@@ -366,7 +393,7 @@ end entity fpr;
 architecture run of fpr is
 
     signal curr_state, next_state:std_logic_vector({self.size - 1} downto 0);
-
+{declarations}
 
 begin
 
@@ -379,19 +406,7 @@ begin
         end if;
     end process;\n"""
 
-        vhdl_str += "\n    "
-        for i in range(self.size - 1, -1 , -1):
-            vhdl_str += ("\n    ".join(self.fn_list[i].generate_VHDL(
-                output_name = f"next_state({i})",
-                array_name = "curr_state",
-                subfunction_prefix = f"fn_{i}",
-                overrides = overrides
-            )) + "\n    ")
-
-            for j, node in enumerate(self.fn_list[i].subfunctions()):
-                if node not in overrides:
-                    overrides[node] = f'fn_{i}_{j+1}'
-
+        vhdl_str += "\n    " + "".join(line + "\n    " for line in assignments)
         vhdl_str += """
     output <= curr_state;
 
@@ -401,10 +416,66 @@ end run;
         with open(filename, "w") as f:
             f.write(vhdl_str)
 
-    # def write_tex(self, filename):
-    #     with open(filename, "w") as f:
-    #         for i in range(self.size - 1, -1 , -1):
-    #             f.write(f"c_{{{str(i)}}}[t+1] &= {self.fn_list[i].generate_tex()}\\\\\n")
+    def generate_latex(self,
+        output_name: str | Callable[..., str] = "x_{$bit}[t+1]",
+        subfunction_name: str | Callable[..., str] = "g_{$bit,$index}",
+        style: LatexStyle | None = None,
+        environment: str | None = "align*",
+        inline_subfunctions: bool = False
+    ) -> str:
+        """Write the register's update as a system of LaTeX equations, one per bit.
+
+        Bits are written from the highest index down, matching `str` and
+        `write_VHDL`. Each bit's function is rendered by
+        `BooleanFunction.generate_latex`; a subfunction shared with a bit already
+        written is referred to by the name it was given there rather than
+        defined again.
+
+        :param output_name: Template for the left-hand side of bit `$bit`'s
+            equation, or a callable taking `bit`. Defaults to 'x_{$bit}[t+1]'.
+        :type output_name: str | Callable[..., str]
+        :param subfunction_name: Template naming the `$index`-th subfunction
+            (1-based) split out of bit `$bit`'s function, or a callable taking
+            `bit` and `index`. Defaults to 'g_{$bit,$index}'.
+        :type subfunction_name: str | Callable[..., str]
+        :param style: The notation to write in. Defaults to `LatexStyle` with
+            state variables written `x_{$index}[t]`.
+        :type style: LatexStyle | None
+        :param environment: The environment to wrap the equations in, or None to
+            return the lines joined by `\\\\` with no environment. Defaults to 'align*'.
+        :type environment: str | None
+        :param inline_subfunctions: If True, write every bit as a single
+            expression with no subfunctions split out. Defaults to False.
+        :type inline_subfunctions: bool
+        :return: The LaTeX for the whole update.
+        :rtype: str
+        """
+        if style is None:
+            style = LatexStyle(variable="x_{$index}[t]")
+
+        overrides: dict[BooleanFunction, str] = {}
+        lines = []
+        for i in range(self.size - 1, -1, -1):
+            fn = self.fn_list[i]
+            names = partial_name(subfunction_name, bit=i)
+            lines += fn.generate_latex(
+                output_name = fill_template(output_name, bit=i),
+                subfunction_name = names,
+                style = style,
+                overrides = overrides,
+                inline_subfunctions = inline_subfunctions,
+            )
+
+            # later bits refer to this bit's subfunctions by name
+            if not inline_subfunctions:
+                for j, node in enumerate(fn.subfunctions()):
+                    if node not in overrides:
+                        overrides[node] = fill_template(names, index=j+1)
+
+        body = " \\\\\n".join(lines)
+        if environment is None:
+            return body
+        return f"\\begin{{{environment}}}\n{body}\n\\end{{{environment}}}"
 
     # Compilation
     def compile(self):

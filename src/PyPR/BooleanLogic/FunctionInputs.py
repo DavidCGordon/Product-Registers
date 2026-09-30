@@ -1,6 +1,8 @@
+from collections.abc import Mapping
 from typing import Any, Self
 
 from PyPR.BooleanLogic.BooleanFunction import BooleanFunction, IndexableContainer
+from PyPR.BooleanLogic.Latex import LatexStyle, LatexTerm
 
 
 class CONST(BooleanFunction):
@@ -44,11 +46,11 @@ class CONST(BooleanFunction):
         array_name: str
     ) -> str:
         return f"{self.value}"
-    def _generate_tex(self,
-        cache: dict[BooleanFunction,str],
-        array_name: str
-    ) -> str:
-        return f"{self.value}"
+    def _generate_latex(self,
+        terms: Mapping[BooleanFunction, LatexTerm | str],
+        style: LatexStyle
+    ) -> LatexTerm:
+        return style.render_constant(self.value)
     def generate_JSON(self) -> dict[str,Any]:
         return {
             "Return IDs": [0],
@@ -211,11 +213,11 @@ class VAR(BooleanFunction):
         array_name: str
     ) -> str:
         return f"{array_name}[{self.index}]"
-    def _generate_tex(self,
-        cache: dict[BooleanFunction,str],
-        array_name: str
-    ) -> str:
-        return f"c_{{{self.index}}}[t]"
+    def _generate_latex(self,
+        terms: Mapping[BooleanFunction, LatexTerm | str],
+        style: LatexStyle
+    ) -> LatexTerm:
+        return style.render_variable(self.index)
     def generate_JSON(self) -> dict[str,Any]:
         return {
             "Return IDs": [0],

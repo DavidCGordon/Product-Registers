@@ -12,7 +12,9 @@ dependencies = [
     "numba",
     "numpy",
     "galois",
-    "python-sat"
+    "python-sat",
+    # integer factorization in Tools/AlgClosure/NumberTheory.py
+    "sympy"
 ]
 
 [project.optional-dependencies]
@@ -142,6 +144,9 @@ section-order = [
 # per path, so the two share a line.)
 "src/PyPR/BooleanLogic/BooleanFunction.py" = ["S102", "W291", "W293"]
 "src/PyPR/FeedbackFunctions/FeedbackFunction.py" = ["S102", "W291", "W293"]
+# The generated-code tests execute what those two files emit and compare it with
+# eval, which is the only way to check generated code means what it should.
+"test/BooleanLogic/test_code_generation.py" = ["S102"]
 # Whitespace inside string literals: 284 trailing spaces and whitespace-only
 # lines, nearly all in docstrings, plus two `"""` comment blocks and CMPR's VHDL
 # codegen template. Ruff offers no safe fix for any of them, because removing

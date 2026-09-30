@@ -1,10 +1,47 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Collection, Iterator, Mapping
 from typing import Any, Protocol, Self
 
 from numba import njit  # noqa: F401 -- used by the source compile() execs
 
 import PyPR.JSON_Serialization
+
+from PyPR.BooleanLogic.Latex import LatexStyle, LatexTerm, fill_template
+
+# stack markers for the DAG walks: `postorder` uses _FINISHED to mean "the node
+# beneath me is finished"; the tree printers use _CLOSE and _SEPARATOR for the
+# closing bracket and the comma between arguments
+_FINISHED = object()
+_CLOSE = object()
+_SEPARATOR = object()
+
+
+class _RenderedValues(dict):
+    """Rendered values keyed by node, falling back to override strings on a miss.
+
+    Generation hooks look their arguments up with `values[arg]`. Keeping this a
+    real dict keeps that lookup at C speed; only an override node -- which is
+    never rendered, so never stored -- reaches `__missing__`.
+    """
+
+    overrides: Mapping[Any, str]
+
+    def __missing__(self, node: Any) -> str:
+        return self.overrides[node]
+
+
+class _CopiesWithMemo(dict):
+    """Copies keyed by original node, falling back to the deepcopy memo on a miss.
+
+    `__deepcopy__` stops its walk at nodes copied earlier in the same deepcopy
+    call; their copies live in the memo (keyed by id), so a lookup of one of them
+    misses here and is answered from there.
+    """
+
+    memo: dict[int, Any]
+
+    def __missing__(self, node: Any) -> Any:
+        return self.memo[id(node)]
 
 
 class IndexableContainer[K,V](Protocol):
@@ -20,6 +57,70 @@ class BooleanFunction:
     ):
         self.args = args
         self.arg_limit = arg_limit
+
+    def postorder(self,
+        stop: Callable[["BooleanFunction"], bool] | None = None
+    ) -> Iterator["BooleanFunction"]:
+        """Iterate over the nodes of the DAG, each once, every node after all of its arguments.
+
+        This is the walk every whole-function method is built on. The method keeps
+        its results in a dict keyed by node and fills it in the order yielded, so
+        by the time a node arrives the entries for its arguments are already there::
+
+            values = {}
+            for node in fn.postorder():
+                values[node] = node._eval(values, array)
+
+        What differs between methods -- what to compute at a leaf versus a gate,
+        where to store it, where to stop -- stays in the loop body and the `stop`
+        predicate, so none of it has to be expressed as a hook on the walk.
+
+        Nodes come in the order a left-to-right depth-first search finishes them,
+        and a node reached along several paths is yielded the first time only.
+        Nodes are identified by object identity, so two equal but distinct `VAR(0)`
+        objects are two nodes. The walk is iterative, so deep functions do not run
+        into Python's recursion limit.
+
+        :param stop: A predicate marking nodes to treat as already handled: a node
+            for which it returns True is neither yielded nor descended into. It
+            is used to resume from an earlier call (nodes that already have an id,
+            a SAT label or a copy) and to cut the DAG at boundaries (subfunctions
+            and overrides in code generation). The caller supplies the values of
+            stopped nodes itself. Defaults to None, which walks the whole DAG.
+        :type stop: Callable[[BooleanFunction], bool] | None
+        :yield: Each node of the DAG not cut off by `stop`, arguments first.
+        :rtype: Iterator[BooleanFunction]
+        """
+        # This loop runs under every eval, so it is written for speed: it
+        # allocates nothing per node and has no hook calls when `stop` is None.
+        # Measured against the per-method loops it replaced, it is no slower.
+        seen: set[BooleanFunction] = set()
+        stack: list[Any] = [self]
+        pop = stack.pop
+
+        while stack:
+            node = pop()
+
+            # a node entered earlier sits beneath this marker, and every
+            # argument pushed above the marker has now been yielded
+            if node is _FINISHED:
+                yield pop()
+                continue
+
+            if node in seen:
+                continue
+            if stop is not None and stop(node):
+                continue
+            seen.add(node)
+
+            args = node.args
+            if args:
+                # arguments are pushed reversed so they are popped left to right
+                stack += (node, _FINISHED)
+                stack += args[::-1]
+            else:
+                # nothing beneath it, so a leaf is finished as soon as it is reached
+                yield node
 
     def _copy(self,
         child_copies: dict["BooleanFunction","BooleanFunction"]
@@ -87,55 +188,25 @@ class BooleanFunction:
         :return: A copy of the input function.
         :rtype: Self
         """
-        copies: dict[Any,Any] = {}
-        stack: list[Any] = [self]
-        last = None
+        copies = _CopiesWithMemo()
+        copies.memo = memo
 
-        while stack:
-            curr_node = stack[-1]
+        # Nodes copied earlier in the same deepcopy call are cut off the walk, and
+        # their copies come from the memo when a parent looks them up. A top-level
+        # copy starts from an empty memo, so it skips the per-node check entirely.
+        stop = (lambda n: id(n) in memo) if memo else None
 
-            # dont interact with sentinel values
-            if curr_node == False:
-                last = stack.pop()
-                continue
-
-            # hitting a visited node while travelling down:
-            elif curr_node in copies:
-                last=stack.pop()
-                continue
-
-            # already copied earlier in the same deepcopy call:
-            elif id(curr_node) in memo:
-                copies[curr_node] = memo[id(curr_node)]
-                last = stack.pop()
-                continue
-
-            # moving up the tree after finishing children:
-            elif last == False:
-
-                # create a deep copy:
-                copies[curr_node] = curr_node._copy(copies)
-                memo[id(curr_node)] = copies[curr_node]
-                last = stack.pop()
-                continue
-
-            # hitting a leaf:
-            elif curr_node.is_leaf():
+        for node in self.postorder(stop=stop):
+            if node.is_leaf():
                 # Overwritten in Inputs.py
-                copies[curr_node] = curr_node.__copy__()
-                memo[id(curr_node)] = copies[curr_node]
-                last = stack.pop()
-                continue
-
-            # before moving down to children:
+                new_node = node.__copy__()
             else:
-                # set up children to process:
-                stack.append(False) # sentinel value
-                for child in reversed(curr_node.args):
-                    stack.append(child)
-                    continue
+                new_node = node._copy(copies)
 
-        return copies[self]
+            copies[node] = new_node
+            memo[id(node)] = new_node
+
+        return memo[id(self)]
 
     def add_arguments(
         self,
@@ -182,56 +253,22 @@ class BooleanFunction:
         :returns subfunctions: A topologically sorted list of BooleanFunction 
             which are referenced by multiple parents
         """
-        subfuncs = []
-        visited = set()
-        stack: list[Any] = [self]
-        last = None
+        # a node is a subfunction when more than one argument slot points at it.
+        # Each node is yielded once, so scanning every node's arguments visits
+        # every incoming edge exactly once -- including both edges when a gate
+        # takes the same argument twice.
+        nodes = []
+        referenced: set[BooleanFunction] = set()
+        shared: set[BooleanFunction] = set()
+        for node in self.postorder():
+            nodes.append(node)
+            for arg in node.args:
+                if arg in referenced:
+                    shared.add(arg)
+                else:
+                    referenced.add(arg)
 
-        # used to sort subfuncs by when they appear:
-        order = {}
-        idx = 0
-
-        while stack:
-            curr_node = stack[-1]
-
-            # dont interact with sentinel values
-            if curr_node == False:
-                last = stack.pop()
-                continue
-
-            # hitting an already visited gate:
-            elif curr_node in visited and not curr_node.is_leaf():
-                if curr_node not in subfuncs:
-                    subfuncs.append(curr_node)
-                last=stack.pop()
-                continue
-
-            # moving up the tree after finishing children:
-            elif last == False:
-                visited.add(curr_node)
-                order[curr_node] = idx
-                idx += 1
-
-                last = stack.pop()
-                continue
-
-            # hitting a leaf:
-            elif curr_node.is_leaf():
-                visited.add(curr_node)
-                order[curr_node] = idx
-                idx += 1
-                last = stack.pop()
-                continue
-
-            # before moving down to children:
-            else:
-                # set up children to process:
-                stack.append(False) # sentinel value
-                for child in reversed(curr_node.args):
-                    stack.append(child)
-                    continue
-
-        return sorted(subfuncs, key = lambda x: order[x])
+        return [node for node in nodes if node in shared and not node.is_leaf()]
 
     def inputs(self) -> list["BooleanFunction"]:
         """Returns a list of the input nodes
@@ -245,45 +282,7 @@ class BooleanFunction:
         :returns inputs: A list of all the leaf nodes of the DAG, which serve as 
             inputs to the function
         """
-        leaves = []
-        visited = set()
-        stack: list[Any] = [self]
-        last = None
-
-        while stack:
-            curr_node = stack[-1]
-
-            # dont interact with sentinel values
-            if curr_node == False:
-                last = stack.pop()
-                continue
-
-            # hitting a visited node while travelling down:
-            elif curr_node in visited:
-                last=stack.pop()
-                continue
-
-            # moving up the tree after finishing children:
-            elif last == False:
-                visited.add(curr_node)
-                last = stack.pop()
-                continue
-
-            # hitting a leaf:
-            elif curr_node.is_leaf():
-                leaves.append(curr_node)
-                last = stack.pop()
-                continue
-
-            # before moving down to children:
-            else:
-                # set up children to process:
-                stack.append(False) # sentinel value
-                for child in reversed(curr_node.args):
-                    stack.append(child)
-                    continue
-
-        return leaves
+        return [node for node in self.postorder() if node.is_leaf()]
 
 
     # string generation:
@@ -298,72 +297,43 @@ class BooleanFunction:
 
         :returns pretty_string: a nicely formatted string for pretty printing
         """
-        subfuncs = self.subfunctions() + [self]
-        fn_strings = {root:f"(subfunction {i+1})" for i,root in enumerate(subfuncs)}
-        fn_strings[self] = "(Main Function)"
+        subfuncs = self.subfunctions()
+        labels = {root: f"(subfunction {i+1})" for i, root in enumerate(subfuncs)}
         pretty_strings = []
 
-        for root in subfuncs:
-            # no need for visited set (subfuncs is the same info):
-            stack: list[Any] = [root]
-            last = None
+        # the indent for each depth, built once; depths are reached one level at
+        # a time, so a depth not yet cached is always the next one
+        prefixes: list[str] = []
 
-            pstr = f"{fn_strings[root]} = (\n"
-            indent_lvl = 0
+        # a tree walk rather than a fold: a gate's line opens before its
+        # arguments and its bracket closes after them, so every line is emitted
+        # exactly once, in order, and the cost is linear in the output
+        for root in subfuncs + [self]:
+            name = "(Main Function)" if root is self else labels[root]
+            lines = [f"{name} = (\n"]
 
+            stack: list[tuple[Any, int]] = [(root, 0)]
             while stack:
-                curr_node = stack[-1]
-
-                # dont interact with sentinel values
-                if curr_node == False:
-                    last = stack.pop()
-                    continue
-
-                # hitting a subfunc contained in the current one:
-                if curr_node in subfuncs and curr_node != root:
-                    pstr += (
-                        "   |" * indent_lvl + "   " +
-                        fn_strings[curr_node] + '\n'
-                    )
-
-                    last = stack.pop()
-                    continue
-
-                # hitting a leaf:
-                elif curr_node.is_leaf():
-                    pstr += (
-                        "   |" * indent_lvl + "   " +
-                        curr_node.dense_str() + '\n'
-                    )
-
-                    last = stack.pop()
-                    continue
-
-                # moving up the tree after finishing children:
-                elif last == False:
-                    pstr += ("   |" * (indent_lvl-1) + "   )\n")
-                    indent_lvl -= 1
-                    last = stack.pop()
-                    continue
-
-                # before moving down to children:
+                node, depth = stack.pop()
+                if depth < len(prefixes):
+                    prefix = prefixes[depth]
                 else:
-                    # print prefix for functions with args:
-                    pstr += (
-                        "   |" * (indent_lvl) + "   "
-                        f"{type(curr_node).__name__} (\n"
-                    )
+                    prefix = "   |" * depth + "   "
+                    prefixes.append(prefix)
 
-                    indent_lvl += 1
-                    # set up children to process:
-                    stack.append(False) # sentinel value
-                    for child in reversed(curr_node.args):
-                        stack.append(child)
-                    continue
+                if node is _CLOSE:
+                    lines.append(prefix + ")\n")
+                elif node is not root and node in labels:
+                    lines.append(prefix + labels[node] + "\n")
+                elif node.is_leaf():
+                    lines.append(prefix + node.dense_str() + "\n")
+                else:
+                    lines.append(prefix + f"{type(node).__name__} (\n")
+                    stack.append((_CLOSE, depth))
+                    stack.extend((arg, depth + 1) for arg in reversed(node.args))
 
-            # finish string and add it in:
-            pstr += ")\n"
-            pretty_strings.append(pstr)
+            lines.append(")\n")
+            pretty_strings.append("".join(lines))
 
         return "\n\n".join(pretty_strings)
 
@@ -380,62 +350,37 @@ class BooleanFunction:
         :returns dense_string: a densely formatted string for debugging and variable inspection.
         """
         subfuncs = self.subfunctions()
-        fn_strings = {
-            root:f"(subfunction {i+1})"
-            for i,root in enumerate(subfuncs)
-        }
+        labels = {root: f"(subfunction {i+1})" for i, root in enumerate(subfuncs)}
 
-        # no need for visited set (subfuncs is the same info)
+        # a tree walk rather than a fold: a gate opens before its arguments and
+        # closes after them, so the pieces are appended in output order and
+        # joined once, which keeps the cost linear in the output
+        pieces: list[str] = []
         stack: list[Any] = [self]
-        last = None
-        out_str = ""
-
         while stack:
-            curr_node = stack[-1]
+            node = stack.pop()
 
-            # dont interact with sentinel values
-            if curr_node == False:
-                last = stack.pop()
-                continue
-
-            # hitting a subfunc:
-            if curr_node in subfuncs:
-                out_str += (fn_strings[curr_node] + ",")
-                last = stack.pop()
-                continue
-
-            # hitting a leaf:
-            elif curr_node.is_leaf():
-                # Overwritten in Inputs.py
-                out_str += (curr_node.dense_str() + ",")
-                last = stack.pop()
-                continue
-
-            # moving up the tree after finishing children:
-            elif last == False:
-                # strip trailing comma
-                if out_str[-1] == ',':
-                    out_str = out_str[:-1]
-
-                out_str += "),"
-                last = stack.pop()
-                continue
-
-            # before moving down to children:
+            if node is _CLOSE:
+                pieces.append(")")
+            elif node is _SEPARATOR:
+                pieces.append(",")
+            elif node in labels:
+                pieces.append(labels[node])
+            elif node.is_leaf():
+                pieces.append(node.dense_str())
             else:
-                # print prefix for functions with args:
-                out_str += f"{type(curr_node).__name__}("
+                pieces.append(f"{type(node).__name__}(")
+                stack.append(_CLOSE)
 
-                # set up children to process:
-                stack.append(False) # sentinel value
-                for child in reversed(curr_node.args):
-                    stack.append(child)
-                continue
+                # pushed last-first, with a separator between each pair, so they
+                # pop as arg0 , arg1 , ... argN
+                args = node.args
+                for i in range(len(args) - 1, -1, -1):
+                    stack.append(args[i])
+                    if i:
+                        stack.append(_SEPARATOR)
 
-        # strip trailing comma
-        if out_str[-1] == ',':
-            out_str = out_str[:-1]
-        return out_str
+        return "".join(pieces)
 
     def __str__(self):
         """An alias for `dense_str`, which returns a densely \
@@ -451,22 +396,105 @@ class BooleanFunction:
         """
         return self.dense_str()
 
+    # code generation:
+    def _generate_assignments(self,
+        hook: str,
+        context: Any,
+        output_name: str,
+        subfunction_name: Callable[[int], str],
+        overrides: Mapping["BooleanFunction", str] | None = None,
+        inline_subfunctions: bool = False,
+    ) -> list[tuple[str, Any]]:
+        """Split the function into named assignments and render each one bottom-up.
+
+        This is the driver shared by every `generate_*` method; they differ only
+        in how one node is rendered and how an assignment is laid out. Each
+        subfunction gets its own assignment, in topological order, followed by
+        one for the function itself. An assignment's expression is rendered over
+        its *region*: the nodes reachable from it without passing through another
+        subfunction or an override. Within a region, an assigned subfunction
+        stands for its name and an override node for its override string, so
+        the hook sees a plain string for both.
+
+        :param hook: The name of the per-node hook, called on every rendered node
+            as `node.<hook>(values, context)`, e.g. `"_generate_c"`.
+        :type hook: str
+        :param context: The hook's second argument: the state array's name for
+            code, the `LatexStyle` for LaTeX.
+        :type context: Any
+        :param output_name: The name assigned the function itself.
+        :type output_name: str
+        :param subfunction_name: The name of the subfunction with the given
+            1-based index.
+        :type subfunction_name: Callable[[int], str]
+        :param overrides: Nodes to write as the given string instead of rendering
+            them. An override node gets no assignment of its own.
+        :type overrides: Mapping[BooleanFunction, str] | None
+        :param inline_subfunctions: If True, no subfunctions are split out, and the
+            function is rendered as a single assignment.
+        :type inline_subfunctions: bool
+        :return: One (name, rendered value) pair per assignment, dependencies first.
+        :rtype: list[tuple[str, Any]]
+        """
+        if overrides is None:
+            overrides = {}
+
+        roots = [] if inline_subfunctions else self.subfunctions()
+        names = {root: subfunction_name(i + 1) for i, root in enumerate(roots)}
+        roots.append(self)
+        names[self] = output_name
+
+        # Values already known are not re-rendered, so the walk stops at them:
+        # overrides, assigned subfunctions (by name), and leaves shared with an
+        # earlier region. Override nodes are never stored, so looking one up
+        # misses and falls through to its string. Without overrides the stop
+        # test is the dict's own C-level __contains__, with no Python call per
+        # node; with a single region and no overrides nothing is known in
+        # advance, so there is nothing to stop at and no test at all.
+        # (no __init__ on these dict subclasses: attributes are set after
+        # construction, which keeps construction a C-level call)
+        values = _RenderedValues()
+        values.overrides = overrides
+        if overrides:
+            def stop(node: BooleanFunction) -> bool:
+                return node in values or node in overrides
+        elif len(roots) > 1:
+            stop = values.__contains__
+        else:
+            stop = None
+
+        assignments = []
+        for root in roots:
+            # an override replaces its node everywhere, including its assignment
+            if root in overrides:
+                continue
+
+            for node in root.postorder(stop=stop):
+                values[node] = getattr(node, hook)(values, context)
+
+            assignments.append((names[root], values[root]))
+            values[root] = names[root]
+
+        return assignments
+
     def _generate_c(self,
-        c_strings: dict["BooleanFunction", str],
+        c_strings: Mapping["BooleanFunction", str],
         array_name: str
     ) -> str:
-        """Helper function which specifies how to generate VHDL for a BooleanFunction subclass
+        """Hook which specifies how to generate C for a BooleanFunction subclass.
 
-        Given a dictionary of child VHDL strings and the name of the evaluation array,
-        form the VHDL for node and return it. This acts a hook, which is called in `generate_VHDL`
-        and allows custom subclasses to generate valid VHDL as long as they have an implementation
+        Given the C expressions of the node's arguments and the name of the state
+        array, return the C expression for this node. `generate_c` calls this on
+        every node, so a custom subclass generates valid C as long as it
+        implements it.
 
-        :param dict[BooleanFunction, str] vhdl_strings: a dictionary mapping child nodes
-            to their corresponding VHDL strings.
-        :param str array_name: What to use as the array name, if the evaluation array is referenced
-            this is necessary so that `VAR` nodes can return the correct string.
-
-        :return output: A string representing the computation for this node in VHDL.
+        :param c_strings: The C expression of each argument, keyed by node.
+        :type c_strings: Mapping[BooleanFunction, str]
+        :param array_name: The name of the state array, which `VAR` nodes index.
+        :type array_name: str
+        :raises NotImplementedError: If not overridden.
+        :return: A C expression computing this node.
+        :rtype: str
         """
         raise NotImplementedError  # implemented for each subclass
 
@@ -474,111 +502,56 @@ class BooleanFunction:
         output_name: str = 'output',
         subfunction_prefix: str = 'fn',
         array_name: str = 'array',
-        overrides: dict["BooleanFunction", str]  = {}
+        overrides: Mapping["BooleanFunction", str] | None = None
     ) -> list[str]:
-        """Generates valid python for the given function
+        """Generates C statements computing the function.
 
-        This will generate a list of strings which is valid python for a given function. there are
-        various parameters that can be tweaked in order to allow functions to interact with
-        the same or different variables in different ways. Although this is exposed to the 
-        user, its a little difficult to use manually, and is mostly used elsewhere in the library
-        (such as in `compile` method in the FeedbackFunction Class).
+        Each subfunction is assigned to its own variable, in topological order,
+        and the last statement assigns the function itself to `output_name`. The
+        statements are bare assignments: declaring the variables and the state
+        array is left to the caller.
 
-        :param str output_name: The string to be used in the generate python for 
-            the output variable. The default value is 'output'. 
-        :param str subfunction_prefix: In the generated python, subfunction variables
-            will have the form {subfunction_prefix}_{index}. This string allows you
-            to set the prefix. The default is 'fn'.
-        :param str array_name: The string to be used for the name of the array holding
-            the current state in the generated python. The default is 'array'.
-        :param dict[BooleanFunction, str] overrides: A dictionary containing string overrides.
-            if a node is in this dictionary, its corresponding override string will be used in
-            place of the generated VHDL. Modify carefully, as this can cause the generated python
-            to be invalid.
-
-        :returns python_lines: A list containing several lines, each of which is a string 
-        of valid python. These lines describe the computational DAG of the circuit.
+        :param output_name: The variable the function is assigned to. Defaults to 'output'.
+        :type output_name: str
+        :param subfunction_prefix: Subfunction variables are named
+            `{subfunction_prefix}_{index}`. Defaults to 'fn'.
+        :type subfunction_prefix: str
+        :param array_name: The name of the array holding the state. Defaults to 'array'.
+        :type array_name: str
+        :param overrides: Nodes to write as the given string instead of generating
+            them; an overridden node gets no statement of its own. Used to refer to
+            expressions already computed elsewhere. Defaults to None.
+        :type overrides: Mapping[BooleanFunction, str] | None
+        :return: One C statement per line, dependencies first.
+        :rtype: list[str]
         """
-        subfuncs = self.subfunctions() + [self]
-        fn_strings = {
-            root:f"{subfunction_prefix}_{i+1}"
-            for i,root in enumerate(subfuncs)
-        }
-
-        fn_strings[self] = f"{output_name}"
-        subfunction_lines = []
-        c_strings = {}
-
-        for root in subfuncs:
-            # dont rederive an expression we already have:
-            if root in overrides:
-                continue
-
-
-            # no need for visited set (subfuncs is the same info):
-            stack: list[Any] = [root]
-            last = None
-
-            while stack:
-                curr_node = stack[-1]
-
-                # dont interact with sentinel values
-                if curr_node == False:
-                    last = stack.pop()
-                    continue
-
-                # override node already has a string
-                elif curr_node in overrides:
-                    c_strings[curr_node] = overrides[curr_node]
-                    last = stack.pop()
-                    continue
-
-                # hitting a subfunc contained in the current one:
-                elif curr_node in subfuncs and curr_node != root:
-                    last = stack.pop()
-                    continue
-
-                # hitting a leaf:
-                elif curr_node.is_leaf():
-                    c_strings[curr_node] = curr_node._generate_c(c_strings,array_name)
-                    last = stack.pop()
-                    continue
-
-                # moving up the tree after finishing children:
-                elif last == False:
-                    c_strings[curr_node] = curr_node._generate_c(c_strings,array_name)
-                    last = stack.pop()
-                    continue
-
-                else:
-                    # set up children to process:
-                    stack.append(False) # sentinel value
-                    for child in reversed(curr_node.args):
-                        stack.append(child)
-                    continue
-
-            subfunction_lines.append(f"{fn_strings[root]} = {c_strings[root]};")
-            c_strings[root] = fn_strings[root]
-        return subfunction_lines
-
-    # def generate_tex(self):
+        assignments = self._generate_assignments(
+            "_generate_c",
+            array_name,
+            output_name,
+            lambda index: f"{subfunction_prefix}_{index}",
+            overrides,
+        )
+        return [f"{name} = {expr};" for name, expr in assignments]
 
     def _generate_VHDL(self,
-        vhdl_strings: dict["BooleanFunction", str],
+        vhdl_strings: Mapping["BooleanFunction", str],
         array_name: str
     ) -> str:
-        """Helper function which specifies how to generate VHDL for a BooleanFunction subclass
+        """Hook which specifies how to generate VHDL for a BooleanFunction subclass.
 
-        Given a dictionary of child VHDL strings and the name of the evaluation array,
-        form the VHDL for node and return it. This acts a hook, which is called in `generate_VHDL`
-        and allows custom subclasses to generate valid VHDL as long as they have an implementation
+        Given the VHDL expressions of the node's arguments and the name of the state
+        signal, return the VHDL expression for this node. `generate_VHDL` calls this
+        on every node, so a custom subclass generates valid VHDL as long as it
+        implements it.
 
-        :param dict[BooleanFunction, str] vhdl_strings: a dictionary mapping child nodes
-            to their corresponding VHDL strings.
-        :param str array_name: What to use as the array name, if the evaluation array is referenced
-            this is necessary so that `VAR` nodes can return the correct string.
-
-        :return output: A string representing the computation for this node in VHDL.
+        :param vhdl_strings: The VHDL expression of each argument, keyed by node.
+        :type vhdl_strings: Mapping[BooleanFunction, str]
+        :param array_name: The name of the state signal, which `VAR` nodes index.
+        :type array_name: str
+        :raises NotImplementedError: If not overridden.
+        :return: A VHDL expression computing this node.
+        :rtype: str
         """
         raise NotImplementedError  # implemented for each subclass
 
@@ -586,109 +559,53 @@ class BooleanFunction:
         output_name: str = 'output',
         subfunction_prefix: str = 'fn',
         array_name: str = 'array',
-        overrides: dict["BooleanFunction", str]  = {}
+        overrides: Mapping["BooleanFunction", str] | None = None
     ) -> list[str]:
-        """Generates valid VHDL for the given function
+        """Generates VHDL signal assignments computing the function.
 
-        This will generate a list of string which is valid VHDL for a given function. there are
-        various parameters that can be tweaked in order to allow functions to interact with
-        the same or different variables in different ways. Although this is exposed to the 
-        user, its a little difficult to use manually, and is mostly used elsewhere in the library
-        (such as in `write_VHDL` method in the FeedbackFunction Class).
+        Each subfunction is assigned to its own signal, in topological order, and
+        the last assignment drives `output_name` with the function itself. This is
+        mostly used by `FeedbackFunction.write_VHDL`, which declares the signals.
 
-        :param str output_name: The string to be used in the generate VHDL for 
-            the output variable. The default value is 'output'. 
-        :param str subfunction_prefix: In the generated VHDL, subfunction variables
-            will have the form {subfunction_prefix}_{index}. This string allows you
-            to set the prefix. The default is 'fn'.
-        :param str array_name: The string to be used for the name of the array holding
-            the current state in the generated VHDL. The default is 'array'.
-        :param dict[BooleanFunction, str] overrides: A dictionary containing string overrides.
-            if a node is in this dictionary, its corresponding override string will be used in
-            place of the generated VHDL. Modify carefully, as this can cause the generated VHDL
-            to be invalid.
-
-        :returns VHDL_lines: A list containing several lines, each of which is a string 
-        of valid VHDL. These lines describe the computational DAG of the circuit
+        :param output_name: The signal the function drives. Defaults to 'output'.
+        :type output_name: str
+        :param subfunction_prefix: Subfunction signals are named
+            `{subfunction_prefix}_{index}`. Defaults to 'fn'.
+        :type subfunction_prefix: str
+        :param array_name: The name of the state signal. Defaults to 'array'.
+        :type array_name: str
+        :param overrides: Nodes to write as the given string instead of generating
+            them; an overridden node gets no assignment of its own. Defaults to None.
+        :type overrides: Mapping[BooleanFunction, str] | None
+        :return: One VHDL assignment per line, dependencies first.
+        :rtype: list[str]
         """
-        subfuncs = self.subfunctions() + [self]
-        fn_strings = {
-            root:f"{subfunction_prefix}_{i+1}"
-            for i,root in enumerate(subfuncs)
-        }
-
-        fn_strings[self] = f"{output_name}"
-        subfunction_lines = []
-        vhdl_strings = {}
-
-        for root in subfuncs:
-            # dont rederive an expression we already have:
-            if root in overrides:
-                continue
-
-            # no need for visited set (subfuncs is the same info):
-            stack: list[Any] = [root]
-            last = None
-
-            while stack:
-                curr_node = stack[-1]
-
-                # dont interact with sentinel values
-                if curr_node == False:
-                    last = stack.pop()
-                    continue
-
-                # override node already has a string
-                elif curr_node in overrides:
-                    vhdl_strings[curr_node] = overrides[curr_node]
-                    last = stack.pop()
-                    continue
-
-                # hitting a subfunc contained in the current one:
-                elif curr_node in subfuncs and curr_node != root:
-                    last = stack.pop()
-                    continue
-
-                # hitting a leaf:
-                elif curr_node.is_leaf():
-                    vhdl_strings[curr_node] = curr_node._generate_VHDL(vhdl_strings,array_name)
-                    last = stack.pop()
-                    continue
-
-                # moving up the tree after finishing children:
-                elif last == False:
-                    vhdl_strings[curr_node] = curr_node._generate_VHDL(vhdl_strings,array_name)
-                    last = stack.pop()
-                    continue
-
-                else:
-                    # set up children to process:
-                    stack.append(False) # sentinel value
-                    for child in reversed(curr_node.args):
-                        stack.append(child)
-                    continue
-
-            subfunction_lines.append(f"{fn_strings[root]} <= {vhdl_strings[root]};")
-            vhdl_strings[root] = fn_strings[root]
-        return subfunction_lines
+        assignments = self._generate_assignments(
+            "_generate_VHDL",
+            array_name,
+            output_name,
+            lambda index: f"{subfunction_prefix}_{index}",
+            overrides,
+        )
+        return [f"{name} <= {expr};" for name, expr in assignments]
 
     def _generate_python(self,
-        python_strings: dict["BooleanFunction", str],
+        python_strings: Mapping["BooleanFunction", str],
         array_name: str
     ) -> str:
-        """Helper function which specifies how to generate python for a BooleanFunction subclass
+        """Hook which specifies how to generate Python for a BooleanFunction subclass.
 
-        Given a dictionary of child python strings and the name of the evaluation array,
-        form the python for node and return it. This acts a hook, which is called in `generate_python`
-        and allows custom subclasses to generate valid python as long as they have an implementation
+        Given the Python expressions of the node's arguments and the name of the
+        state array, return the Python expression for this node. `generate_python`
+        calls this on every node, so a custom subclass generates valid Python as
+        long as it implements it.
 
-        :param python_strings: a dictionary mapping child nodes to their corresponding python strings.
-        :type python_strings: dict[BooleanFunction, str] 
-        :param array_name: What to use as the array name, if the evaluation array is referenced
-            this is necessary so that `VAR` nodes can return the correct string.
-        :type array_name:
-
-        :return: A string representing the computation for this node in python.
+        :param python_strings: The Python expression of each argument, keyed by node.
+        :type python_strings: Mapping[BooleanFunction, str]
+        :param array_name: The name of the state array, which `VAR` nodes index.
+        :type array_name: str
+        :raises NotImplementedError: If not overridden.
+        :return: A Python expression computing this node.
         :rtype: str
         """
         raise NotImplementedError  # implemented for each subclass
@@ -697,205 +614,113 @@ class BooleanFunction:
         output_name: str = 'output',
         subfunction_prefix: str = 'fn',
         array_name: str = 'array',
-        overrides: dict["BooleanFunction", str]  = {}
+        overrides: Mapping["BooleanFunction", str] | None = None
     ) -> list[str]:
-        """Generates valid python for the given function
+        """Generates Python statements computing the function.
 
-        This will generate a list of strings which is valid python for a given function. there are
-        various parameters that can be tweaked in order to allow functions to interact with
-        the same or different variables in different ways. Although this is exposed to the 
-        user, its a little difficult to use manually, and is mostly used elsewhere in the library
-        (such as in `compile` method in the FeedbackFunction Class).
+        Each subfunction is assigned to its own variable, in topological order, and
+        the last statement assigns the function itself to `output_name`. The
+        expressions use only `^`, `&`, `|` and `1 - x`, so they are valid numba
+        code over integer bits; `compile` and `FeedbackFunction.compile` are built
+        on this.
 
-        :param str output_name: The string to be used in the generate python for 
-            the output variable. The default value is 'output'. 
-        :param str subfunction_prefix: In the generated python, subfunction variables
-            will have the form {subfunction_prefix}_{index}. This string allows you
-            to set the prefix. The default is 'fn'.
-        :param str array_name: The string to be used for the name of the array holding
-            the current state in the generated python. The default is 'array'.
-        :param dict[BooleanFunction, str] overrides: A dictionary containing string overrides.
-            if a node is in this dictionary, its corresponding override string will be used in
-            place of the generated VHDL. Modify carefully, as this can cause the generated python
-            to be invalid.
-
-        :returns python_lines: A list containing several lines, each of which is a string 
-        of valid python. These lines describe the computational DAG of the circuit.
+        :param output_name: The variable the function is assigned to. Defaults to 'output'.
+        :type output_name: str
+        :param subfunction_prefix: Subfunction variables are named
+            `{subfunction_prefix}_{index}`. Defaults to 'fn'.
+        :type subfunction_prefix: str
+        :param array_name: The name of the array holding the state. Defaults to 'array'.
+        :type array_name: str
+        :param overrides: Nodes to write as the given string instead of generating
+            them; an overridden node gets no statement of its own. Defaults to None.
+        :type overrides: Mapping[BooleanFunction, str] | None
+        :return: One Python statement per line, dependencies first.
+        :rtype: list[str]
         """
-        subfuncs = self.subfunctions() + [self]
-        fn_strings = {
-            root:f"{subfunction_prefix}_{i+1}"
-            for i,root in enumerate(subfuncs)
-        }
+        assignments = self._generate_assignments(
+            "_generate_python",
+            array_name,
+            output_name,
+            lambda index: f"{subfunction_prefix}_{index}",
+            overrides,
+        )
+        return [f"{name} = {expr}" for name, expr in assignments]
 
-        fn_strings[self] = f"{output_name}"
-        subfunction_lines = []
-        py_strings = {}
+    def _generate_latex(self,
+        terms: Mapping["BooleanFunction", LatexTerm | str],
+        style: LatexStyle
+    ) -> LatexTerm:
+        """Hook which specifies how to render a BooleanFunction subclass in LaTeX.
 
-        for root in subfuncs:
-            # dont rederive an expression we already have:
-            if root in overrides:
-                continue
+        The default looks the node's class name up in `style.operators`, so a new
+        gate class only needs an entry there. Override this for a node that is not
+        an operator joining its arguments (as the leaves and fused nodes do).
 
+        :param terms: The rendering of each argument, keyed by node. A plain string
+            is a subfunction name or override, and is treated as an atom.
+        :type terms: Mapping[BooleanFunction, LatexTerm | str]
+        :param style: The notation to render in.
+        :type style: LatexStyle
+        :return: The rendered node.
+        :rtype: LatexTerm
+        """
+        return style.render_gate(type(self).__name__, [terms[arg] for arg in self.args])
 
-            # no need for visited set (subfuncs is the same info):
-            stack: list[Any] = [root]
-            last = None
+    def generate_latex(self,
+        output_name: str = 'f',
+        subfunction_name: str | Callable[..., str] = 'g_{$index}',
+        style: LatexStyle | None = None,
+        overrides: Mapping["BooleanFunction", str] | None = None,
+        inline_subfunctions: bool = False
+    ) -> list[str]:
+        """Generates LaTeX equations for the function.
 
-            while stack:
-                curr_node = stack[-1]
+        Each subfunction gets its own equation, in topological order, followed by
+        one defining the function itself, so a DAG with shared structure reads as
+        a short system of equations rather than one expression with repeats. Set
+        `inline_subfunctions` to write the whole function as one expression.
 
-                # dont interact with sentinel values
-                if curr_node == False:
-                    last = stack.pop()
-                    continue
+        Parentheses are placed by precedence rather than around every gate, so an
+        ANF reads `x_{0} x_{1} \\oplus x_{2}`. The notation itself -- operator
+        symbols, precedence, negation, variables, constants, delimiters and the
+        layout of each line -- comes from `style`; see `LatexStyle`. The default
+        line layout is `name &= expr`, for an `align` environment::
 
-                # override node already has a string
-                elif curr_node in overrides:
-                    py_strings[curr_node] = overrides[curr_node]
-                    last = stack.pop()
-                    continue
+            lines = fn.generate_latex()
+            tex = "\\\\begin{align*}\\n" + " \\\\\\\\\\n".join(lines) + "\\n\\\\end{align*}"
 
-                # hitting a subfunc contained in the current one:
-                elif curr_node in subfuncs and curr_node != root:
-                    last = stack.pop()
-                    continue
+        :param output_name: The left-hand side of the final equation. Defaults to 'f'.
+        :type output_name: str
+        :param subfunction_name: Template naming a subfunction, with field `$index`
+            (1-based), or a callable taking `index`. Defaults to 'g_{$index}'.
+        :type subfunction_name: str | Callable[..., str]
+        :param style: The notation to write in. Defaults to `LatexStyle()`.
+        :type style: LatexStyle | None
+        :param overrides: Nodes to write as the given LaTeX instead of expanding
+            them; an overridden node is treated as an atom and gets no equation of
+            its own. Defaults to None.
+        :type overrides: Mapping[BooleanFunction, str] | None
+        :param inline_subfunctions: If True, write the function as one equation
+            with no subfunctions split out. Defaults to False.
+        :type inline_subfunctions: bool
+        :return: One equation per line, dependencies first.
+        :rtype: list[str]
+        """
+        if style is None:
+            style = LatexStyle()
 
-                # hitting a leaf:
-                elif curr_node.is_leaf():
-                    py_strings[curr_node] = curr_node._generate_python(py_strings,array_name)
-                    last = stack.pop()
-                    continue
-
-                # moving up the tree after finishing children:
-                elif last == False:
-                    py_strings[curr_node] = curr_node._generate_python(py_strings,array_name)
-                    last = stack.pop()
-                    continue
-
-                else:
-                    # set up children to process:
-                    stack.append(False) # sentinel value
-                    for child in reversed(curr_node.args):
-                        stack.append(child)
-                    continue
-
-            subfunction_lines.append(f"{fn_strings[root]} = {py_strings[root]}")
-            py_strings[root] = fn_strings[root]
-        return subfunction_lines
-
-    # def generate_tex(self):
-
-    # def _generate_tex(self,
-    #     tex_strings: dict["BooleanFunction", str],
-    #     array_name: str
-    # ) -> str:
-    #     """Helper function which specifies how to generate tex for a BooleanFunction subclass
-
-    #     Given a dictionary of child tex strings and the name of the evaluation array,
-    #     form the VHDL for node and return it. This acts a hook, which is called in `generate_tex`
-    #     and allows custom subclasses to generate valid tex as long as they have an implementation
-
-    #     :param tex_strings: a dictionary mapping child nodes to their corresponding python strings.
-    #     :type tex_strings: dict[BooleanFunction, str]
-    #     :param array_name: What to use as the array name, if the evaluation array is referenced
-    #         this is necessary so that `VAR` nodes can return the correct string.
-    #     :type array_name: str
-
-    #     :return output: A string representing the computation for this node in python.
-    #     """
-    #     raise NotImplementedError  # implemented for each subclass
-
-    # def generate_tex(self,
-    #     output_name: str = 'output',
-    #     subfunction_prefix: str = 'fn',
-    #     array_name: str = 'array',
-    #     overrides: dict["BooleanFunction", str]  = {}
-    # ) -> list[str]:
-    #     """Generates valid python for the given function
-
-    #     This will generate a list of strings to help format a given function into tex. There are
-    #     various parameters that can be tweaked to help make the output more flexible, but they are
-    #     limited; for anything beyond relatively basic usage it's encouraged you write your own
-    #     function based on the BooleanFunction structure (as opposed to trying to coerce this method
-    #     into doing something it wasn't built for).
-
-    #     :param str output_name: The string to be used in the generate python for
-    #         the output variable. The default value is 'output'.
-    #     :param str subfunction_prefix: In the generated python, subfunction variables
-    #         will have the form {subfunction_prefix}_{index}. This string allows you
-    #         to set the prefix. The default is 'fn'.
-    #     :param str array_name: The string to be used for the name of the array holding
-    #         the current state in the generated python. The default is 'array'.
-    #     :param dict[BooleanFunction, str] overrides: A dictionary containing string overrides.
-    #         if a node is in this dictionary, its corresponding override string will be used in
-    #         place of the generated VHDL. Modify carefully, as this can cause the generated python
-    #         to be invalid.
-
-    #     :returns python_lines: A list containing several lines, each of which is a string
-    #     of valid python. These lines describe the computational DAG of the circuit.
-    #     """
-    #     subfuncs = self.subfunctions() + [self]
-    #     fn_strings = {
-    #         root:f"{subfunction_prefix}_{i+1}"
-    #         for i,root in enumerate(subfuncs)
-    #     }
-
-    #     fn_strings[self] = f"{output_name}"
-    #     subfunction_lines = []
-    #     py_strings = {}
-
-    #     for root in subfuncs:
-    #         # dont rederive an expression we already have:
-    #         if root in overrides:
-    #             continue
-
-
-    #         # no need for visited set (subfuncs is the same info):
-    #         stack: list[Any] = [root]
-    #         last = None
-
-    #         while stack:
-    #             curr_node = stack[-1]
-
-    #             # dont interact with sentinel values
-    #             if curr_node == False:
-    #                 last = stack.pop()
-    #                 continue
-
-    #             # override node already has a string
-    #             elif curr_node in overrides:
-    #                 py_strings[curr_node] = overrides[curr_node]
-    #                 last = stack.pop()
-    #                 continue
-
-    #             # hitting a subfunc contained in the current one:
-    #             elif curr_node in subfuncs and curr_node != root:
-    #                 last = stack.pop()
-    #                 continue
-
-    #             # hitting a leaf:
-    #             elif curr_node.is_leaf():
-    #                 py_strings[curr_node] = curr_node._generate_tex(py_strings,array_name)
-    #                 last = stack.pop()
-    #                 continue
-
-    #             # moving up the tree after finishing children:
-    #             elif last == False:
-    #                 py_strings[curr_node] = curr_node._generate_tex(py_strings,array_name)
-    #                 last = stack.pop()
-    #                 continue
-
-    #             else:
-    #                 # set up children to process:
-    #                 stack.append(False) # sentinel value
-    #                 for child in reversed(curr_node.args):
-    #                     stack.append(child)
-    #                 continue
-
-    #         subfunction_lines.append(f"{fn_strings[root]} = {py_strings[root]}")
-    #         py_strings[root] = fn_strings[root]
-    #     return subfunction_lines
+        assignments = self._generate_assignments(
+            "_generate_latex",
+            style,
+            output_name,
+            lambda index: fill_template(subfunction_name, index=index),
+            overrides,
+            inline_subfunctions,
+        )
+        return [
+            style.format_line(name, term if isinstance(term, str) else term.text)
+            for name, term in assignments
+        ]
 
 
     # convenient node manipulations
@@ -927,45 +752,12 @@ class BooleanFunction:
         :rtype: BooleanFunction
         """
         new_nodes = {}
-        stack: list[Any] = [self]
-        last = None
-
-        while stack:
-            curr_node = stack[-1]
-
-            # dont interact with sentinel values
-            if curr_node == False:
-                last = stack.pop()
-                continue
-
-            # hitting a visited node while travelling down:
-            elif curr_node in new_nodes:
-                last=stack.pop()
-                continue
-
-            # moving up the tree after finishing children:
-            elif last == False:
-
-                # create a deep copy:
-                new_nodes[curr_node] = curr_node._binarize(new_nodes)
-                last = stack.pop()
-                continue
-
-            # hitting a leaf:
-            elif curr_node.is_leaf():
+        for node in self.postorder():
+            if node.is_leaf():
                 # Overwritten in Inputs.py
-                new_nodes[curr_node] = curr_node.__copy__()
-                last = stack.pop()
-                continue
-
-            # before moving down to children:
+                new_nodes[node] = node.__copy__()
             else:
-                # set up children to process:
-                stack.append(False) # sentinel value
-                for child in reversed(curr_node.args):
-                    stack.append(child)
-                    continue
-
+                new_nodes[node] = node._binarize(new_nodes)
         return new_nodes[self]
 
     def _remap_indices(self,
@@ -1146,54 +938,20 @@ class BooleanFunction:
         :rtype: BooleanFunction
         """
         new_nodes = {}
-        stack: list[Any] = [self]
-        last = None
-
-        while stack:
-            curr_node = stack[-1]
-
-            # dont interact with sentinel values
-            if curr_node == False:
-                last = stack.pop()
-                continue
-
-            # hitting a visited node while travelling down:
-            if curr_node in new_nodes:
-                last=stack.pop()
-                continue
-
-            # moving up the tree after finishing children:
-            elif last == False:
-
-                # new node:
-                if in_place:
-                    curr_node.args = tuple([new_nodes[arg] for arg in curr_node.args])
-                    new_nodes[curr_node] = curr_node
-                else:
-                    new_nodes[curr_node] = curr_node._copy(new_nodes)
-                last = stack.pop()
-                continue
-
-            # hitting a leaf:
-            elif curr_node.is_leaf():
+        for node in self.postorder():
+            if node.is_leaf():
                 # Overwritten in Inputs.py
-                new_nodes[curr_node] = curr_node._compose(input_map,in_place)
-                last = stack.pop()
-                continue
-
-            # before moving down to children:
+                new_nodes[node] = node._compose(input_map, in_place)
+            elif in_place:
+                node.args = tuple(new_nodes[arg] for arg in node.args)
+                new_nodes[node] = node
             else:
-                # set up children to process:
-                stack.append(False) # sentinel value
-                for child in reversed(curr_node.args):
-                    stack.append(child)
-                    continue
-
+                new_nodes[node] = node._copy(new_nodes)
         return new_nodes[self]
 
     def _merge_redundant(self,
         cache: dict["BooleanFunction","BooleanFunction"],
-        subfunctions: list["BooleanFunction"],
+        subfunctions: Collection["BooleanFunction"],
         in_place: bool = False
     ) -> "BooleanFunction":
         """Helper function which determines how to simplify a node for `merge_redundant`
@@ -1206,9 +964,10 @@ class BooleanFunction:
 
         :param cache: a dictionary mapping child nodes to their corresponding output.
         :type cache: dict[BooleanFunction,BooleanFunction]
-        :param subfunctions: A list of the subfunctions of the root node on which 
-            `merge_redundant` was called.
-        :type subfunctions: list[BooleanFunction]
+        :param subfunctions: The subfunctions of the root node on which
+            `merge_redundant` was called. Only membership is meaningful: it is
+            passed as a set, so testing it is constant time.
+        :type subfunctions: Collection[BooleanFunction]
         :param in_place: If `True`, modify the function in place and return self,
         instead of returning a new function. Defaults to `False`
         :type in_place: bool, optional
@@ -1250,47 +1009,18 @@ class BooleanFunction:
         :return: A reduced and simplified version of the input function.
         :rtype: BooleanFunction
         """
-        subfunctions = self.subfunctions()
+        # a set, not a list: the hooks only test membership, once per argument,
+        # and a list made that quadratic in the number of subfunctions
+        subfunctions = set(self.subfunctions())
 
         new_nodes = {}
-        stack: list[Any] = [self]
-        last = None
-
-        while stack:
-            curr_node = stack[-1]
-
-            # dont interact with sentinel values
-            if curr_node == False:
-                last = stack.pop()
-                continue
-
-            # hitting a visited node while travelling down:
-            if curr_node in new_nodes:
-                last=stack.pop()
-                continue
-
-            # moving up the tree after finishing children:
-            elif last == False:
-
-                # new node:
-                new_nodes[curr_node] = curr_node._merge_redundant(
+        for node in self.postorder():
+            if node.is_leaf():
+                new_nodes[node] = node
+            else:
+                new_nodes[node] = node._merge_redundant(
                     new_nodes, subfunctions, in_place = in_place,
                 )
-
-            # hitting a leaf:
-            elif curr_node.is_leaf():
-                new_nodes[curr_node] = curr_node
-                last = stack.pop()
-                continue
-
-            # before moving down to children:
-            else:
-                # set up children to process:
-                stack.append(False) # sentinel value
-                for child in reversed(curr_node.args):
-                    stack.append(child)
-                    continue
-
         return new_nodes[self]
 
     # evaluation
@@ -1327,45 +1057,8 @@ class BooleanFunction:
         :rtype: Any
         """
         values = {}
-        stack: list[Any] = [self]
-        last = None
-
-        while stack:
-            curr_node = stack[-1]
-
-            # dont interact with sentinel values
-            if curr_node == False:
-                last = stack.pop()
-                continue
-
-            # hitting a visited node while travelling down:
-            elif curr_node in values:
-                last=stack.pop()
-                continue
-
-            # moving up the tree after finishing children:
-            elif last == False:
-
-                # create a deep copy:
-                values[curr_node] = curr_node._eval(values, array)
-                last = stack.pop()
-                continue
-
-            # hitting a leaf:
-            elif curr_node.is_leaf():
-                # Overwritten in Inputs.py
-                values[curr_node] = curr_node._eval(values, array)
-                last = stack.pop()
-                continue
-
-            # before moving down to children:
-            else:
-                # set up children to process:
-                stack.append(False) # sentinel value
-                for child in reversed(curr_node.args):
-                    stack.append(child)
-                    continue
-
+        for node in self.postorder():
+            values[node] = node._eval(values, array)
         return values[self]
 
     def _eval_ANF(self,
@@ -1402,45 +1095,8 @@ class BooleanFunction:
         :rtype: Any
         """
         values = {}
-        stack: list[Any] = [self]
-        last = None
-
-        while stack:
-            curr_node = stack[-1]
-
-            # dont interact with sentinel values
-            if curr_node == False:
-                last = stack.pop()
-                continue
-
-            # hitting a visited node while travelling down:
-            elif curr_node in values:
-                last=stack.pop()
-                continue
-
-            # moving up the tree after finishing children:
-            elif last == False:
-
-                # create a deep copy:
-                values[curr_node] = curr_node._eval_ANF(values, array)
-                last = stack.pop()
-                continue
-
-            # hitting a leaf:
-            elif curr_node.is_leaf():
-                # Overwritten in Inputs.py
-                values[curr_node] = curr_node._eval_ANF(values, array)
-                last = stack.pop()
-                continue
-
-            # before moving down to children:
-            else:
-                # set up children to process:
-                stack.append(False) # sentinel value
-                for child in reversed(curr_node.args):
-                    stack.append(child)
-                    continue
-
+        for node in self.postorder():
+            values[node] = node._eval_ANF(values, array)
         return values[self]
 
     def compile(self) -> Any:
@@ -1857,37 +1513,10 @@ self._compiled = _compiled
             ids = {k:v for k,v in previous_ids.items()}
             next_available_index = max(previous_ids.values()) + 1
 
-        stack: list[Any] = [self]
-        last = None
-
-        while stack:
-            curr_node = stack[-1]
-
-            # dont interact with sentinel values
-            if curr_node == False:
-                last = stack.pop()
-                continue
-
-            # hitting a visited node while travelling down:
-            elif curr_node in ids:
-                last=stack.pop()
-                continue
-
-            # moving up the tree after finishing children or hitting a leaf:
-            elif last == False or curr_node.is_leaf():
-                if curr_node not in ids:
-                    ids[curr_node] = next_available_index
-                    next_available_index += 1
-                last = stack.pop()
-                continue
-
-            # before moving down to children:
-            else:
-                # set up children to process:
-                stack.append(False) # sentinel value
-                for child in reversed(curr_node.args):
-                    stack.append(child)
-                    continue
+        # nodes given ids by an earlier call keep them, and so does everything beneath them
+        for node in self.postorder(stop=ids.__contains__):
+            ids[node] = next_available_index
+            next_available_index += 1
 
         return ids
 
@@ -2084,7 +1713,11 @@ self._compiled = _compiled
         :return: Returns the maximum index used in a variable in the function.
         :rtype: int
         """
-        return max((arg.max_idx() for arg in self.args), default=-1)
+        highest = -1
+        for node in self.postorder():
+            if node.is_leaf():
+                highest = max(highest, node.max_idx())
+        return highest
 
     def idxs_used(self) -> set[int]:
         """Return the set of indices used in variables in the function.
@@ -2092,7 +1725,11 @@ self._compiled = _compiled
         :return: Return the set of indices used in variables in the function.
         :rtype: set[int]
         """
-        return set().union(*(arg.idxs_used() for arg in self.args))
+        indices: set[int] = set()
+        for node in self.postorder():
+            if node.is_leaf():
+                indices |= node.idxs_used()
+        return indices
 
     def num_nodes(self) -> int:
         """Return the number of nodes comprising the input function.
@@ -2100,38 +1737,7 @@ self._compiled = _compiled
         :return: Return the number of nodes comprising the input function.
         :rtype: int
         """
-        visited = set()
-        stack: list[Any] = [self]
-        last = None
-
-        while stack:
-            curr_node = stack[-1]
-
-            # dont interact with sentinel values
-            if curr_node == False:
-                last = stack.pop()
-                continue
-
-            # hitting a visited node while travelling down:
-            elif curr_node in visited:
-                last=stack.pop()
-                continue
-
-            # moving up the tree after finishing children:
-            elif last == False or curr_node.is_leaf():
-                visited.add(curr_node)
-                last = stack.pop()
-                continue
-
-            # before moving down to children:
-            else:
-                # set up children to process:
-                stack.append(False) # sentinel value
-                for child in reversed(curr_node.args):
-                    stack.append(child)
-                    continue
-
-        return len(visited)
+        return sum(1 for _ in self.postorder())
 
     def component_count(self) -> dict[str,int]:
         """Return a dict which counts the occurrences of each class in the function DAG
@@ -2143,41 +1749,10 @@ self._compiled = _compiled
         :rtype: dict[str,int]
         """
         components = {}
-        visited = set()
-        stack: list[Any] = [self]
-        last = None
-
-        while stack:
-            curr_node = stack[-1]
-
-            # dont interact with sentinel values
-            if curr_node == False:
-                last = stack.pop()
-                continue
-
-            # hitting a visited node while travelling down:
-            elif curr_node in visited:
-                last=stack.pop()
-                continue
-
-            # moving up the tree after finishing children:
-            elif last == False or curr_node.is_leaf():
-                name = type(curr_node).__name__
-                if name in components:
-                    components[name] += 1
-                else:
-                    components[name] = 1
-
-                visited.add(curr_node)
-                last = stack.pop()
-                continue
-
-            # before moving down to children:
+        for node in self.postorder():
+            name = type(node).__name__
+            if name in components:
+                components[name] += 1
             else:
-                # set up children to process:
-                stack.append(False) # sentinel value
-                for child in reversed(curr_node.args):
-                    stack.append(child)
-                    continue
-
+                components[name] = 1
         return components

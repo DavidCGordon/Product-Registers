@@ -13,7 +13,7 @@ See Theory/Cube Equation Generation.md for the mathematical background.
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from PyPR.BooleanLogic.Gates import AND, NAND, NOR, OR, XNOR, XOR
 
@@ -58,49 +58,25 @@ def estimate_cost_comp(
             (1, MonomialProfile.logical_one()),
         ]).binarize()
 
-        # False is a sentinel marking the boundary between a node and its
-        # children, so the stack is heterogeneous -- same idiom as the DAG
-        # walks in BooleanFunction.py
-        stack: list[Any] = [new_fn]
-        last = None
-
-        while stack:
-            node = stack[-1]
-
-            if node is False:
-                last = stack.pop()
-                continue
-
-            if node in cost_cache:
-                last = stack.pop()
-                continue
-
-            if last is False:
-                mp_cache[node] = node._eval_ANF(mp_cache, monomial_profiles)
-                left_cost = cost_cache[node.args[0]]
-                right_cost = cost_cache[node.args[1]]
-                cost_cache[node] = left_cost + right_cost
-
-                left_upper = mp_cache[node.args[0]].upper()
-                right_upper = mp_cache[node.args[1]].upper()
-
-                if type(node) in (AND, OR, NAND, NOR):
-                    cost_cache[node] += (left_upper * right_upper) // 2
-                elif type(node) in (XOR, XNOR):
-                    cost_cache[node] += min(left_upper, right_upper)
-
-                last = stack.pop()
-                continue
+        # nodes costed for an earlier function are shared, and keep their cost
+        for node in new_fn.postorder(stop=cost_cache.__contains__):
+            mp_cache[node] = node._eval_ANF(mp_cache, monomial_profiles)
 
             if node.is_leaf():
-                mp_cache[node] = node._eval_ANF(mp_cache, monomial_profiles)
                 cost_cache[node] = 0
-                last = stack.pop()
                 continue
 
-            stack.append(False)
-            for child in reversed(node.args):
-                stack.append(child)
+            left_cost = cost_cache[node.args[0]]
+            right_cost = cost_cache[node.args[1]]
+            cost_cache[node] = left_cost + right_cost
+
+            left_upper = mp_cache[node.args[0]].upper()
+            right_upper = mp_cache[node.args[1]].upper()
+
+            if type(node) in (AND, OR, NAND, NOR):
+                cost_cache[node] += (left_upper * right_upper) // 2
+            elif type(node) in (XOR, XNOR):
+                cost_cache[node] += min(left_upper, right_upper)
 
         total += cost_cache[new_fn]
 

@@ -37,8 +37,6 @@ class XOR(BooleanFunction):
         return "(" + " XOR ".join(vhdl_strings[arg] for arg in self.args) + ")"
     def _generate_python(self, python_strings, array_name):
         return "(" + " ^ ".join(python_strings[arg] for arg in self.args) + ")"
-    def _generate_tex(self, cache, array_name):
-        return " \\oplus \\,".join(cache[arg] for arg in self.args)
 
 
     def _merge_redundant(self,
@@ -170,8 +168,6 @@ class AND(BooleanFunction):
         return "(" + " AND ".join(vhdl_strings[arg] for arg in self.args) + ")"
     def _generate_python(self, python_strings, array_name):
         return "(" + " & ".join(python_strings[arg] for arg in self.args) + ")"
-    def _generate_tex(self, cache, array_name):
-        return "".join(cache for arg in self.args)
 
     def _merge_redundant(self, cache, subfunctions, in_place = False):
         if len(self.args) == 1:
@@ -290,8 +286,6 @@ class OR(BooleanFunction):
         return "(" + " OR ".join(vhdl_strings[arg] for arg in self.args) + ")"
     def _generate_python(self, python_strings, array_name):
         return "(" + " | ".join(python_strings[arg] for arg in self.args) + ")"
-    def _generate_tex(self, cache, array_name):
-        return " \\vee ".join(cache[arg] for arg in self.args)
 
 
     def _merge_redundant(self, cache, subfunctions, in_place = False):
@@ -408,11 +402,18 @@ class XNOR(BooleanFunction):
     def _generate_c(self, c_strings, array_name):
         return "(!(" + " ^ ".join(c_strings[arg] for arg in self.args) + "))"
     def _generate_VHDL(self, vhdl_strings, array_name):
-        return "(" + " XNOR ".join(vhdl_strings[arg] for arg in self.args) + ")"
+        # the native xnor is only right for exactly two arguments: VHDL reads a chained
+        # xnor as (a xnor b) xnor c = a xor b xor c, and one argument
+        # has to be negated -- otherwise negate the associative form
+        if len(self.args) == 2:
+            return "(" + " XNOR ".join(vhdl_strings[arg] for arg in self.args) + ")"
+        return "(NOT(" + " XOR ".join(vhdl_strings[arg] for arg in self.args) + "))"
     def _generate_python(self, python_strings, array_name):
         return "(1-(" + " ^ ".join(python_strings[arg] for arg in self.args) + "))"
 
     def _binarize(self, cache):
+        if len(self.args) == 1:
+            return NOT(cache[self.args[0]])
         return XNOR(
             reduce(
                 lambda a, b: XOR(a,b),
@@ -512,12 +513,19 @@ class NAND(BooleanFunction):
     def _generate_c(self, c_strings, array_name):
         return "(!(" + " & ".join(c_strings[arg] for arg in self.args) + "))"
     def _generate_VHDL(self, vhdl_strings, array_name):
-        return "(" + " NAND ".join(vhdl_strings[arg] for arg in self.args) + ")"
+        # the native nand is only right for exactly two arguments: VHDL forbids
+        # chaining nand without parentheses, and one argument
+        # has to be negated -- otherwise negate the associative form
+        if len(self.args) == 2:
+            return "(" + " NAND ".join(vhdl_strings[arg] for arg in self.args) + ")"
+        return "(NOT(" + " AND ".join(vhdl_strings[arg] for arg in self.args) + "))"
     def _generate_python(self, python_strings, array_name):
         return "(1-(" + " & ".join(python_strings[arg] for arg in self.args) + "))"
 
 
     def _binarize(self, cache):
+        if len(self.args) == 1:
+            return NOT(cache[self.args[0]])
         return NAND(
             reduce(
                 lambda a, b: AND(a,b),
@@ -616,13 +624,20 @@ class NOR(BooleanFunction):
     def _generate_c(self, c_strings, array_name):
         return "(!(" + " | ".join(c_strings[arg] for arg in self.args) + "))"
     def _generate_VHDL(self, vhdl_strings, array_name):
-        return "(" + " NOR ".join(vhdl_strings[arg] for arg in self.args) + ")"
+        # the native nor is only right for exactly two arguments: VHDL forbids
+        # chaining nor without parentheses, and one argument
+        # has to be negated -- otherwise negate the associative form
+        if len(self.args) == 2:
+            return "(" + " NOR ".join(vhdl_strings[arg] for arg in self.args) + ")"
+        return "(NOT(" + " OR ".join(vhdl_strings[arg] for arg in self.args) + "))"
     def _generate_python(self, python_strings, array_name):
         return "(1-(" + " | ".join(python_strings[arg] for arg in self.args) + "))"
 
 
 
     def _binarize(self, cache):
+        if len(self.args) == 1:
+            return NOT(cache[self.args[0]])
         return NOR(
             reduce(
                 lambda a, b: OR(a,b),

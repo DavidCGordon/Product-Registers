@@ -43,7 +43,7 @@ PyPR is a Python research library for simulating and cryptanalyzing feedback reg
 pip install -e .          # editable install from project root
 ```
 
-Requires Python 3.12+. Key dependencies: `numba` (JIT), `numpy`, `galois` (finite fields), `python-sat` (SAT solving).
+Requires Python 3.12+. Key dependencies: `numba` (JIT), `numpy`, `galois` (finite fields), `python-sat` (SAT solving), `sympy` (integer factorization).
 
 ## Running Tests
 
