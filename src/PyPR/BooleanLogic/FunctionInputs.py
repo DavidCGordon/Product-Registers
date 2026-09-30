@@ -6,6 +6,10 @@ from PyPR.BooleanLogic.Latex import LatexStyle, LatexTerm
 
 
 class CONST(BooleanFunction):
+    # a constant may be a plain bit or an object such as a BooleanANF
+    # (remap_constants puts those in); the latter is stored by reference
+    _JSON_references = ("value",)
+
     def __init__(self, value):
         self.args = ()
         self.arg_limit = 0
@@ -51,19 +55,6 @@ class CONST(BooleanFunction):
         style: LatexStyle
     ) -> LatexTerm:
         return style.render_constant(self.value)
-    def generate_JSON(self) -> dict[str,Any]:
-        return {
-            "Return IDs": [0],
-            "Node Data": [{
-                'class': 'CONST',
-                'data': {
-                    'args': [],
-                    'arg_limit': 0,
-                    'value': self.value,
-                }
-            }]
-        }
-
     def dense_str(self) -> str:
         return f"CONST({self.value})"
 
@@ -218,20 +209,6 @@ class VAR(BooleanFunction):
         style: LatexStyle
     ) -> LatexTerm:
         return style.render_variable(self.index)
-    def generate_JSON(self) -> dict[str,Any]:
-        return {
-            "Return IDs": [0],
-            "Node Data": [{
-                'class': 'VAR',
-                'data': {
-                    'args': [],
-                    'arg_limit': 0,
-                    'index': self.index,
-                }
-            }]
-        }
-
-
     # overwriting BooleanFunction str methods
     def pretty_lines(self, depth:int = 0) -> list[str]:
         return [f"VAR({self.index})"]

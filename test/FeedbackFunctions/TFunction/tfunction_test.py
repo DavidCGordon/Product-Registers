@@ -3,6 +3,10 @@
 Derived from ProductRegisters.ipynb (Library Basics > Other Function Families,
 and ANF Iteration > An interesting observation with a TFunction).
 """
+import random
+
+import numpy as np
+
 from PyPR.BooleanLogic.ChainingGeneration.Templates import arman_template
 
 from PyPR.FeedbackFunctions import CMPR, MPR, TFunction
@@ -67,6 +71,9 @@ def test_tfunction_with_chaining():
     M3 = MPR(3, [1, 1, 0, 1], [1, 0, 1])
     T = TFunction(5)
     C = CMPR([T, M7, M5, M3])
+    # chaining draws from both random and numpy's generator, so seed both
+    random.seed(0)
+    np.random.seed(0)
     C.generateChaining(template=arman_template())
     reg = FeedbackRegister(2**C.size - 1, C)
     output = [state[0] for state in reg.run(compiled=False, limit=50)]
@@ -83,6 +90,9 @@ def test_tfunction_monomial_profiles():
     M5 = MPR(5, [1, 0, 1, 0, 0, 1], [1, 1, 0, 0, 1])
     M3 = MPR(3, [1, 1, 0, 1], [1, 0, 1])
     C = CMPR([T, M7, M5, M3])
+    # chaining draws from both random and numpy's generator, so seed both
+    random.seed(0)
+    np.random.seed(0)
     C.generateChaining(template=arman_template())
     MPs = C.monomial_profiles()
     assert len(MPs) == C.size

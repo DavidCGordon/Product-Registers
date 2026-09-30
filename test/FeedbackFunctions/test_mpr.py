@@ -10,6 +10,8 @@ longer implement multiplication mod P -- not that the ANF is built differently.
 
 Required reading: docs/conventions/Polynomial Conventions.md (MPR section).
 """
+import random
+
 import numpy as np
 import pytest
 
@@ -159,6 +161,9 @@ def test_cmpr_binary_output_with_chaining():
     M5 = MPR(5, "12")
     M3 = MPR(3, "5")
     C = CMPR([M7, M5, M3])
+    # chaining draws from both random and numpy's generator, so seed both
+    random.seed(0)
+    np.random.seed(0)
     C.generateChaining(template=fast_template())
     reg = FeedbackRegister(2**C.size - 1, C)
     output = [state[0] for state in reg.run(compiled=False, limit=30)]

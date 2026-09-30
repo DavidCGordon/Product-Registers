@@ -691,15 +691,30 @@ print(f.degree(), len(f))
 
 ## Serialization
 
-All major classes support the same protocol:
+Every class inheriting `PyPR.JSON_Serialization.Serializable` — `BooleanFunction` (and every gate/leaf),
+`BooleanANF`, `BooleanGF`, `FeedbackFunction` (and every register type), `FeedbackRegister` — supports:
 
 ```python
 obj.to_JSON()            # → dict  
-Class.from_JSON(d)       # → instance
+Class.from_JSON(d)       # → instance; ValueError if d encodes a class that is not Class or a subclass
 obj.to_file("path.json") # writes JSON (must end .json)
 Class.from_file("path.json")
 
-# Shared object graph (multiple objects sharing subgraphs):
-ids = obj1.generate_ids()
-ids = obj2.generate_ids(ids)   # reuses shared nodes
+# Several objects in one file, with shared structure kept shared:
+from PyPR.JSON_Serialization import generate_JSON, parse_JSON
+d = generate_JSON(fn_a, fn_b, register)       # a node used by both functions is stored once
+fn_a2, fn_b2, register2 = parse_JSON(d)       # ...and comes back as ONE object referenced by both
 ```
+
+- `parse_JSON` finds classes in a registry filled as subclasses are defined — import the defining
+  module first, or it raises `TypeError` naming the class.
+- `BooleanANF` variables must be ints, strings, floats, bools, `None`, or tuples of those.
+- `BooleanGF` must be over GF(2).
+- `BooleanANF` and `BooleanGF` compare and hash by value, so equal ones are stored once.
+- A new serializable class inherits `Serializable` and implements `_generate_JSON_entry` /
+  `_parse_JSON_entry`; it overrides `generate_ids` only if it refers to other serializable objects.
+- A `BooleanFunction` node field that may hold another serializable object is listed in the class's
+  `_JSON_references` (`CONST.value`, the fused SAT node's `template`). Such objects are stored by
+  reference (under `__refs__` in the entry), so a `CONST(BooleanANF)` from `remap_constants`
+  round-trips and one object used by several nodes comes back as one object. Plain values are
+  stored as they are.

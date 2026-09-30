@@ -63,7 +63,9 @@ Both `test_*.py` and `*_test.py` are collected; see `[tool.pytest.ini_options]` 
 Tests are plain `def test_*()` functions using bare `assert`. They carry no
 `__main__` block and are not runnable as standalone scripts — do not add one.
 Tests that need randomness seed it explicitly (`random.seed(42)`) inside the test
-body, so every test is reproducible on its own.
+body, so every test is reproducible on its own. Seed every generator the code
+draws from: CMPR chaining templates use both `random` and `np.random`, so a test
+that calls `generateChaining` seeds both (`random.seed(n); np.random.seed(n)`).
 
 Mark anything long-running with `@pytest.mark.slow` so it can be deselected with
 `-m "not slow"`. CI runs the full suite; the marker exists to keep local
@@ -174,7 +176,7 @@ Critical paths use numba `@njit`. All feedback functions and register clocking h
 
 ### Serialization Pattern
 
-Custom JSON framework throughout: classes implement `generate_ids()`, `_generate_JSON_entry()`, and `_parse_JSON_entry()` to support complex object graphs. Top-level API: `to_JSON()` / `from_JSON()`, `to_file()` / `from_file()`.
+Custom JSON framework throughout: classes inherit `Serializable` (in `JSON_Serialization.py`) and implement `_generate_JSON_entry()` and `_parse_JSON_entry()`, overriding `generate_ids()` when they refer to other serializable objects. The mixin supplies the top-level API — `to_JSON()` / `from_JSON()`, `to_file()` / `from_file()` — and registers each subclass so `parse_JSON` can find it. `generate_JSON(*objs)` stores several objects in one file with shared structure kept shared; a `generate_ids` must never renumber an object that already has an id.
 
 ### EquationSolving Pattern
 

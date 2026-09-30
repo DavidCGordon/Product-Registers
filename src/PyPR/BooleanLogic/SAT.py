@@ -360,6 +360,9 @@ class _TseytinFuse(BooleanFunction):
 
     template: BooleanFunction
 
+    # the template is a BooleanFunction of its own, stored by reference
+    _JSON_references = ("template",)
+
     def __init__(self, template: BooleanFunction, *args: BooleanFunction) -> None:
         """Wrap `template` applied to `args`.
 
@@ -389,6 +392,41 @@ class _TseytinFuse(BooleanFunction):
         self.args = args
         self.arg_limit = None
         self._build_skeleton()
+
+    def _generate_JSON_entry(self, node_ids: dict[Any, int]) -> dict[str, Any]:
+        """Store the template (by reference) and the arguments, but not the skeleton.
+
+        The skeleton fields are derived from the template at construction, and
+        `_arg_wires` would not survive JSON anyway (its keys are ints), so they
+        are rebuilt on parsing instead of stored.
+
+        :param node_ids: A map from each object to its id.
+        :type node_ids: dict[Any, int]
+        :return: The node's data.
+        :rtype: dict[str, Any]
+        """
+        data = super()._generate_JSON_entry(node_ids)
+        for derived in ("_arg_wires", "_own_wires", "_skeleton"):
+            data.pop(derived, None)
+        return data
+
+    @classmethod
+    def _parse_JSON_entry(cls,
+        object_data: dict[str, Any],
+        parsed_functions: list[Any]
+    ) -> Self:
+        """Rebuild the node through its constructor, which rebuilds the skeleton.
+
+        :param object_data: The data written for this node.
+        :type object_data: dict[str, Any]
+        :param parsed_functions: The objects rebuilt so far, indexed by id.
+        :type parsed_functions: list[Any]
+        :return: The rebuilt fusion node.
+        :rtype: _TseytinFuse
+        """
+        template = parsed_functions[object_data["__refs__"]["template"]]
+        args = [parsed_functions[arg_id] for arg_id in object_data["args"]]
+        return cls(template, *args)
 
     def _copy(
         self,

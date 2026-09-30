@@ -8,6 +8,8 @@ clocking paths (numba-compiled vs. interpreted ANF evaluation).  These are
 performance variants of one mathematical object, so any disagreement between
 them is a bug in one of them -- there is no design freedom there.
 """
+import random
+
 import numpy as np
 import pytest
 
@@ -33,6 +35,9 @@ def make_small_cmpr():
     M3 = MPR(3, [1, 1, 0, 1], [1, 0, 1])
     M2 = MPR(2, [1, 1, 1], [1, 1])
     C = CMPR([M7, M5, M3, M2])
+    # chaining draws from both random and numpy's generator, so seed both
+    random.seed(0)
+    np.random.seed(0)
     C.generateChaining(template=fast_template())
     return C
 

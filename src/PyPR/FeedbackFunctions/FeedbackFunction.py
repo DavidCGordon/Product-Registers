@@ -9,7 +9,7 @@ import numba
 # for compiling to python
 import numpy as np  # noqa: F401 -- used by the source compile() execs
 
-import PyPR.JSON_Serialization
+from PyPR.JSON_Serialization import Serializable
 
 from PyPR.BooleanLogic import VAR, BooleanANF, BooleanFunction
 from PyPR.BooleanLogic.Latex import LatexStyle, fill_template, partial_name
@@ -17,11 +17,9 @@ from PyPR.BooleanLogic.Latex import LatexStyle, fill_template, partial_name
 u8 = numba.types.u8
 void = numba.types.void
 
-# For Storing and loading as JSON files.
-import json
 
 
-class FeedbackFunction:
+class FeedbackFunction(Serializable):
     fn_list: list[BooleanFunction]
     size: int
     _compiled: Any
@@ -161,8 +159,10 @@ class FeedbackFunction:
         for fn in self.fn_list:
             ids = fn.generate_ids(ids)
 
-        # lastly, add id for self:
-        ids[self] = max(ids.values()) + 1
+        # lastly, add id for self -- unless an earlier call already gave it one:
+        # renumbering would leave its old id empty and dangle references to it
+        if self not in ids:
+            ids[self] = max(ids.values()) + 1
         return ids
 
     def _generate_JSON_entry(self,
@@ -246,105 +246,6 @@ class FeedbackFunction:
                 setattr(new_obj,key,value)
 
         return new_obj
-
-    def to_JSON(self):
-        """An alias for `PyPR.JSON_Serialization.generate_JSON(fn)`
-        
-        This can be used in conjunction with `from_JSON` to reduce verbosity and improve readibility
-        when you only want to store/parse one function. These are useful shortcuts for a lot of cases,
-        but once the use case becomes complex enough, its preferred to use the full 
-        `generate_JSON`/`parse_JSON` methods in PyPR.JSON_Serialization. Check the docstrings on these
-        methods for more information on usage and output.
-
-        :return: A JSON object which encodes the input function
-        :rtype: dict[str,Any]
-        """
-        return PyPR.JSON_Serialization.generate_JSON(self)
-
-    @classmethod
-    def from_JSON(cls,
-        json_object: dict[str,Any]
-    ) -> Self:
-        """An alias for `PyPR.JSON_Serialization.parse_JSON(json_object)[0]`
-        
-        This can be used in conjunction with `to_JSON` to reduce verbosity and improve readibility
-        when you only want to store/parse one function. These are useful shortcuts for a lot of cases,
-        but once the use case becomes complex enough, its preferred to use the full 
-        `generate_JSON`/`parse_JSON` methods in PyPR.JSON_Serialization. Check the docstrings on these
-        methods for more information on usage and output.
-
-        Although there is no functional difference between `X.from_JSON` and `Y.from_JSON` for two
-        classes (`X` and `Y`) which are both serializable, the class you call this method from is used
-        to determine type hinting and to clarify the code. Therefore, I choose to throw an error if the
-        json encodes a different class than the one you use to decode. This is mostly to enforce 
-        readable code and good usage, and to make sure objects are interpreted correctly.
-
-        :param json_object: A dictionary with the expected structure.
-        :type json_object: dict[str,Any]
-        :return: The FeedbackFunction which was used to create the JSON.
-        :rtype: FeedbackFunction
-        """
-        return_idx = json_object['return order'][0]
-        json_class = json_object['objects'][return_idx]['class']
-        subclasses = {
-            str(cls)[8:-2] for cls in
-            PyPR.JSON_Serialization.all_subclasses(cls)
-        }
-
-        if json_class not in subclasses:
-            raise ValueError(
-                f"JSON encodes {json_class}, which is not " +
-                f"a subclass of class {str(cls)[8:-2]}"
-            )
-
-        return PyPR.JSON_Serialization.parse_JSON(json_object)[0]
-
-    def to_file(self,
-        filename: str
-    ) -> None:
-        """Writes the output of fn.to_JSON to a file with the given filename.
-        
-        This can be used in conjunction with `from_file` to reduce verbosity and improve readibility
-        when you only want to store/parse one object. These are useful shortcuts for a lot of cases,
-        but once the use case becomes complex enough, its preferred to manage I/O manually and use 
-        the full `generate_JSON`/`parse_JSON` methods in PyPR.JSON_Serialization. Check the docstrings\
-        on these methods for more information on usage and output.
-
-        :param filename: A string which will be used as the name of the generated file 
-            (must end with the `.json` file extension)
-        :type filename: str
-        """
-        # json files only:
-        if filename[-5:] != ".json":
-            raise ValueError("Filename must end with the \".json\" file extension")
-
-        with open(filename, 'w') as f:
-            f.write(json.dumps(self.to_JSON(), indent = 2))
-
-    @classmethod
-    def from_file(cls,
-        filename: str
-    ) -> Self:
-        """Reads a single function from the file with the given filename.
-        
-        This can be used in conjunction with `to_file` to reduce verbosity and improve readibility
-        when you only want to store/parse one function. These are useful shortcuts for a lot of cases,
-        but once the use case becomes complex enough, its preferred to manage I/O manually and use 
-        the full `generate_JSON`/`parse_JSON` methods. Check the docstrings on these methods for more 
-        information on usage and output.
-
-        Although there is no functional difference between `X.from_file` and `Y.from_file` for two
-        classes (`X` and `Y`) which are both serializable, the class you call this method from is used
-        to determine type hinting and to clarify the code. Therefore, I choose to throw an error if the
-        json encodes a different class than the one you use to decode. This is mostly to enforce 
-        readable code and good usage, and to make sure objects are interpreted correctly.
-
-        :param filename: A string which gives the name of the file to read.
-        :type filename: str
-        """
-        with open(filename, 'r') as f:
-            return cls.from_JSON(json.loads(f.read()))
-
 
     # text generation
     # TODO: rename to match BF naming

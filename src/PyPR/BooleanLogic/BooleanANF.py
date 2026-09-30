@@ -1,15 +1,47 @@
+import json
 from collections.abc import Iterable, Iterator
 from itertools import product
-from typing import Any
+from typing import Any, Self
+
+from PyPR.JSON_Serialization import Serializable
 
 from PyPR.BooleanLogic.BooleanFunction import BooleanFunction
 from PyPR.BooleanLogic.FunctionInputs import CONST, VAR
 from PyPR.BooleanLogic.Gates import AND, XOR
 
 
+def _encode_variable(variable: Any) -> Any:
+    """Write an ANF variable in JSON-compatible form.
+
+    Variables are hashable, so a JSON list can never be a variable itself; that
+    leaves lists free to stand for tuples, which is how tuple variables (such as
+    monomials used as variables) are written.
+
+    :param variable: The variable.
+    :type variable: Any
+    :raises TypeError: If the variable is not a JSON scalar or a tuple of them.
+    :return: The variable as a JSON value.
+    :rtype: Any
+    """
+    if isinstance(variable, tuple):
+        return [_encode_variable(v) for v in variable]
+    if variable is None or isinstance(variable, (bool, int, float, str)):
+        return variable
+    raise TypeError(
+        f"cannot write a BooleanANF variable of type {type(variable).__name__} to JSON: "
+        f"variables must be ints, strings, floats, bools, None, or tuples of those"
+    )
+
+def _decode_variable(value: Any) -> Any:
+    """Inverse of `_encode_variable`: lists are read back as tuples."""
+    if isinstance(value, list):
+        return tuple(_decode_variable(v) for v in value)
+    return value
+
+
 # A container class which can hold an BooleanANF of any hashable type
 # Note that this class is unordered, because it uses sets.
-class BooleanANF:
+class BooleanANF(Serializable):
     terms: frozenset[frozenset[Any]]
 
     @classmethod
@@ -268,6 +300,58 @@ class BooleanANF:
             return True
         else:
             return (self._convert_iterable_term(term) in self.terms)
+
+    # Serialization (the id hook is the Serializable default: an ANF refers to
+    # no other serializable object, and since it is immutable and hashes by
+    # value, equal ANFs sharing one entry loses nothing)
+    def _generate_JSON_entry(self,
+        ids: dict[Any, int]
+    ) -> dict[str, Any]:
+        """Write the terms as lists of variables.
+
+        The constant term is the empty list. Variables within a term, and the
+        terms themselves, are written in a fixed order so that equal ANFs are
+        always written identically -- the set order in memory is arbitrary.
+
+        :param ids: The map from objects to ids; unused, as an ANF refers to no
+            other serializable object.
+        :type ids: dict[Any, int]
+        :raises TypeError: If a variable cannot be written to JSON (see
+            `_encode_variable`).
+        :return: The ANF's data.
+        :rtype: dict[str, Any]
+        """
+        terms = []
+        for term in self.terms:
+            variables = [_encode_variable(v) for v in term]
+            try:
+                variables.sort()
+            except TypeError:
+                # variables of mixed types have no natural order
+                variables.sort(key=json.dumps)
+            terms.append(variables)
+        terms.sort(key=lambda t: (len(t), json.dumps(t)))
+        return {"terms": terms}
+
+    @classmethod
+    def _parse_JSON_entry(cls,
+        object_data: dict[str, Any],
+        parsed_objects: list[Any]
+    ) -> Self:
+        """Rebuild an ANF from the terms `_generate_JSON_entry` wrote.
+
+        :param object_data: The data written for this ANF.
+        :type object_data: dict[str, Any]
+        :param parsed_objects: The objects rebuilt so far; unused.
+        :type parsed_objects: list[Any]
+        :return: The rebuilt ANF.
+        :rtype: Self
+        """
+        terms = frozenset(
+            frozenset(_decode_variable(v) for v in term)
+            for term in object_data["terms"]
+        )
+        return cls(terms, fast_init=True)
 
     # Conversion methods
     @classmethod

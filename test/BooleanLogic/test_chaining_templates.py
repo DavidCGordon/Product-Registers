@@ -23,7 +23,10 @@ from PyPR.BooleanLogic.ChainingGeneration.TemplateBuilding import (
     OPTIONAL,
     VALUE,
 )
-from PyPR.BooleanLogic.ChainingGeneration.Templates import three_majority_template
+from PyPR.BooleanLogic.ChainingGeneration.Templates import (
+    fast_template,
+    three_majority_template,
+)
 
 from PyPR.FeedbackFunctions import CMPR, MPR
 
@@ -96,3 +99,20 @@ def test_three_majority_rejects_a_sequence_of_the_wrong_length(short_or_long):
     """A short list used to fail partway through generation with an IndexError."""
     with pytest.raises(ValueError, match="entries, but this CMPR has 3 blocks"):
         _three_majority_chaining(short_or_long, 1)
+
+
+# ── reproducibility ──────────────────────────────────────────────────────────
+
+def test_chaining_is_reproducible_when_both_generators_are_seeded():
+    """Templates sample from Python's `random` (drop chances, probabilistic
+    templates) and from numpy's generator (`SAMPLE` picks sources with
+    np.random.choice). Seeding only one leaves the chaining different in every
+    process, so a test that generates chaining must seed both."""
+    chainings = []
+    for _ in range(2):
+        random.seed(11)
+        np.random.seed(11)
+        C = CMPR([MPR(7, "65"), MPR(5, "12"), MPR(3, "5")])
+        C.generateChaining(template=fast_template())
+        chainings.append([fn.dense_str() for fn in C.fn_list])
+    assert chainings[0] == chainings[1]

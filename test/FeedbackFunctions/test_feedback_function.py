@@ -1,6 +1,7 @@
 """Tests for behaviour shared by every FeedbackFunction through the base class:
 copying, the linearity check, and VHDL export."""
 import copy
+import random
 
 import numpy as np
 import pytest
@@ -21,6 +22,9 @@ def test_copy_leaves_original_intact(copier):
     """Copying used to share the original's __dict__, so the copy's reset of
     _compiled and fn_list landed on the original too."""
     C = CMPR([MPR(5, "12"), MPR(3, "5")])
+    # chaining draws from both random and numpy's generator, so seed both
+    random.seed(0)
+    np.random.seed(0)
     C.generateChaining(template=fast_template())
     C.compile()
     original_fn_list = C.fn_list
@@ -73,6 +77,9 @@ def test_copy_preserves_sharing_across_bits_and_attributes(copier):
 @pytest.mark.parametrize("copier", COPIERS, ids=COPIER_IDS)
 def test_copy_simulates_identically(copier):
     C = CMPR([MPR(5, "12"), MPR(3, "5")])
+    # chaining draws from both random and numpy's generator, so seed both
+    random.seed(0)
+    np.random.seed(0)
     C.generateChaining(template=fast_template())
     C2 = copier(C)
 
@@ -125,6 +132,9 @@ def test_is_linear():
 
     # chaining multiplies bits of neighbouring MPR blocks, so the result has degree > 1
     C = CMPR([MPR(5, "12"), MPR(3, "5")])
+    # chaining draws from both random and numpy's generator, so seed both
+    random.seed(0)
+    np.random.seed(0)
     C.generateChaining(template=fast_template())
     assert not C.isLinear()
     assert not C.isLinear(allowAffine=True)

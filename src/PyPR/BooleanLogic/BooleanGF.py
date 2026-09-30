@@ -1,13 +1,16 @@
 import re
+from typing import Any, Self
 
 import galois as gl
 import numpy as np
+
+from PyPR.JSON_Serialization import Serializable
 
 from PyPR.Tools.RegisterSynthesis.lfsrSynthesis import berlekamp_massey
 
 
 # Rational Polynomial class for the entries of the matrix. Uses Galois GF(2) matrices.
-class BooleanGF:
+class BooleanGF(Serializable):
 
     #several useful elements:
     @classmethod
@@ -96,15 +99,68 @@ class BooleanGF:
         return str(self)
 
     def __eq__(self,other):
-        if type(other) != BooleanGF:
-            raise ValueError(f'Expected type BooleanGF, not {type(other)}')
+        # NotImplemented rather than an error for a foreign operand, as the data
+        # model requires: Python compares dict keys and set members of any type
+        # with ==, and serialization keys its id map by object
+        if not isinstance(other, BooleanGF):
+            return NotImplemented
         return self.num == other.num and self.den == other.den
+
+    def __hash__(self):
+        # equal exactly when both coefficient lists are, so hash those
+        return hash((
+            tuple(self.num.coefficients().tolist()),
+            tuple(self.den.coefficients().tolist()),
+        ))
 
     def __copy__(self):
         return BooleanGF(
             gl.Poly(self.num.coefficients()),
             gl.Poly(self.den.coefficients())
         )
+
+    # Serialization (the id hook is the Serializable default: a BooleanGF refers
+    # to no other serializable object, and it is never modified in place)
+    def _generate_JSON_entry(self,
+        ids: dict[Any, int]
+    ) -> dict[str, Any]:
+        """Write the numerator and denominator as coefficient lists.
+
+        The lists use the constructor's own order -- index `i` holds the
+        coefficient of `D^i` -- so parsing is a constructor call. The field is
+        not stored: it must be GF(2), which is what the constructor builds.
+
+        :param ids: The map from objects to ids; unused.
+        :type ids: dict[Any, int]
+        :raises ValueError: If either polynomial is over a field other than GF(2).
+        :return: The fraction's data.
+        :rtype: dict[str, Any]
+        """
+        for poly in (self.num, self.den):
+            if poly.field.order != 2:
+                raise ValueError(
+                    f"only BooleanGF over GF(2) can be written to JSON, not over {poly.field.name}"
+                )
+        return {
+            "numerator": self.num.coefficients()[::-1].tolist(),
+            "denominator": self.den.coefficients()[::-1].tolist(),
+        }
+
+    @classmethod
+    def _parse_JSON_entry(cls,
+        object_data: dict[str, Any],
+        parsed_objects: list[Any]
+    ) -> Self:
+        """Rebuild a BooleanGF from the coefficient lists `_generate_JSON_entry` wrote.
+
+        :param object_data: The data written for this fraction.
+        :type object_data: dict[str, Any]
+        :param parsed_objects: The objects rebuilt so far; unused.
+        :type parsed_objects: list[Any]
+        :return: The rebuilt fraction.
+        :rtype: Self
+        """
+        return cls(object_data["numerator"], object_data["denominator"])
 
     @classmethod
     def from_seq(cls,seq):
