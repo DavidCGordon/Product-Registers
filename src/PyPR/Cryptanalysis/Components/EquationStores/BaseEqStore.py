@@ -80,11 +80,12 @@ class BaseEqStore:
         """
         return self.insert_equation(equation, identifier, translate_ANF)
 
-    def process_pending(self, *, verbose: bool = False, batch_size: int | None = None) -> int:
+    def process_pending(self, *, batch_size: int | None = None) -> int:
         """Finalize any deferred reduction. No-op for eager/passive stores.
 
-        :param verbose: Whether to print progress.
-        :type verbose: bool
+        A full reduction (`batch_size=None`) reports its own progress; a
+        batch is part of a loop its caller runs, so the caller reports.
+
         :param batch_size: Process in batches of this size,
             returning control between batches (for progress reporting).
             ``None`` processes everything at once.

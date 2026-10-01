@@ -41,7 +41,6 @@ class BooleanGF(Serializable):
             try:
                 denominator = gl.Poly(denominator[::-1])
             except:
-                print(denominator)
                 raise ValueError(f"could not parse denominator input of type {type(denominator)} as a polynomial")
 
         self.num = numerator

@@ -3,12 +3,13 @@ import numba
 
 # Other libs
 import numpy as np
+from numba.core import types as nb_types
 
 from PyPR.Tools.RootCounting.JordanSet import JordanSet
 from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile, TermSet
 from PyPR.Tools.RootCounting.RootExpression import RootExpression
 
-i32 = numba.types.int32
+i32 = nb_types.int32
 
 # use the iterator and convert output to a RE
 def re_compute_single_mesh(sizes,degrees,locked_list: list | None = None):

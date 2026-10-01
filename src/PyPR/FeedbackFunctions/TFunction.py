@@ -61,7 +61,7 @@ class TFunction(CMPR):
         self.fn_list[-1].add_arguments(CONST(True))
         self.induction_order = list(range(self.size-1,-1,-1))
 
-    def monomial_profiles(self, verbose: bool = False, force_default: bool = False) -> list[MonomialProfile]:
+    def monomial_profiles(self, force_default: bool = False) -> list[MonomialProfile]:
         mps = []
         for i in range(self.size):
             mps.append(MonomialProfile([
@@ -70,8 +70,8 @@ class TFunction(CMPR):
             ] + [TermSet({i:1},{i:1})]))
         return mps[::-1]
 
-    def root_expressions(self, locked_list: list[int] | None = None, verbose: bool = False, force_default: bool = False) -> list[RootExpression]:
-        #return super().root_expressions(locked_list, verbose, force_default)
+    def root_expressions(self, locked_list: list[int] | None = None, force_default: bool = False) -> list[RootExpression]:
+        #return super().root_expressions(locked_list, force_default)
         res = []
         for i in range(self.size):
             roots = JordanSet({},set(range(1,2**i+2)))

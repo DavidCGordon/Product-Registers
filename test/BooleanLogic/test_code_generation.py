@@ -18,6 +18,7 @@ import random
 import re
 import shutil
 import subprocess
+from typing import Any
 
 import pytest
 
@@ -73,7 +74,7 @@ def test_generated_python_agrees_with_eval(name):
     fn = FUNCTIONS[name]
     lines = fn.generate_python()
     for bits in ALL_INPUTS:
-        namespace = {"array": list(bits)}
+        namespace: dict[str, Any] = {"array": list(bits)}
         exec("\n".join(lines), namespace)
         assert namespace["output"] == int(fn.eval(list(bits))), f"{name}: differs at {bits}"
 
@@ -100,7 +101,7 @@ def test_python_override_replaces_a_node_everywhere():
     assert lines == ["output = ((known ^ array[2]) | (known & array[3]) | known)"]
 
     for bits in ALL_INPUTS:
-        namespace = {"array": list(bits), "known": int(shared.eval(list(bits)))}
+        namespace: dict[str, Any] = {"array": list(bits), "known": int(shared.eval(list(bits)))}
         exec("\n".join(lines), namespace)
         assert namespace["output"] == int(fn.eval(list(bits)))
 
@@ -126,7 +127,7 @@ def test_generated_c_agrees_with_eval(name):
     # so the operand is already parenthesized and `not` binds the same way
     python = "\n".join(line[:-1].replace("(!(", "(not (") for line in lines)
     for bits in ALL_INPUTS:
-        namespace = {"array": list(bits)}
+        namespace: dict[str, Any] = {"array": list(bits)}
         exec(python, namespace)
         assert int(namespace["output"]) == int(fn.eval(list(bits))), f"{name}: differs at {bits}"
 
@@ -300,7 +301,7 @@ def test_latex_precedence_preserves_meaning(name, inline):
     if inline:
         assert len(lines) == 1
     for bits in ALL_INPUTS:
-        namespace = {"v": list(bits)}
+        namespace: dict[str, Any] = {"v": list(bits)}
         exec("\n".join(lines), namespace)
         assert int(namespace["f"]) == int(fn.eval(list(bits))), f"{name}: differs at {bits}"
 

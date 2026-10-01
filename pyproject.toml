@@ -14,7 +14,9 @@ dependencies = [
     "galois",
     "python-sat",
     # integer factorization in Tools/AlgClosure/NumberTheory.py
-    "sympy"
+    "sympy",
+    # live progress bars and nested output (PyPR.Reporting)
+    "rich"
 ]
 
 [project.optional-dependencies]

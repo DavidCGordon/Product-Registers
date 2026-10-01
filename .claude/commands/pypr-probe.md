@@ -255,7 +255,7 @@ for b0 in [0,1]:
 
 ```python
 f = XOR(AND(VAR(0), VAR(1)), VAR(2))
-(d_ann, d_mult), basis = annihilators(f, verbose=False)
+(d_ann, d_mult), basis = annihilators(f)
 print(f"ann degree: {d_ann}, mult degree: {d_mult}, basis size: {len(basis)}")
 
 for ann in basis:

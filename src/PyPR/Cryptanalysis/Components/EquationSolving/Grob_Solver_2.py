@@ -8,18 +8,19 @@ and non-constant linear-lead propagation.
 Follows the same function + thin-wrapper-class convention as
 the other solvers (see ``EquationSolving/__init__.py``).
 """
-import time
-
 import numpy as np
+
+from PyPR.Reporting import get_logger
 
 from PyPR.Cryptanalysis.Components.Adapters.store_repr import to_anf_list
 from PyPR.Cryptanalysis.Components.EquationStores.GrobnerEqStore2 import (
     GroebnerEqStore2,
 )
 
+log = get_logger(__name__)
 
-def reduce(equation_store, simplify_mode=None, linear_sub_threshold=4,
-           verbose=False, _print_depth=0):
+
+def reduce(equation_store, simplify_mode=None, linear_sub_threshold=4):
     """Reduce a GF(2) polynomial system via Gröbner basis computation.
 
     Produces a :class:`GroebnerEqStore2` with as many variables
@@ -36,10 +37,6 @@ def reduce(equation_store, simplify_mode=None, linear_sub_threshold=4,
     :param linear_sub_threshold: Maximum monomial count in a
         linear polynomial's tail for non-constant propagation.
     :type linear_sub_threshold: int
-    :param verbose: Print progress.
-    :type verbose: bool
-    :param _print_depth: Indentation level for verbose output.
-    :type _print_depth: int
     :return: A GroebnerEqStore2 containing the reduced basis.
     :rtype: GroebnerEqStore2
     """
@@ -54,15 +51,15 @@ def reduce(equation_store, simplify_mode=None, linear_sub_threshold=4,
     for eq in anf_list:
         gb.enqueue_equation(eq.to_BooleanFunction())
 
-    gb.process_pending(verbose=verbose, _print_depth=_print_depth)
+    gb.process_pending()
     return gb
 
 
+@log.stage("Groebner (GM) solve")
 def solve(
     equation_store,
     feedback_fn, output_fn, keystream,
     test_length=1000, verify=None, simplify_mode=None, linear_sub_threshold=4,
-    verbose=False, _print_depth=0,
 ):
     """Solve a GF(2) system via Gröbner (GM) reduction + exhaustive guess.
 
@@ -90,26 +87,20 @@ def solve(
     :param linear_sub_threshold: Maximum monomial count in a linear
         polynomial's tail for non-constant propagation.
     :type linear_sub_threshold: int
-    :param verbose: Print progress.
-    :type verbose: bool
-    :param _print_depth: Indentation level for verbose output.
-    :type _print_depth: int
-    :return: ``(initial_state, guesses_tried, pruned_guess_bits)``
-    :rtype: tuple[list[int] | None, int, int]
+    :return: The recovered state (or None), the number of guesses tried, and
+        the number of independent guess dimensions after pruning.
+    :rtype: SolveResult
     """
     from PyPR.Cryptanalysis.Components.EquationSolving.GuessSolver import (
         guess_and_solve,
     )
 
-    reduction_start = time.time()
+    log.step("Groebner reduction")
     grob_store = reduce(
         equation_store,
         simplify_mode=simplify_mode,
         linear_sub_threshold=linear_sub_threshold,
-        verbose=verbose,
-        _print_depth=_print_depth,
     )
-    reduction_time = time.time() - reduction_start
 
     n = feedback_fn.size
     base_solution = np.zeros(n, dtype=np.uint8)
@@ -123,18 +114,12 @@ def solve(
             effect[i] = 1
             effect_vectors.append(effect)
 
-    if verbose:
-        print(f"{'|   ' * (_print_depth+1)}Groebner (GM) solve complete:")
-        print(f"{'|   ' * (_print_depth+2)}Variables solved:"
-              f" {n - len(effect_vectors)}/{n}")
-        print(f"{'|   ' * (_print_depth+2)}Free variables:"
-              f" {len(effect_vectors)}")
-        print(f"{'|   ' * (_print_depth+2)}Time: {reduction_time} s")
+    log.info("Variables solved: %d/%d, free: %d", n - len(effect_vectors), n, len(effect_vectors))
 
+    log.step("Guessing")
     return guess_and_solve(
         feedback_fn, output_fn, base_solution, effect_vectors,
         keystream, test_length=test_length, verify=verify,
-        verbose=verbose, _print_depth=_print_depth,
     )
 
 
@@ -153,24 +138,20 @@ class GrobnerSolver2:
         self.simplify_mode = simplify_mode
         self.linear_sub_threshold = linear_sub_threshold
 
-    def reduce(self, equation_store, verbose=False, _print_depth=0):
+    def reduce(self, equation_store):
         return reduce(
             equation_store,
             simplify_mode=self.simplify_mode,
             linear_sub_threshold=self.linear_sub_threshold,
-            verbose=verbose,
-            _print_depth=_print_depth,
         )
 
     def solve(
         self, equation_store, feedback_fn, output_fn, keystream, *,
-        test_length=1000, verify=None, verbose=False, _print_depth=0,
+        test_length=1000, verify=None,
     ):
         return solve(
             equation_store, feedback_fn, output_fn, keystream,
             test_length=test_length, verify=verify,
             simplify_mode=self.simplify_mode,
             linear_sub_threshold=self.linear_sub_threshold,
-            verbose=verbose,
-            _print_depth=_print_depth,
         )

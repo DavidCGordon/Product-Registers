@@ -16,8 +16,6 @@ so a disagreement localizes a bug to one of them.
 
 Small functions (≤ 4 variables) are used so the tests run quickly.
 """
-import contextlib
-import io
 import random
 from itertools import product
 
@@ -145,17 +143,6 @@ def random_xor_of_ands(rng, n):
     ])
 
 
-def search_quietly(algorithm, f):
-    """Run an annihilator search with its progress reporting suppressed.
-
-    Both implementations print a live status block to stdout, which pytest
-    captures but which makes -s output unreadable; `verbose=False` silences most
-    of it and the redirect catches the rest.
-    """
-    with contextlib.redirect_stdout(io.StringIO()):
-        return algorithm(f, verbose=False)
-
-
 @pytest.mark.parametrize(("name", "algorithm"), ALGORITHMS, ids=[n for n, _ in ALGORITHMS])
 @pytest.mark.parametrize("trial", range(6))
 def test_returned_degrees_bound_the_pair_they_describe(name, algorithm, trial):
@@ -169,7 +156,7 @@ def test_returned_degrees_bound_the_pair_they_describe(name, algorithm, trial):
     rng = random.Random(100 + trial)
     n = 4
     f = random_xor_of_ands(rng, n)
-    (annihilator_degree, multiple_degree), found = search_quietly(algorithm, f)
+    (annihilator_degree, multiple_degree), found = algorithm(f)
 
     assert found, f"{name} trial {trial}: no annihilator returned"
     for g in found:
@@ -194,7 +181,7 @@ def test_product_vanishes_exactly_when_the_multiple_degree_is_zero(name, algorit
     rng = random.Random(200 + trial)
     n = 4
     f = random_xor_of_ands(rng, n)
-    (_, multiple_degree), found = search_quietly(algorithm, f)
+    (_, multiple_degree), found = algorithm(f)
 
     vanishes = all(
         AND(g, f).eval([(i >> k) & 1 for k in range(n)]) == 0
@@ -216,7 +203,7 @@ def test_both_algorithms_find_the_same_optimal_degree_pair(trial):
     """
     rng = random.Random(300 + trial)
     f = random_xor_of_ands(rng, 4)
-    assert search_quietly(gaussian_annihilators, f)[0] == search_quietly(sparse_annihilators, f)[0], (
+    assert gaussian_annihilators(f)[0] == sparse_annihilators(f)[0], (
         f"trial {trial}: the two annihilator algorithms disagree on the degree pair"
     )
 
@@ -241,7 +228,7 @@ def test_annihilator_degree_never_exceeds_the_function_degree(name, algorithm, t
         state = [(i >> k) & 1 for k in range(n)]
         assert AND(complement, f).eval(state) == 0, "f*(1+f) must vanish over GF(2)"
 
-    (annihilator_degree, _), _ = search_quietly(algorithm, f)
+    (annihilator_degree, _), _ = algorithm(f)
     assert annihilator_degree <= function_degree, (
         f"{name} trial {trial}: reported degree {annihilator_degree} exceeds "
         f"deg(f) = {function_degree}, but 1+f is always available"
@@ -259,7 +246,7 @@ def test_returned_annihilators_are_nonzero(name, algorithm, trial):
     """
     rng = random.Random(500 + trial)
     f = random_xor_of_ands(rng, 4)
-    _, found = search_quietly(algorithm, f)
+    _, found = algorithm(f)
 
     for g in found:
         assert list(BooleanANF.from_BooleanFunction(g)), (

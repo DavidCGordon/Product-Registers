@@ -18,7 +18,7 @@ These changes are mechanical and can be made confidently:
 - `__init__.py` re-exports
 - Serialization boilerplate (`to_JSON` / `from_JSON` / `generate_ids`)
 - Test infrastructure (fixtures, parametrization, file I/O scaffolding)
-- Adding `verbose` / `print_depth` plumbing through existing call chains
+- Adding progress reporting (`log.stage` / `log.step` / `log.progress` / log lines from `PyPR.Reporting`) to existing code
 
 ### Domain-Sensitive Edits (ask first or use the code-theory-guard)
 

@@ -1,10 +1,10 @@
-import os
-import time
 from functools import cmp_to_key
+
+from PyPR.Reporting import get_logger
 
 from PyPR.BooleanLogic.BooleanANF import BooleanANF
 
-os.system('')
+log = get_logger(__name__)
 
 # term <-> frozenset cheat sheet:
 #   - (TERM)    ---   (SET)       ---   (PYTHON)
@@ -152,12 +152,15 @@ def potential_critical_characters(basis, bounded_bases, length_limit):
 
     return todo
 
-def annihilators(f, annihilator_only=False, verbose = True):
-    if verbose:
-        print("Starting\n\n\n")
+def _walk_status(sigma_todo, degrees, annihilators, todo, bounded_bases):
+    return (
+        f"Degree progress: {min(len(sigma_todo), max(degrees))}/{max(degrees)}"
+        f" -- Found: degrees {degrees}, dimension {len(annihilators)}"
+        f" -- Queue/Basis: {len(todo)}/{len(bounded_bases)}"
+    )
 
-    start_time = time.time()
-
+@log.stage("Sparse annihilator search")
+def annihilators(f, annihilator_only=False):
     f = BooleanANF.from_BooleanFunction(f)
     degrees = (f.degree(),0)
     annihilators = []
@@ -167,23 +170,15 @@ def annihilators(f, annihilator_only=False, verbose = True):
     todo = potential_critical_characters(starting_basis,bounded_bases,max(degrees))
     bounded_bases.append(starting_basis)
 
-    count = 0
+    iterations = log.progress("Iterations")
     while todo:
         # pop minimum sigma (maybe PQ here later?)
         sigma_todo = min(todo, key=monomial_order)
         todo.remove(sigma_todo)
 
-        # update printed status:
-        if verbose:
-            print(
-                "\r\x1B[3A" +
-                f"|    Iteration: {count+1}\n" +
-                f"|    Progress: {min(len(sigma_todo),max(degrees))}/{max(degrees)}\n" +
-                f"|    Currently Found: (Degrees: {degrees} / Dimension: {len(annihilators)})\n" +
-                f"|    Queue/Basis Size: {len(todo)}/{len(bounded_bases)}",
-                end=''
-            )
-            count += 1
+        iterations.update()
+        if iterations.shown:
+            iterations.set_status(_walk_status(sigma_todo, degrees, annihilators, todo, bounded_bases))
 
         if len(sigma_todo) > max(degrees):
             break
@@ -227,20 +222,15 @@ def annihilators(f, annihilator_only=False, verbose = True):
     # annihilators = [a for a in annihilators if linear_dependence_filter.insert_equation(a)]
     # print(linear_dependence_filter.rank)
 
-    if verbose:
-        print("\nFinished")
-        print(f"Total time -- {time.time()-start_time}")
-
+    iterations.close()
+    log.info("Best degrees %s, annihilator space of dimension %d", degrees, len(annihilators))
     return (degrees, annihilators)
 
 def ann_iterator(
-    f, annihilator_only=False, verbose = True, yield_rate = 100
+    f, annihilator_only=False, yield_rate = 100
 ):
-    if verbose:
-        print("Starting\n\n\n")
-
-    start_time = time.time()
-
+    # a generator runs inside its caller's loop, so it logs lines and a meter
+    # rather than opening a stage of its own
     f = BooleanANF.from_BooleanFunction(f)
     degrees = (f.degree(),0)
     annihilators = []
@@ -250,23 +240,19 @@ def ann_iterator(
     todo = potential_critical_characters(starting_basis,bounded_bases,max(degrees))
     bounded_bases.append(starting_basis)
 
+    # count used to advance only when printing was on, so with printing off it
+    # stayed 0 and every iteration yielded regardless of yield_rate
     count = 0
+    iterations = log.progress("Iterations")
     while todo:
         # pop minimum sigma (maybe PQ here later?)
         sigma_todo = min(todo, key=monomial_order)
         todo.remove(sigma_todo)
 
-        # update printed status:
-        if verbose:
-            print(
-                "\r\x1B[3A" +
-                f"|    Iteration: {count+1}\n" +
-                f"|    Progress: {min(len(sigma_todo),max(degrees))}/{max(degrees)}\n" +
-                f"|    Currently Found: (Degrees: {degrees} / Dimension: {len(annihilators)})\n" +
-                f"|    Queue/Basis Size: {len(todo)}/{len(bounded_bases)}",
-                end=''
-            )
-            count += 1
+        count += 1
+        iterations.update()
+        if iterations.shown:
+            iterations.set_status(_walk_status(sigma_todo, degrees, annihilators, todo, bounded_bases))
 
         if count % yield_rate == 0:
             yield (degrees, annihilators, todo, bounded_bases)
@@ -308,9 +294,7 @@ def ann_iterator(
 
     annihilators = [a.to_BooleanFunction() for a in annihilators if a.terms]
 
-    if verbose:
-        print("\nFinished")
-        print(f"Total time -- {time.time()-start_time}")
-
+    iterations.close()
+    log.info("Best degrees %s, annihilator space of dimension %d", degrees, len(annihilators))
     return (degrees, annihilators)
 

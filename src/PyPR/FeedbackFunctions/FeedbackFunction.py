@@ -8,14 +8,15 @@ import numba
 
 # for compiling to python
 import numpy as np  # noqa: F401 -- used by the source compile() execs
+from numba.core import types as nb_types
 
 from PyPR.JSON_Serialization import Serializable
 
 from PyPR.BooleanLogic import VAR, BooleanANF, BooleanFunction
 from PyPR.BooleanLogic.Latex import LatexStyle, fill_template, partial_name
 
-u8 = numba.types.u8
-void = numba.types.void
+u8 = nb_types.u8
+void = nb_types.void
 
 
 

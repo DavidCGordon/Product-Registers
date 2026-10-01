@@ -26,7 +26,10 @@ def DLP_brute_force(
         return None
     return dlp
 
-print(DLP_brute_force(
-    [1,1,0,1],
-    [0,1,0]
-)([1,1,1]))
+# Exploratory run. Guarded so that importing this module doesn't compile and
+# brute-force a discrete log, and print the answer, as a side effect.
+if __name__ == "__main__":
+    print(DLP_brute_force(
+        [1,1,0,1],
+        [0,1,0]
+    )([1,1,1]))

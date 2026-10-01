@@ -243,7 +243,7 @@ def generate_JSON(
         "return order": [obj_ids[obj] for obj in objs]
     }
 
-def parse_JSON(json_object: dict[str,Any]) -> tuple[Any]:
+def parse_JSON(json_object: dict[str,Any]) -> tuple[Any, ...]:
     """Parses a JSON object back into the objects which generated it.
 
     This method is paired with `generate_JSON`. Entries are rebuilt in id order,
@@ -256,7 +256,7 @@ def parse_JSON(json_object: dict[str,Any]) -> tuple[Any]:
     :type: dict[str,Any]
     :raises TypeError: If an entry names a class that is not registered.
     :return: A tuple of objects parsed from the JSON.
-    :rtype: tuple[Any]
+    :rtype: tuple[Any, ...]
     """
     # parse object class and data
     return_ids = json_object["return order"]

@@ -396,11 +396,11 @@ def test_cmpr_block_update_matrices_reproduce_the_clock(sizes):
 def test_estimate_lc_rejects_a_bit_outside_the_register(bit):
     C = CMPR([MPR(7, "12"), MPR(5, "12"), MPR(3, "12")])
     with pytest.raises(ValueError, match=r"output_bit must be a bit of this register"):
-        C.estimate_LC(bit, verbose=False)
+        C.estimate_LC(bit)
 
 @pytest.mark.slow
 def test_estimate_lc_accepts_every_bit_of_the_register():
     C = CMPR([MPR(7, "12"), MPR(5, "12"), MPR(3, "12")])
     for bit in range(C.size):
-        lower, upper = C.estimate_LC(bit, verbose=False)
+        lower, upper = C.estimate_LC(bit)
         assert 0 < lower <= upper, f"bit {bit}: bounds ({lower}, {upper}) are not ordered"

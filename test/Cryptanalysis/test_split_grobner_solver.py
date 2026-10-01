@@ -37,7 +37,7 @@ def test_split_forks_the_store_on_an_unsolved_variable():
     store.enqueue_equation(XOR(VAR(1), VAR(2), CONST(1)))
     store.process_pending()
 
-    result = split_grob._split(store, False, "")
+    result = split_grob._split(store)
     assert result is not None, "a store with unsolved variables must split"
     var, store_0, store_1 = result
 
@@ -59,7 +59,7 @@ def test_split_returns_none_when_nothing_is_left_to_guess():
     store.process_pending()
 
     assert not (store.unknown_vars - set(store.solved_vars.keys()))
-    assert split_grob._split(store, False, "") is None
+    assert split_grob._split(store) is None
 
 def test_the_two_branches_are_independent():
     """The var=1 branch is a deepcopy; solving in one must not touch the other."""
@@ -68,7 +68,7 @@ def test_the_two_branches_are_independent():
     store.enqueue_equation(XOR(VAR(1), VAR(2), CONST(1)))
     store.process_pending()
 
-    result = split_grob._split(store, False, "")
+    result = split_grob._split(store)
     assert result is not None
     _var, store_0, store_1 = result
     store_0.process_pending()
@@ -91,7 +91,7 @@ def test_split_picks_the_highest_indexed_unsolved_variable():
         store.enqueue_equation(XOR(VAR(0), VAR(1)))
         store.enqueue_equation(XOR(VAR(1), VAR(2), CONST(1)))
         store.process_pending()
-        result = split_grob._split(store, False, "")
+        result = split_grob._split(store)
         assert result is not None
         choices.add(result[0])
 
@@ -111,7 +111,7 @@ def test_splitting_a_free_variable_gives_two_consistent_branches():
     store.process_pending()
     assert store.solved_vars.get(0) == 1
 
-    result = split_grob._split(store, False, "")
+    result = split_grob._split(store)
     assert result is not None
     var, store_0, store_1 = result
     assert var != 0, "x0 was already solved, so it should not be the split variable"
@@ -148,8 +148,8 @@ def test_split_loop_runs_during_a_real_attack(monkeypatch):
     calls = []
     original = split_grob._split
 
-    def counting_split(grob_store, verbose, indent):
-        result = original(grob_store, verbose, indent)
+    def counting_split(grob_store):
+        result = original(grob_store)
         calls.append(result)
         return result
 
@@ -161,22 +161,22 @@ def test_split_loop_runs_during_a_real_attack(monkeypatch):
                  MPR(3, [1, 1, 0, 1], [1, 0, 1])])
     cmpr.generateChaining(template=arman_template(max_and=2))
     output_fn = XOR(AND(VAR(0), VAR(1)), VAR(2))
-    _degrees, basis = annihilators(output_fn, verbose=False)
+    _degrees, basis = annihilators(output_fn)
     annihilator = basis[0]
     multiple = AND(output_fn, annihilator).translate_ANF()
 
     attack_data = RAA_offline(
-        cmpr, annihilator, multiple, 0, 4, 120, verbose=False,
+        cmpr, annihilator, multiple, 0, 4, 120,
         monomial_profiles=cmpr.monomial_profiles(), variable_blocks=cmpr.blocks,
     )
     keystream = np.array(
         [int(output_fn.eval(state._state))
-         for state in FeedbackRegister(42, cmpr).run(attack_data["keystream needed"],
+         for state in FeedbackRegister(42, cmpr).run(attack_data.keystream_needed,
                                                      compiled=False)],
         dtype=np.uint8,
     )
     recovered = RAA_online(
-        cmpr, output_fn, keystream, attack_data, verbose=False,
+        cmpr, output_fn, keystream, attack_data,
         solver=split_grob.SplitGrobnerSolver(),
         online_store=GroebnerEqStore(simplify_mode=None),
     )

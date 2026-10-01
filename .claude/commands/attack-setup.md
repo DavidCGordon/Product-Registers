@@ -61,7 +61,7 @@ output_fn = XOR(AND(VAR(0), VAR(1)), VAR(2))
 ```python
 from PyPR.Cryptanalysis.Components.Annihilators.SparseAnnihilator import annihilators
 
-(d_ann, d_mult), basis = annihilators(output_fn, verbose=True)
+(d_ann, d_mult), basis = annihilators(output_fn)
 ann = basis[0]
 
 # For FAA: also compute the multiple
@@ -70,6 +70,14 @@ mult_fn = AND(output_fn, ann).translate_ANF()
 ```
 
 ## Step 5 — Run the Attack
+
+By default only warnings and errors print. To watch a run (nested phases, live bars, timings):
+
+```python
+import logging
+import PyPR
+PyPR.logging.level = logging.INFO   # or logging.DEBUG for solver/store detail
+```
 
 ### NAA
 ```python
@@ -81,18 +89,16 @@ import numpy as np
 # Offline
 # NAA_offline(feedback_fn, output_fn, init_rounds, time_limit, ...)
 attack_data = NAA_offline(C, output_fn, 0, 30,
-    verbose=True,
     monomial_profiles=C.monomial_profiles(), variable_blocks=C.blocks)
 
 # Generate keystream from a secret state
 secret = 42
 F = FeedbackRegister(secret, C)
 ks = np.array([int(output_fn.eval(reg._state))
-               for reg in F.run(attack_data['keystream needed'], compiled=False)])
+               for reg in F.run(attack_data.keystream_needed, compiled=False)])
 
 # Online
-result = NAA_online(C, output_fn, ks, attack_data,
-    verbose=True, solver=LUSolver())
+result = NAA_online(C, output_fn, ks, attack_data, solver=LUSolver())
 ```
 
 ### RAA
@@ -101,10 +107,9 @@ from PyPR.Cryptanalysis.Attacks.reduced_algebraic_attack import RAA_offline, RAA
 
 # RAA_offline(feedback_fn, annihilator, multiple, init_rounds, margin, time_limit, ...)
 attack_data = RAA_offline(C, ann, mult_fn, 0, 4, 30,
-    verbose=True,
     monomial_profiles=C.monomial_profiles(), variable_blocks=C.blocks)
 
-result = RAA_online(C, output_fn, ks, attack_data, verbose=True)
+result = RAA_online(C, output_fn, ks, attack_data)
 ```
 
 ### FAA
@@ -113,10 +118,9 @@ from PyPR.Cryptanalysis.Attacks.fast_algebraic_attack import FAA_offline, FAA_on
 
 # FAA_offline(feedback_fn, annihilator, multiple, init_rounds, margin, time_limit, ...)
 attack_data = FAA_offline(C, ann, mult_fn, 0, 4, 30,
-    verbose=True,
     monomial_profiles=C.monomial_profiles(), variable_blocks=C.blocks)
 
-result = FAA_online(C, output_fn, ks, attack_data, verbose=True)
+result = FAA_online(C, output_fn, ks, attack_data)
 ```
 
 ## Step 6 — Verify the Result
@@ -133,6 +137,6 @@ print("Recovered:   ", result)  # compare
 - **Forgetting `compiled=False`** when generating keystream in probe scripts.
 - **A keystream that isn't `uint8`** — RAA and FAA XOR it into a `uint8` coefficient vector in place, and numpy refuses that from a wider dtype. Build it with `np.array([...], dtype=np.uint8)`.
 - **Using `GrobnerSolver` with NAA** — this will raise `ValueError`.
-- **Wrong keystream length** — always use `attack_data['keystream needed']`, not a hardcoded value.
+- **Wrong keystream length** — always use `attack_data.keystream_needed`, not a hardcoded value.
 - **Mismatched output function** — the output_fn passed to the online phase must be the same one used in the offline phase.
 - **Skipping monomial profiles** — without `monomial_profiles` and `variable_blocks`, the attack falls back to the slower dynamic path. For experiments where speed matters, always compute and pass these.

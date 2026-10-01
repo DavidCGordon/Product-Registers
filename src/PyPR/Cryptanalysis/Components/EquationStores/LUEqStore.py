@@ -1,5 +1,6 @@
 import numba
 import numpy as np
+from numba.core import types as nb_types
 
 from PyPR.BooleanLogic import BooleanFunction
 
@@ -12,10 +13,10 @@ from PyPR.Cryptanalysis.Components.EquationStores.FilteringEqStore import (
 )
 from PyPR.Cryptanalysis.Components.EquationStores.IndexedEqStore import IndexedEqStore
 
-u8 = numba.types.uint8
-u64 = numba.types.uint64
-i64 = numba.types.int64
-b1 = numba.types.b1
+u8 = nb_types.uint8
+u64 = nb_types.uint64
+i64 = nb_types.int64
+b1 = nb_types.b1
 
 from typing import Any
 
@@ -24,7 +25,7 @@ from typing import Any
 # and the second loop's range(const_idx+1, len(coef_vector)) is int64: an
 # unsigned const_idx would make `idx` uint64 in one loop and int64 in the other,
 # which numba unifies to float64 where they meet.
-@numba.njit(numba.types.Tuple((b1,u64))(u8[:,:],u8[:,:],u8[:],u8[:],u8[:],u64,i64))
+@numba.njit(nb_types.Tuple((b1,u64))(u8[:,:],u8[:,:],u8[:],u8[:],u8[:],u64,i64))
 def _LU_reduction_consistent(
     upper: np.ndarray[tuple[int,int],np.dtype[np.uint8]],
     lower: np.ndarray[tuple[int,int],np.dtype[np.uint8]],
@@ -199,7 +200,7 @@ def _LU_reduction_consistent(
 
     return linearly_independent, idx
 
-@numba.njit(numba.types.Tuple((b1,u64))(u8[:,:],u8[:,:],u8[:],u8[:],u64))
+@numba.njit(nb_types.Tuple((b1,u64))(u8[:,:],u8[:,:],u8[:],u8[:],u64))
 def _LU_reduction(
     upper: np.ndarray[tuple[int,int],np.dtype[np.uint8]],
     lower: np.ndarray[tuple[int,int],np.dtype[np.uint8]],

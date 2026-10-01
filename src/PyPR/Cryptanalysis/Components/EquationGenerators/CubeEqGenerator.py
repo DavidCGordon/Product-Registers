@@ -4,6 +4,9 @@ from typing import Any
 
 import numba
 import numpy as np
+from numba.core import types as nb_types
+
+from PyPR.Reporting import format_duration, get_logger
 
 from PyPR.BooleanLogic import BooleanFunction
 
@@ -11,11 +14,13 @@ from PyPR.FeedbackFunctions import FeedbackFunction
 
 from PyPR.Cryptanalysis.Components.EquationGenerators._utils import normalize_output_fn
 
-u8 = numba.types.uint8
-i64 = numba.types.int64
-u64 = numba.types.uint64
-feedback_function_type = numba.types.FunctionType(u8[:](u8[:]))
-output_function_type = numba.types.FunctionType(u8(u8[:]))
+log = get_logger(__name__)
+
+u8 = nb_types.uint8
+i64 = nb_types.int64
+u64 = nb_types.uint64
+feedback_function_type = nb_types.FunctionType(u8[:](u8[:]))
+output_function_type = nb_types.FunctionType(u8(u8[:]))
 
 def get_var_map(
     feedback_fn,
@@ -72,19 +77,12 @@ def get_var_map(
 
     return comb_to_idx
 
-# small helper function to help pretty-print:
-def indent(n)->str:
-    """Small helper for pretty printing. Should not be used externally"""
-    return ("|   " * n)
-
 # main method
 def CubeEqGenerator(
     feedback_fn: FeedbackFunction,
     output_fn: BooleanFunction | list[BooleanFunction],
     limit: int,
     var_map: dict[tuple[int,...],int],
-    verbose: bool = False,
-    _print_depth: int = 0
 ) -> Iterator[
     np.ndarray[tuple[int],np.dtype[np.uint8]] |
     list[np.ndarray[tuple[int],np.dtype[np.uint8]]]
@@ -135,11 +133,6 @@ def CubeEqGenerator(
     :type limit: int
     :param var_map: A map which describes to assign monomials (as sorted tuples) to indices
     :type var_map: dict[tuple[int, ...], int]
-    :param verbose: whether or not to print output, defaults to False
-    :type verbose: bool, optional
-    :param _print_depth: The indentation level to print at (advise not to touch this, it's 
-        mostly internal to make printing prettier, and doesnt change much), defaults to 0
-    :type _print_depth: int, optional
     :return: An Iterator which yields (time,equation,extra_const) tuples. If a list of output 
         functions are passed as input, the iterator will yield a list of such Tuples on each iteration.
         Otherwise, only one tuple will be yielded each iteration. 
@@ -168,17 +161,12 @@ def CubeEqGenerator(
         for comb,idx in var_map.items():
             evaluations[idx,fn_idx] = output_fn_list[fn_idx](curr_states[idx])
 
-    if verbose:
-        print(f"{indent(_print_depth)}Precomputing splits for CubeEqGenerator:")
-
-    precomp_time = time.time()
-
+    # a generator runs inside its caller's loop, so it logs lines rather than
+    # opening a stage of its own
+    precomp_time = time.perf_counter()
     subcomb_precomputed, subcomb_evals, subcomb_bounds = compute_splits(var_map)
-
-    if verbose:
-        print(f"{indent(_print_depth)}Finished computing splits:")
-        print(f"{indent(_print_depth)}Time: {time.time()-precomp_time}")
-        print(f"{indent(_print_depth)}\n{indent(_print_depth)}Main Loop:")
+    log.debug("Cube splits precomputed for %d monomials in %s",
+              len(var_map), format_duration(time.perf_counter() - precomp_time))
 
     eq_vec =  np.zeros([len(output_fn_list),len(var_map)], dtype='uint8')
     for t in range(limit):
@@ -207,7 +195,7 @@ def CubeEqGenerator(
             )
 
 # update prev and current state arrays using the feedback fn:
-@numba.njit(numba.types.Tuple((u8[:,:],u8[:,:]))(feedback_function_type,u8[:,:],u8[:,:]))
+@numba.njit(nb_types.Tuple((u8[:,:],u8[:,:]))(feedback_function_type,u8[:,:],u8[:,:]))
 def update_states(
     feedback_fn: Any,
     prev_states: np.ndarray[tuple[int,int],np.dtype[np.uint8]],

@@ -63,16 +63,19 @@ def test_copy_preserves_sharing_across_bits_and_attributes(copier):
     or from an extra attribute, is copied once and stays shared in the copy."""
     shared = AND(VAR(0), VAR(1))
     F = FeedbackFunction([XOR(shared, VAR(2)), XOR(shared, VAR(0)), VAR(1)])
-    F.extra = {"node": shared, "array": np.array([1, 2, 3])}
+    # an attribute FeedbackFunction does not declare, to show copying handles
+    # whatever an instance holds
+    F.__dict__["extra"] = {"node": shared, "array": np.array([1, 2, 3])}
 
     F2 = copier(F)
     shared2 = F2.fn_list[0].args[0]
 
     assert shared2 is not shared
     assert F2.fn_list[1].args[0] is shared2
-    assert F2.extra["node"] is shared2
-    assert F2.extra["array"] is not F.extra["array"]
-    assert F2.extra["array"].tolist() == [1, 2, 3]
+    extra, extra2 = F.__dict__["extra"], F2.__dict__["extra"]
+    assert extra2["node"] is shared2
+    assert extra2["array"] is not extra["array"]
+    assert extra2["array"].tolist() == [1, 2, 3]
 
 @pytest.mark.parametrize("copier", COPIERS, ids=COPIER_IDS)
 def test_copy_simulates_identically(copier):

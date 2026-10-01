@@ -167,7 +167,7 @@ def test_linear_cubes_recover_the_secret_state(tweakable, expected_guesses, make
     attack_data = cmpr_cube_attack_offline(
         cmpr, output_fn, sim_fn, tweakable, known_bits, max_degree=1, time_limit=60,
     )
-    covered = {bit for _cube, _t, monomials, _c in attack_data["equations"]
+    covered = {bit for _cube, _t, monomials, _c in attack_data.equations
                for monomial in monomials for bit in monomial}
     guesses = [bit for bit in range(cmpr.size) if bit not in known_bits and bit not in covered]
     assert guesses == expected_guesses, (
@@ -199,7 +199,7 @@ def test_nonlinear_cubes_recover_the_secret_state():
     attack_data = cmpr_cube_attack_offline(
         cmpr, output_fn, sim_fn, tweakable, known_bits, time_limit=120,
     )
-    degrees = {len(monomial) for _cube, _t, monomials, _c in attack_data["equations"]
+    degrees = {len(monomial) for _cube, _t, monomials, _c in attack_data.equations
                for monomial in monomials}
     assert max(degrees) > 1, "every equation was linear; this case no longer tests degree"
 
@@ -229,7 +229,7 @@ def test_an_attack_without_equations_is_rejected(tweakable, max_degree):
     attack_data = cmpr_cube_attack_offline(
         cmpr, output_fn, sim_fn, tweakable, known_bits, max_degree=max_degree, time_limit=60,
     )
-    assert not attack_data["equations"]
+    assert not attack_data.equations
 
     with pytest.raises(ValueError, match="No cubes given"):
         cube_attack_online(cmpr, output_fn, access_fn, test_fn, attack_data)

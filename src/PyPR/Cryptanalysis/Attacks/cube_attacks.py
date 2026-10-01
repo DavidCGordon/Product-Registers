@@ -19,10 +19,14 @@ reduction where the degree makes linearization wasteful.
 The IV is public: the bits the attacker knows (`known_bits`) hold the same
 values in both phases, so a superpoly is a polynomial in the unknown bits alone.
 """
+import logging
 import time
+from dataclasses import dataclass
 from itertools import chain, combinations, product
 
 import numpy as np
+
+from PyPR.Reporting import format_duration, get_logger
 
 from PyPR.BooleanLogic import AND, VAR, XOR
 
@@ -35,9 +39,28 @@ from PyPR.Cryptanalysis.Components.EquationStores.FilteringEqStore import (
 )
 from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
 
+log = get_logger(__name__)
 
-def indent(n):
-    return ("|   " * n)
+
+@dataclass
+class CubeAttackData:
+    """What the offline phase of the cube attack hands to the online phase.
+
+    :ivar equations: One entry per equation kept, as `(maxterm, t, monomials,
+        constant)`: the cube's bits, the keystream position, the monomials of
+        the superpoly at that position, and its constant term.
+    :ivar known_bits: The value of every bit the attacker knows, which the
+        online phase must hold at the same values.
+    :ivar comb_to_idx: Monomial to monomial index, covering every state bit and
+        the constant (the empty monomial).
+    :ivar idx_to_comb: Monomial index to monomial.
+    :ivar num_vars: The number of monomials indexed.
+    """
+    equations: list[tuple[tuple[int, ...], int, list[tuple[int, ...]], int]]
+    known_bits: dict[int, int]
+    comb_to_idx: dict[tuple[int, ...], int]
+    idx_to_comb: dict[int, tuple[int, ...]]
+    num_vars: int
 
 # Cube attacks need to tweak/query the actual register:
 # because of this, we need pass functions to the attack
@@ -232,10 +255,11 @@ def iproduct(*iterables):
                 return
     yield ()  # There are no iterables.
 
+@log.stage("Offline phase (Cube Attack)")
 def cmpr_cube_attack_offline(
     cmpr_fn, output_fn, sim_fn, tweakable_vars, known_bits,
-    max_degree = None, time_limit = None, verbose = False, print_depth=0
-    ):
+    max_degree = None, time_limit = None
+    ) -> CubeAttackData:
     """Find cubes and recover their superpolys as equations on the unknown bits.
 
     Candidates come from the output's monomial profile, lowest superpoly degree
@@ -274,13 +298,9 @@ def cmpr_cube_attack_offline(
     :type max_degree: int | None
     :param time_limit: Seconds after which the search stops, defaults to None.
     :type time_limit: float | None
-    :param verbose: Print progress, defaults to False.
-    :type verbose: bool
-    :param print_depth: Indentation level for verbose output, defaults to 0.
-    :type print_depth: int
     :raises ValueError: If a tweakable bit has no known value.
     :return: attack data for `cube_attack_online`.
-    :rtype: dict
+    :rtype: CubeAttackData
     """
     unvalued = sorted(set(tweakable_vars) - set(known_bits))
     if unvalued:
@@ -288,10 +308,6 @@ def cmpr_cube_attack_offline(
             f"tweakable bits {unvalued} have no value in known_bits: the non-cube "
             "tweakable bits are held at their known values in both phases"
         )
-
-    print_skipped_cubes = False
-    if verbose:
-        print(f"{indent(print_depth)}Starting offline phase (Cube Attack):")
 
     start_time = time.time()
 
@@ -304,36 +320,23 @@ def cmpr_cube_attack_offline(
     for bit, value in known_bits.items():
         background[bit] = value
 
-    if verbose:
-        print(f"{indent(print_depth+1)}using monomial profile optimization: True")
-        print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Calculating larger monomial profile:")
-
-    mp_time = time.time()
-
+    log.step("Monomial profile")
     monomial_profile = output_fn.translate_ANF().remap_constants([
         (0, MonomialProfile.logical_zero()),
         (1, MonomialProfile.logical_one())
     ]).eval_ANF(cmpr_fn.monomial_profiles())
 
-    if verbose:
-        print(f"{indent(print_depth+1)}Monomial profile computed:")
-        print(f"{indent(print_depth+1)}Time: {time.time() - mp_time} s")
-        print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Calculating cube candidates:")
-
-    cube_cand_time = time.time()
-
+    log.step("Cube candidates")
     # lowest superpoly degree first, then smallest cube
     cube_candidates = sorted(
         (candidate for candidate in monomial_profile.get_cube_candidates()
          if max_degree is None or candidate[3] <= max_degree),
         key = (lambda x: (x[3], sum(x[0].counts.values())))
     )
+    log.info("%d cube candidates", len(cube_candidates))
 
-    if verbose:
-        print(f"{indent(print_depth+1)}Cube candidates computed:")
-        print(f"{indent(print_depth+1)}Time: {time.time() - cube_cand_time} s")
-        print(f"{indent(print_depth+1)}")
-        print(f"{indent(print_depth+1)}Identifying Cubes:")
+    log.step("Identifying cubes")
+    candidates_tried = log.progress("Candidates", total=len(cube_candidates))
 
     # judges independence only; the equations themselves are kept below
     rank_tracker = LUEqStore()
@@ -341,11 +344,10 @@ def cmpr_cube_attack_offline(
 
     # Maxterm search
     maxterm_count = 0
-    # rebuilt per candidate when verbose; only ever printed under that guard
-    profile_prefix = ""
     for cube_profile, target_blocks, num_cubes, degree in cube_candidates:
-        if verbose:
-           profile_prefix = f"{indent(print_depth+2)}Cube Candidate Profile: {cube_profile} (degree <= {degree})"
+        candidates_tried.update()
+        if candidates_tried.shown:
+            candidates_tried.set_status(f"Equations: {len(equations)} -- Cubes tested: {maxterm_count}")
 
         # the unknown bits this candidate's superpolys can involve, and the
         # points e_s (|s| <= degree) that determine them, smallest first
@@ -392,40 +394,37 @@ def cmpr_cube_attack_offline(
         tweakable_cube_count = round(tweakable_cube_count)
         variable_iterators= [x[1] for x in sorted(zip(loop_nums,variable_iterators), key = lambda x:x[0])]
 
-        # output message for empty cube profiles:
+        # skipped: no cube of this shape fits in the tweakable bits
         if tweakable_cube_count == 0:
-            if print_skipped_cubes and verbose:
-                print(f'{profile_prefix}: skipped (not possible with current tweakable bits)')
             continue
 
-        # output message for cube profiles we won't use but could:
+        # skipped: every monomial this profile could produce is already solved
         if region_saturated:
-            if print_skipped_cubes and verbose:
-                print(f'{profile_prefix}: skipped (target region already saturated)')
             continue
 
         # test the individual cubes/maxterms:
-        already_printed = False
-        for cube_idx, var_selections in enumerate(iproduct(*variable_iterators)):
+        cubes = None
+        for var_selections in iproduct(*variable_iterators):
             if region_saturated:
                 break
             if time_limit and time.time() - start_time > time_limit:
                 break
 
-            # print only inside the loop to make sure there are actual cubes
+            # open only inside the loop to make sure there are actual cubes;
             # depending on the tweakable set, this iterator may be empty
-            if not already_printed:
-                already_printed = True
-                if verbose:
-                    print(f'{profile_prefix}:')
-                    print(f'{indent(print_depth+2)}Target Blocks: {target_blocks} - Unknown Bits: {len(region_bits)}')
-                    print(f'{indent(print_depth+2)}Number of Cube Candidates (before restriction): {num_cubes}')
-                    print(f'{indent(print_depth+2)}Number of Cube Candidates (restricted to tweakable bits): {tweakable_cube_count}')
+            if cubes is None:
+                log.debug(
+                    "Cube profile %s (degree <= %d): target blocks %s, %d unknown bits, "
+                    "%d cubes (%d before restricting to tweakable bits)",
+                    cube_profile, degree, target_blocks, len(region_bits), tweakable_cube_count, num_cubes,
+                )
+                cubes = log.progress("Cubes", total=tweakable_cube_count, level=logging.DEBUG)
 
             maxterm_count += 1
             maxterm = tuple(chain(*var_selections))
-            if verbose:
-                print(f'\r{indent(print_depth+3)}Cube {cube_idx+1}/{tweakable_cube_count}: {maxterm}',end='')
+            cubes.update()
+            if cubes.shown:
+                cubes.set_status(f"{maxterm}")
 
             # superpoly values at each point, then Moebius inversion to the
             # coefficients, both as vectors over the keystream positions
@@ -457,16 +456,22 @@ def cmpr_cube_attack_offline(
                             region_saturated = False
                             break
                     if region_saturated:
-                        if verbose: print(f'\n{indent(print_depth+2)}Target Region Saturated!')
+                        log.debug("Target region saturated")
                         break
 
                 if time_limit and time.time() - start_time > time_limit:
                     break
 
+        if cubes is not None:
+            cubes.close()
+
         # This check breaks out of the monomial profile loop
         # no saturation check because regions are profile-specific
         if time_limit and time.time() - start_time > time_limit:
+            candidates_tried.close()
+            log.warning("Time limit reached after %s", format_duration(time.time() - start_time))
             break
+    candidates_tried.close()
 
     # every state bit is a variable, so solvers can read the state back, and the
     # constant is a column, so a consistent store can hold the right-hand sides
@@ -485,27 +490,22 @@ def cmpr_cube_attack_offline(
             num_queries += 2**len(maxterm)
             distinct_cubes.add(maxterm)
 
-    if verbose:
-        print(f'{indent(print_depth+1)}Finished equation generation: ')
-        print(f'{indent(print_depth+1)}Time: {time.time() - cube_cand_time} s')
-        print(f'{indent(print_depth+1)}')
-        print(f'{indent(print_depth+1)}Number of equations found: {len(equations)}')
-        print(f'{indent(print_depth+1)}Number of cubes tested: {maxterm_count}')
-        print(f'{indent(print_depth+1)}Number of queries in attack: {num_queries}')
-        print('Offline phase complete -- Total time: ', time.time() - start_time)
+    log.info("Equations found: %d from %d cubes tested; the attack needs %d queries",
+             len(equations), maxterm_count, num_queries)
 
-    output = {}
-    output['equations'] = equations
-    output['known bits'] = dict(known_bits)
-    output['comb to idx map'] = comb_to_idx
-    output['idx to comb map'] = {idx: comb for comb, idx in comb_to_idx.items()}
-    output['num variables'] = len(comb_to_idx)
-    return output
+    return CubeAttackData(
+        equations = equations,
+        known_bits = dict(known_bits),
+        comb_to_idx = comb_to_idx,
+        idx_to_comb = {idx: comb for comb, idx in comb_to_idx.items()},
+        num_vars = len(comb_to_idx),
+    )
 
 
+@log.stage("Online phase (Cube Attack)")
 def cube_attack_online(
-    feedback_fn, output_fn, access_fn, test_fn, attack_data,
-    time_limit=None, verbose=False, print_depth=0,
+    feedback_fn, output_fn, access_fn, test_fn, attack_data: CubeAttackData,
+    time_limit=None,
     solver=None, online_store=None,
 ):
     """Measure each cube on the target and solve the resulting equations.
@@ -532,13 +532,9 @@ def cube_attack_online(
         keystream (from `access_fns`).
     :type test_fn: Callable[[np.ndarray], bool]
     :param attack_data: The output of `cmpr_cube_attack_offline`.
-    :type attack_data: dict
+    :type attack_data: CubeAttackData
     :param time_limit: Seconds after which to give up, defaults to None.
     :type time_limit: float | None
-    :param verbose: Print progress, defaults to False.
-    :type verbose: bool
-    :param print_depth: Indentation level for verbose output, defaults to 0.
-    :type print_depth: int
     :param solver: Defaults to `LUSolver()`.
     :type solver: LUSolver | GaussElimSolver | GrobnerSolver | SplitGrobnerSolver | None
     :param online_store: Defaults to a consistent `LUEqStore` over the attack's monomials.
@@ -547,15 +543,13 @@ def cube_attack_online(
     :return: The recovered initial state, or None.
     :rtype: list[int] | None
     """
-    if verbose:
-        print(f"{indent(print_depth)}Starting online phase (Cube Attack):")
     start_time = time.time()
 
-    equations = attack_data['equations']
-    known_bits = attack_data['known bits']
-    comb_to_idx = attack_data['comb to idx map']
-    idx_to_comb = attack_data['idx to comb map']
-    num_vars = attack_data['num variables']
+    equations = attack_data.equations
+    known_bits = attack_data.known_bits
+    comb_to_idx = attack_data.comb_to_idx
+    idx_to_comb = attack_data.idx_to_comb
+    num_vars = attack_data.num_vars
 
     # if no cubes, then cube attack is slower than brute force:
     # exit immediately
@@ -576,13 +570,10 @@ def cube_attack_online(
     for bit, value in known_bits.items():
         background[bit] = value
 
-    if verbose:
-        print(f"{indent(print_depth+1)}Summing cubes to generate equations:")
-
+    log.step("Summing cubes")
     insert_eq, finalize = make_online_inserter(
         online_store, idx_to_comb,
         total_eqs=len(known_bits) + len(equations), num_vars=num_vars,
-        verbose=verbose, print_depth=print_depth+2,
     )
 
     eq_idx = 0
@@ -614,44 +605,31 @@ def cube_attack_online(
                 break
             eq_idx += 1
             if time_limit and (time.time() - start_time >= time_limit):
-                if verbose:
-                    print(f"\n{indent(print_depth+1)}Time limit reached during cube summation.")
+                log.warning("Time limit reached during cube summation")
                 break
 
     finalize()
 
-    if verbose:
-        if isinstance(online_store, FilteringEqStore):
-            solved_count = online_store.num_determined
-        else:
-            solved_count = online_store.num_eqs
-        print(f"\n{indent(print_depth+1)}Finished summing cubes:")
-        print(f"{indent(print_depth+1)}Queries: {query_count}")
-        print(f"{indent(print_depth+1)}Variables Solved: {solved_count}/{num_vars}")
-        print(f"{indent(print_depth+1)}Time: {time.time() - start_time} s")
+    if isinstance(online_store, FilteringEqStore):
+        solved_count = online_store.num_determined
+    else:
+        solved_count = online_store.num_eqs
+    log.info("Queries: %d; variables solved: %d/%d", query_count, solved_count, num_vars)
 
     if time_limit and (time.time() - start_time >= time_limit):
-        if verbose:
-            print(f"{indent(print_depth)}Online phase timed out -- Total time: {time.time() - start_time} s")
+        log.warning("Online phase timed out after %s", format_duration(time.time() - start_time))
         return None
 
-    if verbose:
-        print(f"{indent(print_depth+1)}\n{indent(print_depth+1)}Starting solve:")
-
+    log.step("Solving")
     initial_state, _, _ = solver.solve(
         online_store, feedback_fn, output_fn, None,
         verify=test_fn,
-        verbose=verbose, _print_depth=print_depth+1,
     )
-
-    if verbose:
-        print(f"{indent(print_depth)}Online phase complete -- Total time: {time.time() - start_time} s")
-
     return initial_state
 
 
 # returns a vector of outputs
-def evaluate_super_poly(sim_fn, index_set, state, verbose=False):
+def evaluate_super_poly(sim_fn, index_set, state):
     # input sanitization:
     state_copy = state.copy()
 
@@ -663,6 +641,5 @@ def evaluate_super_poly(sim_fn, index_set, state, verbose=False):
         for n in range(len(assigment)):
             state_copy[index_set[n]] = assigment[n]
         a = sim_fn(state_copy.copy())
-        if verbose: print(assigment, a)
         xor_total ^= a
     return xor_total

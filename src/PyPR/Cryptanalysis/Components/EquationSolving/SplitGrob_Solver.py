@@ -11,15 +11,22 @@ Occasionally neither guess ever contradicts -- being algebraically
 consistent doesn't prove a guess matches the real keystream, just that
 it doesn't violate the (possibly incomplete) equations gathered so far.
 So whenever a branch fully determines the system, it's checked directly
-against the real keystream via :func:`GuessSolver.guess_and_solve`. If it
-matches, that's the answer. If not, the guess was wrong despite being
-consistent -- the other, not-yet-finished branch is adopted instead and
-splitting continues from there.
+against the real keystream. If it matches, that's the answer. If not,
+the guess was wrong despite being consistent -- the other,
+not-yet-finished branch is adopted instead and splitting continues from
+there.
+
+At INFO the loop is one progress bar: variables confirmed, out of those
+unsolved at the start. At DEBUG each split also shows its two branches as
+live lines (processed-equation count, and basis, queue and solved sizes),
+replaced by one line giving the verdict when the split resolves.
 """
 import copy
-import time
+import logging
 
 import numpy as np
+
+from PyPR.Reporting import get_logger
 
 from PyPR.BooleanLogic.FunctionInputs import CONST, VAR
 from PyPR.BooleanLogic.Gates import XOR
@@ -27,18 +34,15 @@ from PyPR.BooleanLogic.Gates import XOR
 from PyPR.Cryptanalysis.Components.Adapters.store_repr import to_anf_list
 from PyPR.Cryptanalysis.Components.EquationStores.GrobnerEqStore import GroebnerEqStore
 
+log = get_logger(__name__)
+
 _BRANCH_BATCH_SIZE = 50
 
 
-def _split(grob_store, verbose, indent):
+def _split(grob_store):
     """Pick the next unsolved variable in `grob_store` and fork it: the
     store becomes the var=0 branch in place (no copy), and a single
     deepcopy becomes the var=1 branch.
-
-    Prints (and \\033[s-saves the position of) the "Splitting on x_i..."
-    header -- everything printed by :func:`_print_footer`/:func:`_replace_header`
-    afterward is anchored to that single saved position, so this must be
-    the first of the three to run for a given split.
 
     :return: ``(var, store_0, store_1)``, or ``None`` if every variable
         in `grob_store` is already solved.
@@ -48,43 +52,21 @@ def _split(grob_store, verbose, indent):
     if not unsolved:
         return None
     var = unsolved[-1] # works better for CMPRs
-    if verbose:
-        print("\033[s", end='')
-        print(f"{indent}Splitting on x_{var}...")
     store_1 = copy.deepcopy(grob_store)
     grob_store.enqueue_equation(VAR(var))
     store_1.enqueue_equation(XOR(VAR(var), CONST(1)))
     return var, grob_store, store_1
 
 
-def _print_footer(line0, line1):
-    """Redraw the live 2-line batch-progress footer in place, directly
-    below the header `_split` printed (and saved the position of).
-    """
-    # \033[u jumps back to exactly where \033[s saved it (the start of
-    # the header line), regardless of how many rows anything since has
-    # wrapped into. \033[1B\r then steps down past that one header line.
-    print("\033[u\033[1B\r", end='')
-    print(f"\033[K{line0}")
-    print(f"\033[K{line1}", end='', flush=True)
+def _branch_status(store):
+    return f"Basis: {store.num_eqs} -- Queue: {len(store.queue)} -- Solved: {len(store.solved_vars)}"
 
 
-def _replace_header(indent, text):
-    """Replace the header `_split` printed -- and clear any footer drawn
-    below it -- with a single permanent summary line.
-    """
-    # \033[J erases from the restored position to the end of the screen,
-    # so this works whether or not a footer was ever drawn below the
-    # header, and regardless of how many rows it wrapped into.
-    print("\033[u\033[J", end='')
-    print(f"{indent}{text}")
-
-
+@log.stage("Split-Groebner solve")
 def solve(
     equation_store,
     feedback_fn, output_fn, keystream,
     test_length=1000, verify=None, simplify_mode=None,
-    verbose=False, _print_depth=0,
 ):
     """Solve a GF(2) system via batch branch-and-prune over Groebner bases.
 
@@ -122,22 +104,15 @@ def solve(
     :type verify: Callable[[np.ndarray[np.uint8]], bool] | None
     :param simplify_mode: Simplification strategy for the GroebnerEqStore.
     :type simplify_mode: str | None
-    :param verbose: Whether to print progress.
-    :type verbose: bool
-    :param _print_depth: Indentation level for verbose output.
-    :type _print_depth: int
-    :return: ``(initial_state, guesses_tried, pruned_guess_bits)`` --
-        the recovered state (or None), total guesses tested, and
-        independent guess dimensions after pruning.
-    :rtype: tuple[list[int] | None, int, int]
+    :return: The recovered state (or None), the number of guesses tried, and
+        the number of independent guess dimensions after pruning.
+    :rtype: SolveResult
     """
     from PyPR.Cryptanalysis.Components.EquationSolving.GuessSolver import (
+        SolveResult,
         guess_and_solve,
+        keystream_verifier,
     )
-
-    _indent_1 = '|   ' * (_print_depth + 1)
-    _indent_2 = '|   ' * (_print_depth + 2)
-    _indent_3 = '|   ' * (_print_depth + 3)
 
     # --- Load equations into GroebnerEqStore (no initial reduction) ---
     if isinstance(equation_store, GroebnerEqStore):
@@ -149,22 +124,28 @@ def solve(
 
     n = feedback_fn.size
     unsolved = sorted(grob_store.unknown_vars - set(grob_store.solved_vars.keys()))
+    if unsolved:
+        log.info("%d variables unsolved", len(unsolved))
+    else:
+        log.info("All variables already solved -- no splits needed")
 
-    if verbose:
-        if unsolved:
-            print(f"{_indent_1}Starting split-reduce ({len(unsolved)} unsolved):")
-        else:
-            print(f"{_indent_1}All variables already solved -- no splits needed.")
+    # a branch that determines the system is checked against the keystream
+    # before it is trusted; this is the same check guess_and_solve applies
+    matches = verify if verify is not None else keystream_verifier(
+        feedback_fn, output_fn, keystream, test_length
+    )
 
     # --- Split-and-prune loop ---
-    split_start = time.time()
+    log.step("Splitting")
+    confirmations = log.progress("Variables confirmed", total=len(unsolved))
     guesses_made = 0
     confirmed = 0
 
-    split = _split(grob_store, verbose, _indent_2)
+    split = _split(grob_store)
     if split is not None:
         guesses_made += 1
     processed_0 = processed_1 = 0
+    branches = None
 
     # `split` is the loop's state: a guessed variable and the two branch stores
     # that assume it 0 and 1. It is None exactly when there is nothing left to
@@ -172,6 +153,11 @@ def solve(
     # the three names below are bound.
     while split is not None:
         var, store_0, store_1 = split
+        if branches is None:
+            branches = (
+                log.progress(f"x_{var} = 0) processed", level=logging.DEBUG),
+                log.progress(f"x_{var} = 1) processed", level=logging.DEBUG),
+            )
 
         contradicted = 0
         try:
@@ -185,15 +171,16 @@ def solve(
             surviving.solved_vars[var] = confirmed_value
             surviving.unknown_vars.discard(var)
             surviving._simplify()
-            if verbose:
-                _replace_header(
-                    _indent_2,
-                    f"x_{var} = {contradicted}) found inconsistent"
-                    f" => x_{var} = {confirmed_value}) confirmed"
-                    f" (solved: {len(surviving.solved_vars)}/{n})",
-                )
+            for branch in branches:
+                branch.close(quiet=True)
+            branches = None
+            confirmations.update()
+            log.debug(
+                "x_%d = %d) found inconsistent => x_%d = %d) confirmed (solved: %d/%d)",
+                var, contradicted, var, confirmed_value, len(surviving.solved_vars), n,
+            )
             grob_store = surviving
-            split = _split(grob_store, verbose, _indent_2)
+            split = _split(grob_store)
             if split is not None:
                 guesses_made += 1
             processed_0 = processed_1 = 0
@@ -207,18 +194,15 @@ def solve(
         elif store_1.is_determined:
             winner, other, winner_idx = store_1, store_0, 1
         else:
-            if verbose:
-                _print_footer(
-                    f"{_indent_3}x_{var} = 0) Processed: {processed_0}"
-                    f"  --  Basis: {store_0.num_eqs}"
-                    f"  --  Queue: {len(store_0.queue)}"
-                    f"  --  Solved: {len(store_0.solved_vars)}",
-                    f"{_indent_3}x_{var} = 1) Processed: {processed_1}"
-                    f"  --  Basis: {store_1.num_eqs}"
-                    f"  --  Queue: {len(store_1.queue)}"
-                    f"  --  Solved: {len(store_1.solved_vars)}",
-                )
+            branches[0].update_to(processed_0)
+            branches[0].set_status(_branch_status(store_0))
+            branches[1].update_to(processed_1)
+            branches[1].set_status(_branch_status(store_1))
             continue
+
+        for branch in branches:
+            branch.close(quiet=True)
+        branches = None
 
         # Being algebraically consistent only proves `winner` doesn't
         # violate the equations gathered so far -- it doesn't prove the
@@ -227,14 +211,10 @@ def solve(
         candidate = np.zeros(n, dtype=np.uint8)
         for i, val in winner.solved_vars.items():
             candidate[i] = val
-        result = guess_and_solve(
-            feedback_fn, output_fn, candidate, [], keystream,
-            test_length=test_length, verify=verify, verbose=False, _print_depth=_print_depth,
-        )
-        if result[0] is not None:
-            if verbose:
-                _replace_header(_indent_2, f"x_{var} = {winner_idx}) matches the keystream -- done")
-            return result
+        if matches(candidate):
+            confirmations.close()
+            log.info("x_%d = %d) matches the keystream -- done", var, winner_idx)
+            return SolveResult(list(candidate), 0, 0)
 
         # Wrong guess despite consistency -- the other, not-yet-finished
         # branch must be the correct one; adopt it and keep splitting.
@@ -243,20 +223,18 @@ def solve(
         other.unknown_vars.discard(var)
         other._simplify()
         confirmed += 1
-        if verbose:
-            _replace_header(
-                _indent_2,
-                f"x_{var} = {winner_idx}) consistent but wrong keystream"
-                f" => x_{var} = {other_idx}) confirmed"
-                f" (solved: {len(other.solved_vars)}/{n})",
-            )
+        confirmations.update()
+        log.debug(
+            "x_%d = %d) consistent but wrong keystream => x_%d = %d) confirmed (solved: %d/%d)",
+            var, winner_idx, var, other_idx, len(other.solved_vars), n,
+        )
         grob_store = other
-        split = _split(grob_store, verbose, _indent_2)
+        split = _split(grob_store)
         if split is not None:
             guesses_made += 1
         processed_0 = processed_1 = 0
 
-    split_time = time.time() - split_start
+    confirmations.close()
 
     # --- Build base solution and effect vectors ---
     base_solution = np.zeros(n, dtype=np.uint8)
@@ -270,17 +248,15 @@ def solve(
             effect[i] = 1
             effect_vectors.append(effect)
 
-    if verbose:
-        print(f"{_indent_1}Split-Groebner solve complete:")
-        print(f"{_indent_2}Variables solved: {n - len(effect_vectors)}/{n}")
-        print(f"{_indent_2}Free variables: {len(effect_vectors)}")
-        print(f"{_indent_2}Guesses made: {guesses_made} ({confirmed} confirmed)")
-        print(f"{_indent_2}Time: {split_time:.3f} s")
+    log.info(
+        "Variables solved: %d/%d, free: %d, guesses made: %d (%d confirmed)",
+        n - len(effect_vectors), n, len(effect_vectors), guesses_made, confirmed,
+    )
 
+    log.step("Guessing")
     return guess_and_solve(
         feedback_fn, output_fn, base_solution, effect_vectors,
         keystream, test_length=test_length, verify=verify,
-        verbose=verbose, _print_depth=_print_depth,
     )
 
 
@@ -303,10 +279,9 @@ class SplitGrobnerSolver:
 
     def solve(
         self, equation_store, feedback_fn, output_fn, keystream, *,
-        test_length=1000, verify=None, verbose=False, _print_depth=0,
+        test_length=1000, verify=None,
     ):
         return solve(
             equation_store, feedback_fn, output_fn, keystream,
             test_length=test_length, verify=verify, simplify_mode=self.simplify_mode,
-            verbose=verbose, _print_depth=_print_depth,
         )

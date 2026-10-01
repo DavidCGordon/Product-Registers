@@ -26,19 +26,23 @@ The two dispatch axes are:
 These axes are orthogonal, yielding four closure variants. Each variant
 contains only the logic relevant to that combination — no dead branches.
 """
+from PyPR.Reporting import get_logger
+
 from PyPR.Cryptanalysis.Components.Adapters.equation_repr import (
     coef_vector_to_boolean_function,
 )
 from PyPR.Cryptanalysis.Components.EquationStores.IndexedEqStore import IndexedEqStore
 
+log = get_logger(__name__)
+
 
 def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
-                         stall_limit=100, verbose=False, print_depth=0):
+                         stall_limit=100):
     """Inspect store properties once, return specialized hot-loop closures.
 
     The returned ``insert_fn`` and ``finalize_fn`` capture the store and
-    all loop-invariant state (verbose settings, index maps, display
-    strings) in their closure. The caller uses them as::
+    all loop-invariant state (index maps, the progress meter) in their
+    closure. The caller uses them as::
 
         insert_eq, finalize = make_online_inserter(store, idx_to_comb, ...)
         for eq_idx in range(n):
@@ -46,6 +50,9 @@ def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
             if insert_eq(coef_vector, eq_idx):
                 break
         finalize()
+
+    Progress is reported through a meter opened here, so it belongs to the
+    step the caller is in when it builds the inserter and closes with it.
 
     :param store: The online equation store.
     :param idx_to_comb: Column-index-to-monomial-tuple mapping.
@@ -57,16 +64,10 @@ def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
         size, etc.) does not change for this many consecutive steps.
         ``None`` disables stall detection.
     :type stall_limit: int | None
-    :param verbose: Whether to print progress.
-    :type verbose: bool
-    :param print_depth: Indentation depth for progress output.
-    :type print_depth: int
     :return: ``(insert_fn, finalize_fn)`` — insert_fn(coef_vector, eq_idx) -> bool
         (True = early stop), finalize_fn() -> None.
     :rtype: tuple[Callable, Callable]
     """
-    _indent = "|   " * print_depth
-
     # --- Dispatch axis 1: equation format ---
     is_indexed = isinstance(store, IndexedEqStore)
 
@@ -80,13 +81,23 @@ def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
     # store never reaches the stall check, and reads a constant if it did.
     _get_solved = (lambda: store.num_determined) if store.filtering else (lambda: 0)
 
+    # A store that queues equations for later only enqueues here; the work
+    # happens in finalize_fn.
+    substituted = log.progress(
+        "Equations substituted" if store.eager else "Equations enqueued",
+        total=total_eqs, unit="eq",
+    )
+
+    def _stop(reason, *args):
+        substituted.close()
+        log.info(reason, *args)
+        return True
+
     # ---------------------------------------------------------------
     # Build the insert closure.
     #
-    # Four variants from the two boolean axes.  The verbose check
-    # remains inside each closure (it's a single boolean comparison
-    # that the branch predictor handles perfectly), but all type
-    # checks and property lookups are resolved here at factory time.
+    # Four variants from the two boolean axes; all type checks and
+    # property lookups are resolved here at factory time.
     #
     # Stall detection (for eager+filtering): if the solved-variable
     # count doesn't increase for stall_limit consecutive insertions,
@@ -109,22 +120,14 @@ def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
             else:
                 _stall_count += 1
 
-            if verbose:
-                print(
-                    f"\r{_indent}Equations Substituted: {eq_idx+1} / {total_eqs}"
-                    f"  --  Current Rank: {store.rank} / {num_vars}",
-                    end=''
-                )
+            substituted.update()
+            if substituted.shown:
+                substituted.set_status(f"Rank: {store.rank}/{num_vars}")
             if store.is_determined:
-                if verbose:
-                    print(f"\n{_indent}Substitution finished early!")
-                    print(f"{_indent}Equations processed: {eq_idx+1}/{total_eqs}", end='')
-                return True
+                return _stop("System determined after %d/%d equations", eq_idx + 1, total_eqs)
             if stall_limit is not None and _stall_count >= stall_limit:
-                if verbose:
-                    print(f"\n{_indent}Stalled for {stall_limit} insertions -- stopping.")
-                    print(f"{_indent}Solved: {_last_solved}/{num_vars}", end='')
-                return True
+                return _stop("Stalled for %d insertions -- stopping (solved %d/%d)",
+                             stall_limit, _last_solved, num_vars)
             return False
 
         insert_fn = _insert_indexed_stopping
@@ -134,11 +137,7 @@ def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
         # Insert ndarray, never stop early.
         def _insert_indexed_passive(coef_vector, eq_idx):
             store.queue_equation(coef_vector, identifier=eq_idx)
-            if verbose:
-                print(
-                    f"\r{_indent}Equations Substituted: {eq_idx+1} / {total_eqs}",
-                    end=''
-                )
+            substituted.update()
             return False
 
         insert_fn = _insert_indexed_passive
@@ -160,22 +159,14 @@ def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
             else:
                 _stall_count += 1
 
-            if verbose:
-                print(
-                    f"\r{_indent}Equations Substituted: {eq_idx+1} / {total_eqs}"
-                    f"  --  Progress: {_last_solved} / {num_vars}",
-                    end=''
-                )
+            substituted.update()
+            if substituted.shown:
+                substituted.set_status(f"Solved: {_last_solved}/{num_vars}")
             if store.is_determined:
-                if verbose:
-                    print(f"\n{_indent}Substitution finished early!")
-                    print(f"{_indent}Equations processed: {eq_idx+1}/{total_eqs}", end='')
-                return True
+                return _stop("System determined after %d/%d equations", eq_idx + 1, total_eqs)
             if stall_limit is not None and _stall_count >= stall_limit:
-                if verbose:
-                    print(f"\n{_indent}Stalled for {stall_limit} insertions -- stopping.")
-                    print(f"{_indent}Solved: {_last_solved}/{num_vars}", end='')
-                return True
+                return _stop("Stalled for %d insertions -- stopping (solved %d/%d)",
+                             stall_limit, _last_solved, num_vars)
             return False
 
         insert_fn = _insert_converting_stopping
@@ -186,11 +177,7 @@ def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
         def _insert_converting_passive(coef_vector, eq_idx):
             bf = coef_vector_to_boolean_function(coef_vector, idx_to_comb)
             store.queue_equation(bf)
-            if verbose:
-                print(
-                    f"\r{_indent}Equations Enqueued: {eq_idx+1} / {total_eqs}",
-                    end=''
-                )
+            substituted.update()
             return False
 
         insert_fn = _insert_converting_passive
@@ -209,20 +196,21 @@ def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
 
     if store.eager:
         def finalize_fn():
-            pass
+            substituted.close()
     else:
         _batch_size = 10
         has_queue = hasattr(store, 'queue')
 
         if store.filtering:
             def finalize_fn():
+                substituted.close()
                 processed = 0
                 stall_count = 0
                 last_solved = _get_solved()
 
-                if verbose and has_queue:
-                    print(f"\n{_indent}Processing pending equations ({len(store.queue)} queued)...")
-
+                # the queue grows as processing adds syzygies, so there is no
+                # fixed total to count toward
+                processing = log.progress("Pending equations processed", unit="eq")
                 while has_queue and store.queue:
                     processed += store.process_pending(batch_size=_batch_size)
 
@@ -233,13 +221,9 @@ def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
                     else:
                         stall_count += 1
 
-                    if verbose:
-                        print(
-                            f"\r{_indent}Equations Processed:"
-                            f" {processed} / {processed + len(store.queue)}"
-                            f"  --  Solved: {last_solved}",
-                            end=''
-                        )
+                    processing.update_to(processed)
+                    if processing.shown:
+                        processing.set_status(f"Queue: {len(store.queue)} -- Solved: {last_solved}")
 
                     # No early-exit on store.is_determined here: for a
                     # deferred store (GroebnerEqStore) that only means every
@@ -249,14 +233,14 @@ def make_online_inserter(store, idx_to_comb, *, total_eqs, num_vars,
                     # genuinely empty (fully drained, nothing left to check).
 
                     if stall_limit is not None and stall_count >= stall_limit:
-                        if verbose:
-                            print(f"\n{_indent}Stalled for {stall_limit} batches -- stopping.", end='')
+                        processing.close()
+                        log.info("Stalled for %d batches -- stopping (solved %d)", stall_limit, last_solved)
                         break
+                processing.close()
         else:
             # Deferred but non-filtering: no early stopping possible.
             def finalize_fn():
-                if verbose and has_queue:
-                    print(f"\n{_indent}Processing pending equations ({len(store.queue)} queued)...", end='')
+                substituted.close()
                 store.process_pending()
 
     return insert_fn, finalize_fn

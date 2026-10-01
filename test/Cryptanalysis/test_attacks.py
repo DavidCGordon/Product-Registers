@@ -131,7 +131,7 @@ _ONLINE_COMBINATIONS = [
 def test_the_annihilator_pair_annihilates_the_output_function():
     """g is an annihilator of f exactly when f * g is the zero function."""
     _cmpr, output_fn = _target()
-    _degrees, basis = annihilators(output_fn, verbose=False)
+    _degrees, basis = annihilators(output_fn)
     annihilator = basis[0]
     multiple = AND(output_fn, annihilator).translate_ANF()
 
@@ -163,11 +163,10 @@ def test_the_fast_pair_has_a_nonzero_multiple():
 def test_naa_recovers_the_secret_state(use_profiles, make_solver):
     """NAA layers keystream constants onto an LU-shaped store; both solvers take them."""
     cmpr, output_fn = _target()
-    attack_data = NAA_offline(cmpr, output_fn, 0, _TIME_LIMIT, verbose=False,
+    attack_data = NAA_offline(cmpr, output_fn, 0, _TIME_LIMIT,
                               **_offline_path(cmpr, use_profiles))
-    keystream = _keystream(cmpr, output_fn, attack_data["keystream needed"])
-    recovered = NAA_online(cmpr, output_fn, keystream, attack_data,
-                           verbose=False, solver=make_solver())
+    keystream = _keystream(cmpr, output_fn, attack_data.keystream_needed)
+    recovered = NAA_online(cmpr, output_fn, keystream, attack_data, solver=make_solver())
 
     assert recovered is not None, "NAA returned no solution"
     assert list(np.asarray(recovered).ravel()) == _secret_state(cmpr)
@@ -177,13 +176,12 @@ def test_naa_rejects_the_grobner_solver():
     """The one enforced incompatibility: NAA defers keystream constants, which
     Groebner reduction has no way to accept separately."""
     cmpr, output_fn = _target()
-    attack_data = NAA_offline(cmpr, output_fn, 0, _TIME_LIMIT, verbose=False,
+    attack_data = NAA_offline(cmpr, output_fn, 0, _TIME_LIMIT,
                               **_offline_path(cmpr, True))
-    keystream = _keystream(cmpr, output_fn, attack_data["keystream needed"])
+    keystream = _keystream(cmpr, output_fn, attack_data.keystream_needed)
 
     with pytest.raises(ValueError, match="GrobnerSolver"):
-        NAA_online(cmpr, output_fn, keystream, attack_data,
-                   verbose=False, solver=GrobnerSolver())
+        NAA_online(cmpr, output_fn, keystream, attack_data, solver=GrobnerSolver())
 
 
 # ── RAA ──────────────────────────────────────────────────────────────────────
@@ -193,14 +191,12 @@ def test_naa_rejects_the_grobner_solver():
 @pytest.mark.parametrize("make_kwargs", _ONLINE_COMBINATIONS)
 def test_raa_recovers_the_secret_state(use_profiles, make_kwargs):
     cmpr, output_fn = _target()
-    _degrees, basis = annihilators(output_fn, verbose=False)
+    _degrees, basis = annihilators(output_fn)
     annihilator = basis[0]
     multiple = AND(output_fn, annihilator).translate_ANF()
-    attack_data = RAA_offline(cmpr, annihilator, multiple, 0, 4, _TIME_LIMIT,
-                              verbose=False, **_offline_path(cmpr, use_profiles))
-    keystream = _keystream(cmpr, output_fn, attack_data["keystream needed"])
-    recovered = RAA_online(cmpr, output_fn, keystream, attack_data,
-                           verbose=False, **make_kwargs())
+    attack_data = RAA_offline(cmpr, annihilator, multiple, 0, 4, _TIME_LIMIT, **_offline_path(cmpr, use_profiles))
+    keystream = _keystream(cmpr, output_fn, attack_data.keystream_needed)
+    recovered = RAA_online(cmpr, output_fn, keystream, attack_data, **make_kwargs())
 
     assert recovered is not None, "RAA returned no solution"
     assert list(np.asarray(recovered).ravel()) == _secret_state(cmpr)
@@ -216,11 +212,9 @@ def test_faa_recovers_the_secret_state(use_profiles, make_kwargs):
     cmpr, output_fn = _target()
     g = VAR(0)
     h = AND(output_fn, g).translate_ANF()
-    attack_data = FAA_offline(cmpr, g, h, 0, 4, _TIME_LIMIT,
-                              verbose=False, **_offline_path(cmpr, use_profiles))
-    keystream = _keystream(cmpr, output_fn, attack_data["keystream needed"])
-    recovered = FAA_online(cmpr, output_fn, keystream, attack_data,
-                           verbose=False, **make_kwargs())
+    attack_data = FAA_offline(cmpr, g, h, 0, 4, _TIME_LIMIT, **_offline_path(cmpr, use_profiles))
+    keystream = _keystream(cmpr, output_fn, attack_data.keystream_needed)
+    recovered = FAA_online(cmpr, output_fn, keystream, attack_data, **make_kwargs())
 
     assert recovered is not None, "FAA returned no solution"
     assert list(np.asarray(recovered).ravel()) == _secret_state(cmpr)
@@ -230,13 +224,12 @@ def test_faa_recovers_the_secret_state(use_profiles, make_kwargs):
 def test_faa_recovers_with_a_true_annihilator(use_profiles):
     """The degenerate case, h = 0: FAA must still work when handed RAA's pair."""
     cmpr, output_fn = _target()
-    _degrees, basis = annihilators(output_fn, verbose=False)
+    _degrees, basis = annihilators(output_fn)
     annihilator = basis[0]
     multiple = AND(output_fn, annihilator).translate_ANF()
-    attack_data = FAA_offline(cmpr, annihilator, multiple, 0, 4, _TIME_LIMIT,
-                              verbose=False, **_offline_path(cmpr, use_profiles))
-    keystream = _keystream(cmpr, output_fn, attack_data["keystream needed"])
-    recovered = FAA_online(cmpr, output_fn, keystream, attack_data, verbose=False)
+    attack_data = FAA_offline(cmpr, annihilator, multiple, 0, 4, _TIME_LIMIT, **_offline_path(cmpr, use_profiles))
+    keystream = _keystream(cmpr, output_fn, attack_data.keystream_needed)
+    recovered = FAA_online(cmpr, output_fn, keystream, attack_data)
 
     assert recovered is not None, "FAA returned no solution"
     assert list(np.asarray(recovered).ravel()) == _secret_state(cmpr)

@@ -76,11 +76,6 @@ def SymbolicEqGenerator(
     :type output_fn: BooleanFunction
     :param limit: The number of cycles to generate output for
     :type limit: int
-    :param verbose: whether or not to print output, defaults to False
-    :type verbose: bool, optional
-    :param _print_depth: The indentation level to print at (advise not to touch this, it's 
-        mostly internal to make printing prettier, and doesnt change much), defaults to 0
-    :type _print_depth: int, optional
     :return: An Iterator which yields (time,equation,extra_const) tuples. If a list of output 
         functions are passed as input, the iterator will yield a list of such Tuples on each iteration.
         Otherwise, only one tuple will be yielded each iteration. 

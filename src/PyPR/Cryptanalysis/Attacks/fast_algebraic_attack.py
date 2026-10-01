@@ -1,11 +1,13 @@
 import random
 import time
-from typing import Any
+from dataclasses import dataclass
 
 import numba
 import numpy as np
+from numba.core import types as nb_types
 
 from PyPR import FeedbackRegister
+from PyPR.Reporting import format_duration, get_logger
 
 from PyPR.BooleanLogic import BooleanFunction
 
@@ -28,15 +30,42 @@ from PyPR.Cryptanalysis.Components.EquationStores.FilteringEqStore import (
 )
 from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
 
-u8 = numba.types.uint8
-u64 = numba.types.uint64
+log = get_logger(__name__)
 
-# small helper function to help pretty-print:
-def indent(n:int) -> str:
-    return ("|   " * n)
+u8 = nb_types.uint8
+u64 = nb_types.uint64
 
 
+@dataclass
+class FAAOfflineData:
+    """What the offline phase of the fast algebraic attack hands to the online phase.
 
+    The offline phase records the annihilator's equation at each clock time,
+    as coefficient rows over a monomial index, together with a linear relation
+    on the low-degree multiple's output sequence. The online phase sums
+    annihilator equations along that relation, weighted by keystream bits,
+    which cancels the multiple's contribution, and solves.
+
+    :ivar idx_to_comb: Monomial index to monomial (a sorted tuple of state bits).
+    :ivar comb_to_idx: Monomial to monomial index.
+    :ivar annihilator_equations: One row per clock time: the annihilator's
+        coefficients at that time.
+    :ivar linear_relation: The linear relation on the multiple's sequence,
+        reversed for use as a dot product rather than a convolution.
+    :ivar num_vars: The number of monomials indexed.
+    :ivar keystream_needed: How many keystream bits the online phase needs.
+    :ivar margin: The extra equations generated beyond the linear complexity.
+    """
+    idx_to_comb: dict[int, tuple[int, ...]]
+    comb_to_idx: dict[tuple[int, ...], int]
+    annihilator_equations: np.ndarray
+    linear_relation: np.ndarray
+    num_vars: int
+    keystream_needed: int
+    margin: int
+
+
+@log.stage("Offline phase (Fast Algebraic Attack)")
 def FAA_offline(
     feedback_fn: FeedbackFunction,
     annihilator: BooleanFunction,
@@ -44,40 +73,26 @@ def FAA_offline(
     init_rounds: int,
     margin: int,
     time_limit: int,
-    verbose: bool = False,
-    _print_depth: int = 0,
 
     # both are needed to specify a monomial layout:
     # this enables optimizations
     monomial_profiles: list[MonomialProfile] | None = None,
     variable_blocks: list[list[int]] | None = None
-):
+) -> FAAOfflineData:
 
-    if verbose:
-        print(f"{indent(_print_depth)}Starting offline phase (Fast Algebraic Attack):")
     start_time = time.time()
 
     # compute equations for the annihilator:
     if monomial_profiles != None and variable_blocks != None:
+        log.info("Monomial profile optimization: on")
 
-        if verbose:
-            print(f"{indent(_print_depth+1)}using monomial profile optimization: True")
-            print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Calculating monomial profile for annihilator:")
-
-        mp_a_time = time.time()
-
+        log.step("Monomial profile for the annihilator")
         annihilator_mp = annihilator.remap_constants([
             (0, MonomialProfile.logical_zero()),
             (1, MonomialProfile.logical_one())
         ]).eval_ANF(monomial_profiles)
 
-        if verbose:
-            print(f"{indent(_print_depth+1)}Monomial profile computed:")
-            print(f"{indent(_print_depth+1)}Time: {time.time() - mp_a_time} s")
-            print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Calculating monomial profile for low degree multiple:")
-
-        mp_m_time = time.time()
-
+        log.step("Monomial profile for the low degree multiple")
         # Precompute LC for low degree multiple:
         multiple_mp = multiple.remap_constants([
             (0, MonomialProfile.logical_zero()),
@@ -85,31 +100,19 @@ def FAA_offline(
         ]).eval_ANF(monomial_profiles)
         max_LC = multiple_mp.upper()
 
-        if verbose:
-            print(f"{indent(_print_depth+1)}Monomial profile computed:")
-            print(f"{indent(_print_depth+1)}Time: {time.time() - mp_m_time} s")
-            print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Calculating variable_map:")
-
-        var_map_time = time.time()
-
+        log.step("Variable map")
         # A map with all subsets filled in, to sum over cubes
         variable_indices = get_var_map(
             feedback_fn, annihilator_mp, variable_blocks, complete_subsets = True
         )
 
-        if verbose:
-            print(f"{indent(_print_depth+1)}Variable map computed:")
-            print(f"{indent(_print_depth+1)}Time: {time.time() - var_map_time} s")
-            print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Calculating linear relation:")
-
-        lin_rel_time = time.time()
-
+        log.step("Linear relation")
         # use berlekamp_massey to get the exact relation
         feedback_fn.compile()
         multiple_compiled = multiple.compile()
         test_register = FeedbackRegister(random.randint(0,2**feedback_fn.size-1), feedback_fn)
         max_count = 1000*((2*max_LC+256)//1000 + 1)
-        count = 0
+        bits = log.progress("Bits processed", total=max_count, unit="bits")
         # berlekamp_massey_iterator always yields at least once, even for an
         # empty sequence, so the loop replaces these before anything reads them
         linear_complexity = 0
@@ -119,33 +122,24 @@ def FAA_offline(
             seq = (multiple_compiled(state._state) for state in test_register.run(2*max_LC+256)),
             yield_rate=1000
         ):
-            count += 1000
-            if verbose:
-                print(
-                    f"\r{indent(_print_depth+2)}Bits processed: {count} / {max_count}" +
-                    f"  --  Linear Complexity: {curr_LC} / {max_LC}",
-                    end=''
-                )
+            bits.update(1000)
+            if bits.shown:
+                bits.set_status(f"Linear complexity: {curr_LC}/{max_LC}")
 
             linear_complexity = curr_LC
             linear_relation = curr_relation
-
-
+        bits.close()
 
         # flip linear relation, due to dot product vs convolution
         linear_relation = linear_relation[::-1]
         margin += linear_complexity
-
-        if verbose:
-            print(f"\n{indent(_print_depth+1)}Linear relation found:")
-            print(f"{indent(_print_depth+1)}Linear complexity: {linear_complexity}")
-            print(f"{indent(_print_depth+1)}Time: {time.time()-lin_rel_time} s")
+        log.info("Linear complexity of the multiple: %d", linear_complexity)
 
         # use precomputed maps for faster eq generation and storage
         annihilator_eqs = EqStore(variable_indices)
         eq_gen = CubeEqGenerator(
             feedback_fn, annihilator, (len(variable_indices) + margin),
-            variable_indices, verbose=True, _print_depth=_print_depth+2
+            variable_indices,
         )
 
         # No rank tracker on this path: the monomial profile already bounds the
@@ -153,11 +147,10 @@ def FAA_offline(
         # absence *is* the flag -- see the guard in the equation loop below.
         annihilator_LU = None
         count_into_margin = 0
-        max_LC = len(variable_indices)
+        total = len(variable_indices) + margin
 
     else:
-        if verbose:
-            print(f"{indent(_print_depth+1)}Using monomial profile optimization: False")
+        log.info("Monomial profile optimization: off")
 
         # create dynamic storage and generation
         annihilator_eqs = EqStore()
@@ -176,19 +169,15 @@ def FAA_offline(
         # have to check ranks, since number of
         # variables isnt known ahead of time
         count_into_margin = 0
+        total = None
 
         # Precompute LC for low degree multiple:
         # because max_LC isnt known, test until there are no changes:
         feedback_fn.compile()
         test_register = FeedbackRegister(random.getrandbits(feedback_fn.size), feedback_fn)
 
-
-        if verbose:
-            print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Calculating linear complexity dynamically:")
-
-        lin_rel_time = time.time()
-
-        count = 0
+        log.step("Linear relation")
+        thousands = log.progress("Bits processed (thousands)")
         curr_LC = 0
         curr_relation = []
         # berlekamp_massey_iterator always yields at least once, even for an
@@ -199,31 +188,25 @@ def FAA_offline(
             seq = (multiple.eval(state) for state in test_register.run(2**(feedback_fn.size))),
             yield_rate=1000
         ):
-            if verbose:
-                print(f"\r{indent(_print_depth+2)}Bits processed (thousands): {count} -- Linear Complexity: {curr_LC}", end='')
+            if thousands.shown:
+                thousands.set_status(f"Linear complexity: {curr_LC}")
 
             # check lengths first for more efficient short circuit:
             if (linear_complexity == curr_LC) and (len(linear_relation) == len(curr_relation)) and np.all(linear_relation == curr_relation):
                 break
 
-            count += 1
+            thousands.update()
             curr_LC = linear_complexity
             curr_relation = linear_relation
+        thousands.close()
 
         # flip linear relation, due to dot product vs convolution
         linear_relation = linear_relation[::-1]
         margin += linear_complexity
+        log.info("Linear complexity of the multiple: %d", curr_LC)
 
-        if verbose:
-            print(f"\n{indent(_print_depth+1)}Linear relation found:")
-            print(f"{indent(_print_depth+1)}Linear complexity: {curr_LC}")
-            print(f"{indent(_print_depth+1)}Time: {time.time()-lin_rel_time} s")
-
-
-    if verbose:
-        print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Generating Equations:")
-
-    eq_time = time.time()
+    log.step("Generating equations")
+    found = log.progress("Equations found", total=total, unit="eq")
 
     # main equation loop
     for t, ann_eq in enumerate(eq_gen): #type: ignore  (to narrow types correctly)
@@ -233,13 +216,14 @@ def FAA_offline(
         if t < init_rounds: continue
 
         annihilator_eqs.insert_equation(ann_eq, identifier = t)
-
-        if verbose:
-            print(f'\r{indent(_print_depth+2)}Equations Found: {annihilator_eqs.num_eqs} / {annihilator_eqs.num_vars + margin}',end='')
+        found.update_to(annihilator_eqs.num_eqs)
+        if found.shown and total is None:
+            found.set_status(f"of {annihilator_eqs.num_vars} monomials so far, plus {margin} margin")
 
         if time_limit and (time.time() - start_time >= time_limit):
-            if verbose:
-                print(f"\n{indent(_print_depth)}Time limit reached!")
+            found.close()
+            log.warning("Time limit reached after %s, with %d equations",
+                        format_duration(time.time() - start_time), annihilator_eqs.num_eqs)
             break
 
         # break step only necessary for dynamic stores:
@@ -252,25 +236,23 @@ def FAA_offline(
             if not (ann_independent):
                 count_into_margin += 1
                 if count_into_margin == margin:
+                    found.close()
+                    log.info("Linear complexity reached; %d margin equations generated", margin)
                     break
 
-    if verbose:
-        print(f'\r{indent(_print_depth+2)}Equations Found: {annihilator_eqs.num_eqs} / {annihilator_eqs.num_vars + margin}',end='\n')
-        print(f"{indent(_print_depth+1)}Finished equation generation: ")
-        print(f"{indent(_print_depth+1)}Time: {time.time() - eq_time} s")
-        print("Offline phase complete -- Total time: ", time.time() - start_time)
+    found.close()
+    keystream_needed = max(annihilator_eqs.equation_ids.values()) + 1
+    log.info("Keystream needed: %d bits; monomials: %d", keystream_needed, annihilator_eqs.num_vars)
 
-    output = {}
-    output['idx to comb map'] = annihilator_eqs.idx_to_comb
-    output['comb to idx map'] = annihilator_eqs.comb_to_idx
-    output['annihilator equations'] = annihilator_eqs.equations[:annihilator_eqs.num_eqs,:annihilator_eqs.num_vars]
-    #output['annihilator consts'] = annihilator_eqs.constants[:annihilator_eqs.num_eqs]
-    output['linear relation'] = linear_relation
-    output['num variables'] = annihilator_eqs.num_vars
-    output['keystream needed'] = max(annihilator_eqs.equation_ids.values()) + 1
-    output['margin'] = margin - (linear_complexity)
-
-    return output
+    return FAAOfflineData(
+        idx_to_comb = annihilator_eqs.idx_to_comb,
+        comb_to_idx = annihilator_eqs.comb_to_idx,
+        annihilator_equations = annihilator_eqs.equations[:annihilator_eqs.num_eqs,:annihilator_eqs.num_vars],
+        linear_relation = linear_relation,
+        num_vars = annihilator_eqs.num_vars,
+        keystream_needed = keystream_needed,
+        margin = margin - (linear_complexity),
+    )
 
 
 @numba.njit(u8[:](u64,u8[:],u8[:,:],u8[:]))
@@ -293,23 +275,20 @@ def sum_over_linear_relationship(
 # Dont need known bits: this is because each equation is cheap (relative to cube attacks)
 # and the known bits doesnt /really/ help with the monomials (without a big loop), so it
 # doesnt shrink the system that much, but does introduce a lot of overhead.
+@log.stage("Online phase (Fast Algebraic Attack)")
 def FAA_online(
     feedback_fn: FeedbackFunction,
     output_fn: BooleanFunction,
     keystream: list[int] | np.ndarray[tuple[int],np.dtype[np.uint8]],
-    attack_data: dict[str,Any],
+    attack_data: FAAOfflineData,
     test_length: int = 1000,
     time_limit: float | None = None,
-    verbose: bool = False,
-    _print_depth: int = 0,
     solver=None,
     online_store=None,
 ):
     if solver is None:
         solver = LUSolver()
 
-    if verbose:
-        print(f"{indent(_print_depth)}Starting online phase (Fast Algebraic Attack):")
     start_time = time.time()
 
     if type(keystream) == np.ndarray:
@@ -320,20 +299,19 @@ def FAA_online(
         raise ValueError(f"Keystream must be a list or u8 ndarray, not {type(keystream)}")
 
     # unpack attack_data
-    num_vars = attack_data['num variables']
-    num_eqs = attack_data['keystream needed']
+    num_vars = attack_data.num_vars
+    num_eqs = attack_data.keystream_needed
 
-    annihilator_eqs = attack_data['annihilator equations']
-    linear_relation = attack_data['linear relation']
+    annihilator_eqs = attack_data.annihilator_equations
+    linear_relation = attack_data.linear_relation
 
-    comb_to_idx = attack_data['comb to idx map']
-    idx_to_comb = attack_data['idx to comb map']
+    comb_to_idx = attack_data.comb_to_idx
+    idx_to_comb = attack_data.idx_to_comb
 
     if online_store is None:
         online_store = LUEqStore(comb_to_idx, consistent=True)
 
-    if verbose:
-        print(f"{indent(_print_depth+1)}Starting Equation Substitution:")
+    log.step("Equation substitution")
 
     from PyPR.Cryptanalysis.Components.Adapters.online_insertion import (
         make_online_inserter,
@@ -343,7 +321,6 @@ def FAA_online(
     insert_eq, finalize = make_online_inserter(
         online_store, idx_to_comb,
         total_eqs=total_online_eqs, num_vars=num_vars,
-        verbose=verbose, print_depth=_print_depth+2,
     )
 
     for eq_idx in range(total_online_eqs):
@@ -353,36 +330,24 @@ def FAA_online(
         if insert_eq(coef_vector, eq_idx):
             break
         if time_limit and (time.time() - start_time >= time_limit):
-            if verbose:
-                print(f"\n{indent(_print_depth+1)}Time limit reached during substitution.")
+            log.warning("Time limit reached during substitution")
             break
 
     finalize()
 
-    if verbose:
-        if isinstance(online_store, FilteringEqStore):
-            solved_count = online_store.num_determined
-        else:
-            solved_count = online_store.num_eqs
-        print(f"\n{indent(_print_depth+1)}Finished substituting key stream:")
-        print(f"{indent(_print_depth+1)}Variables Solved: {solved_count}/{num_vars}")
-        print(f"{indent(_print_depth+1)}Time: {time.time() - start_time} s")
+    if isinstance(online_store, FilteringEqStore):
+        solved_count = online_store.num_determined
+    else:
+        solved_count = online_store.num_eqs
+    log.info("Variables solved by substitution: %d/%d", solved_count, num_vars)
 
     if time_limit and (time.time() - start_time >= time_limit):
-        if verbose:
-            print(f"{indent(_print_depth)}Online phase timed out -- Total time: {time.time() - start_time} s")
+        log.warning("Online phase timed out after %s", format_duration(time.time() - start_time))
         return None
 
-    if verbose:
-        print(f"{indent(_print_depth+1)}\n{indent(_print_depth+1)}Starting solve:")
-
+    log.step("Solving")
     initial_state, _, _ = solver.solve(
         online_store, feedback_fn, output_fn, keystream,
         test_length=test_length,
-        verbose=verbose, _print_depth=_print_depth+1,
     )
-
-    if verbose:
-        print(f"{indent(_print_depth)}Online phase complete -- Total time: {time.time() - start_time} s")
-
     return initial_state

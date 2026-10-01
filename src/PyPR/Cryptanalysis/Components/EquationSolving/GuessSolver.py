@@ -4,14 +4,87 @@ After a solver produces a partial solution, remaining unsolved variables
 must be guessed. This module provides effect-vector pruning (linear
 independence) and exhaustive search with keystream verification.
 """
-import time
+import logging
+from collections.abc import Callable
 from itertools import product
+from typing import Any, NamedTuple
 
 import numpy as np
 
 from PyPR import FeedbackRegister
+from PyPR.Reporting import get_logger
+
+log = get_logger(__name__)
 
 
+class SolveResult(NamedTuple):
+    """What every solver returns.
+
+    A named tuple, so existing `state, guesses, bits = solver.solve(...)`
+    unpacking keeps working alongside the named fields.
+
+    :ivar state: The recovered initial state as a list of bits (numpy uint8
+        values, as the solvers' arrays hold them), or None if no candidate
+        passed verification.
+    :ivar guesses: How many candidates were tried after the base solution.
+    :ivar guess_bits: The number of independent guess dimensions left after
+        pruning, so the search space was `2 ** guess_bits`.
+    """
+    state: list[Any] | None
+    guesses: int
+    guess_bits: int
+
+
+def keystream_verifier(
+    feedback_fn,
+    output_fn,
+    keystream,
+    test_length: int = 1000,
+) -> Callable[[np.ndarray], bool]:
+    """Build the default check: does a candidate state reproduce the keystream?
+
+    The candidate is loaded into a register over `feedback_fn` and its first
+    `test_length` output bits (through `output_fn`) are compared with the
+    observed keystream.
+
+    :param feedback_fn: The register's feedback function.
+    :type feedback_fn: FeedbackFunction
+    :param output_fn: The output function for keystream generation.
+    :type output_fn: BooleanFunction
+    :param keystream: The observed keystream.
+    :type keystream: np.ndarray[np.uint8]
+    :param test_length: Number of keystream bits to compare. Defaults to 1000.
+    :type test_length: int
+    :raises ValueError: If `keystream` is None.
+    :return: A function accepting a candidate state and returning whether it
+        reproduces the keystream.
+    :rtype: Callable[[np.ndarray[np.uint8]], bool]
+    """
+    if keystream is None:
+        raise ValueError("guess_and_solve needs a keystream or a verify function")
+
+    F = FeedbackRegister(0, feedback_fn)
+    # Use the compiled clocking when the caller has compiled the function,
+    # and the uncompiled path otherwise -- they produce the same states.
+    # Defaulting to compiled made this raise for any caller that hadn't,
+    # which is every attack's dynamic (no monomial profile) path except
+    # FAA's, whose offline phase happens to compile the function for its
+    # own use.
+    compiled = getattr(feedback_fn, "_compiled", None) is not None
+    test_length = min(test_length, len(keystream))
+    test_keystream = keystream[:test_length]
+
+    def keystream_matches(candidate):
+        F.set_state(candidate)
+        for t, state in enumerate(F.run(test_length, compiled=compiled)):
+            if output_fn.eval(state) != test_keystream[t]:
+                return False
+        return True
+
+    return keystream_matches
+
+
+@log.stage("Guessing remaining state")
 def guess_and_solve(
     feedback_fn,
     output_fn,
@@ -20,9 +93,7 @@ def guess_and_solve(
     keystream,
     test_length=1000,
     verify=None,
-    verbose=False,
-    _print_depth=0,
-):
+) -> SolveResult:
     """Prune effect vectors and exhaustively search for a valid initial state.
 
     Given a base solution and a list of effect vectors (how each guess
@@ -54,67 +125,31 @@ def guess_and_solve(
     :type test_length: int
     :param verify: Decides whether a candidate initial state is correct, in
         place of comparing its keystream with `keystream` (which may then be
-        None). Forwarded to :func:`GuessSolver.guess_and_solve`.
+        None).
     :type verify: Callable[[np.ndarray[np.uint8]], bool] | None
-    :param verbose: Whether to print progress.
-    :type verbose: bool
-    :param _print_depth: Indentation level for verbose output.
-    :type _print_depth: int
-    :return: ``(initial_state, guesses_tried, pruned_guess_bits)`` —
-        the recovered state (or None), total guesses tested, and
-        number of independent guess dimensions after pruning.
-    :rtype: tuple[list[int] | None, int, int]
+    :return: The recovered state (or None), the number of guesses tried, and
+        the number of independent guess dimensions after pruning.
+    :rtype: SolveResult
     :raises ValueError: If neither a keystream nor `verify` is given.
     """
-    start_time = time.time()
-
     if verify is None:
-        if keystream is None:
-            raise ValueError("guess_and_solve needs a keystream or a verify function")
-
-        F = FeedbackRegister(0, feedback_fn)
-        # Use the compiled clocking when the caller has compiled the function,
-        # and the uncompiled path otherwise -- they produce the same states.
-        # Defaulting to compiled made this raise for any caller that hadn't,
-        # which is every attack's dynamic (no monomial profile) path except
-        # FAA's, whose offline phase happens to compile the function for its
-        # own use.
-        compiled = getattr(feedback_fn, "_compiled", None) is not None
-        test_length = min(test_length, len(keystream))
-        test_keystream = keystream[:test_length]
-
-        def keystream_matches(candidate):
-            F.set_state(candidate)
-            for t, state in enumerate(F.run(test_length, compiled=compiled)):
-                if output_fn.eval(state) != test_keystream[t]:
-                    return False
-            return True
-
-        verify = keystream_matches
-
-    _indent_1 = '|   ' * (_print_depth+1)
-    _indent_2 = '|   ' * (_print_depth+2)
-    _indent_3 = '|   ' * (_print_depth+3)
+        verify = keystream_verifier(feedback_fn, output_fn, keystream, test_length)
 
     # test if base solution is already correct:
     if verify(base_solution):
-        if verbose:
-            print(f"{_indent_1}Solve complete -- correct base solution")
-            print(f"{_indent_1}Time: {time.time() - start_time} s")
-        return (list(base_solution), 0, 0)
+        log.info("Base solution is already correct")
+        return SolveResult(list(base_solution), 0, 0)
 
-    if verbose:
-        print(_indent_1)
-        print(f"{_indent_1}Initial solve failed, guessing remaining information:")
-        print(f"{_indent_2}Starting effect pruning:")
+    log.debug("Base solution failed verification")
 
     # prune linearly dependent effect vectors:
-    effect_pruning_time = time.time()
+    log.step("Pruning effect vectors", level=logging.DEBUG)
+    pruning = log.progress("Vectors pruned", total=len(effect_vectors))
     pruned_guesses = []
     already_solved = set()
     reduced_matrix = np.zeros([feedback_fn.size, feedback_fn.size], dtype=np.uint8)
 
-    for i, effect_vector in enumerate(effect_vectors):
+    for effect_vector in effect_vectors:
         effect_vector_copy = effect_vector.copy()
         for idx in range(len(effect_vector)):
             if effect_vector[idx] == 1:
@@ -125,26 +160,15 @@ def guess_and_solve(
                     pruned_guesses.append(effect_vector_copy)
                     reduced_matrix[idx] = effect_vector
                     break
-
-        if verbose:
-            print(f"\r{_indent_3}Vectors Pruned: {i+1}/{len(effect_vectors)}", end='')
-
-    if verbose:
-        print(f"\n{_indent_2}Pruning finished:")
-        print(f"{_indent_2}Max number of guesses (original): 2^{len(effect_vectors)}")
-        print(f"{_indent_2}Max number of guesses (pruned): 2^{len(pruned_guesses)}")
-        print(f"{_indent_2}Time: {time.time() - effect_pruning_time} s")
-        print(_indent_2)
-        print(f"{_indent_2}Starting to Guess:")
+        pruning.update()
+    pruning.close()
+    log.info("Guess space: 2^%d, pruned to 2^%d", len(effect_vectors), len(pruned_guesses))
 
     # exhaustively test pruned guesses:
-    guess_count = 0
-    guess_start_time = time.time()
+    log.step("Guessing")
+    guessing = log.progress("Guesses", total=2 ** len(pruned_guesses), unit="guesses")
     for guess_assignment in product((0, 1), repeat=len(pruned_guesses)):
-        guess_count += 1
-
-        if verbose:
-            print(f"\r{_indent_3}Guess count: {guess_count}", end='')
+        guessing.update()
 
         candidate = base_solution.copy()
         for idx, assigned in enumerate(guess_assignment):
@@ -152,12 +176,10 @@ def guess_and_solve(
                 candidate ^= pruned_guesses[idx]
 
         if verify(candidate):
-            if verbose:
-                print(f"\n{_indent_2}Guessing Finished:")
-                print(f"{_indent_2}Time: {time.time() - guess_start_time} s")
-                print(f"{_indent_1}Solution Found!")
-            return (list(candidate), guess_count, len(pruned_guesses))
+            guessing.close()
+            log.info("Solution found after %d guesses", guessing.count)
+            return SolveResult(list(candidate), guessing.count, len(pruned_guesses))
 
-    if verbose:
-        print(f"\n{_indent_2}Guessing exhausted — no solution found.")
-    return (None, guess_count, len(pruned_guesses))
+    guessing.close()
+    log.warning("Guessing exhausted -- no solution found")
+    return SolveResult(None, guessing.count, len(pruned_guesses))

@@ -459,9 +459,12 @@ class BooleanFunction(Serializable):
         # construction, which keeps construction a C-level call)
         values = _RenderedValues()
         values.overrides = overrides
+
+        stop: Callable[[BooleanFunction], bool] | None
         if overrides:
-            def stop(node: BooleanFunction) -> bool:
+            def stop_at_known_or_override(node: BooleanFunction) -> bool:
                 return node in values or node in overrides
+            stop = stop_at_known_or_override
         elif len(roots) > 1:
             stop = values.__contains__
         else:
@@ -1403,7 +1406,6 @@ self._compiled = _compiled
 
     def sat(self,
         solver_name: str = "cadical195",
-        verbose: bool = False,
     ) -> dict[int,bool] | None:
         """Solve the SAT problem for a given BooleanFunction
 
@@ -1419,8 +1421,6 @@ self._compiled = _compiled
             which will be used as the solver, defaults to "cadical195", which we observed
             to work well experimentally.
         :type solver_name: str, optional
-        :param verbose: if True, print statistics and timings for debugging, defaults to False
-        :type verbose: bool, optional
 
         :return: if the function is unsatisfiable, return None. otherwise, returns a dictionary
             which maps variables to their boolean values in a satisfying assignment. Any variables 
@@ -1431,7 +1431,6 @@ self._compiled = _compiled
 
     def enum_models(self,
         solver_name: str = 'cadical195',
-        verbose: bool = False
     ) -> Iterator[dict[int,bool]]:
         """Enumerate solutions to the SAT problem for a given BooleanFunction
 
@@ -1450,8 +1449,6 @@ self._compiled = _compiled
             which will be used as the solver, defaults to "cadical195", which we observed
             to work well experimentally.
         :type solver_name: str, optional
-        :param verbose: if `True` print statistics and timings for debugging, defaults to False
-        :type verbose: bool, optional
 
         :return: if the function is unsatisfiable, return None. otherwise, on each iteration,
             return a dictionary which maps variables to their boolean values in a satisfying 
@@ -1534,7 +1531,7 @@ self._compiled = _compiled
         return ids
 
     def _generate_JSON_entry(self,
-        node_ids: dict["BooleanFunction", int]
+        ids: dict[Any, int]
     ) -> dict[str, Any]:
         """Create a JSON entry for a given object
 
@@ -1552,8 +1549,8 @@ self._compiled = _compiled
         CONST whose value is a BooleanANF) is stored as that object's id, under the key
         `__refs__`; a field holding a plain value is stored as it is.
 
-        :param node_ids: A dictionary which maps each object to a unique id.
-        :type node_ids: dict[Any, int]
+        :param ids: A dictionary which maps each object to a unique id.
+        :type ids: dict[Any, int]
         :return: A dictionary which represents the JSON data for one object
         :rtype: dict[str, Any]
         """
@@ -1561,7 +1558,7 @@ self._compiled = _compiled
         JSON_data = self.__dict__.copy()
         # use refs for children/nested data:
         if 'args' in JSON_data:
-            JSON_data['args'] = [node_ids[arg] for arg in self.args]
+            JSON_data['args'] = [ids[arg] for arg in self.args]
         # ignore the compiled version (not serializable)
         if '_compiled' in JSON_data:
             del JSON_data['_compiled']
@@ -1572,7 +1569,7 @@ self._compiled = _compiled
         refs = {}
         for name in self._JSON_references:
             if isinstance(JSON_data.get(name), Serializable):
-                refs[name] = node_ids[JSON_data.pop(name)]
+                refs[name] = ids[JSON_data.pop(name)]
         if refs:
             JSON_data['__refs__'] = refs
 
@@ -1581,7 +1578,7 @@ self._compiled = _compiled
     @classmethod
     def _parse_JSON_entry(cls,
         object_data: dict[str,Any],
-        parsed_functions: list["BooleanFunction | None"]
+        parsed_objects: list[Any]
     ) -> Self:
         """Parse a JSON entry back into a given object.
 
@@ -1614,12 +1611,12 @@ self._compiled = _compiled
 
             # Use previously parsed functions for args
             if key == 'args':
-                new_node.args = tuple([parsed_functions[child_id] for child_id in value])
+                new_node.args = tuple([parsed_objects[child_id] for child_id in value])
 
             # fields that referred to other serializable objects, by id
             elif key == '__refs__':
                 for name, ref_id in value.items():
-                    setattr(new_node, name, parsed_functions[ref_id])
+                    setattr(new_node, name, parsed_objects[ref_id])
 
             # for other fields, just set directly
             else:

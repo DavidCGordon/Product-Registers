@@ -41,12 +41,16 @@ Extends Buchberger's algorithm with:
 import heapq
 from functools import cmp_to_key
 
+from PyPR.Reporting import get_logger
+
 from PyPR.BooleanLogic.BooleanANF import BooleanANF
 from PyPR.BooleanLogic.FunctionInputs import CONST
 
 from PyPR.Cryptanalysis.Components.EquationStores.FilteringEqStore import (
     FilteringEqStore,
 )
+
+log = get_logger(__name__)
 
 # ── monomial helpers (same order as GrobnerEqStore) ──────────────────
 
@@ -262,8 +266,7 @@ class GroebnerEqStore2(FilteringEqStore):
                        translate_ANF=True):
         self.enqueue_equation(equation)
 
-    def process_pending(self, *, verbose=False, batch_size=None,
-                        _print_depth=0):
+    def process_pending(self, *, batch_size=None):
         """Process the input and pair queues.
 
         Pops entries from the input queue (priority) or pair queue,
@@ -271,26 +274,21 @@ class GroebnerEqStore2(FilteringEqStore):
         — which triggers Gebauer-Möller pair generation, interreduction,
         and propagation.
 
-        :param verbose: Print live progress.
-        :type verbose: bool
+        A full reduction (no `batch_size`) reports its own progress; a
+        batch is part of a loop its caller runs, so the caller reports.
+
         :param batch_size: Maximum number of queue pops before
             returning.  ``None`` processes everything.
         :type batch_size: int | None
-        :param _print_depth: Indentation level for verbose output.
-        :type _print_depth: int
         :return: Number of queue entries consumed.
         :rtype: int
         """
+        progress = None
+        if batch_size is None and (self._inputs or self._pairs):
+            progress = log.progress("Groebner reduction (GM): processed")
+
         if batch_size is None:
             batch_size = -1          # will decrement but never reach 0
-
-        indent1 = '|   ' * (_print_depth + 1)
-        indent2 = '|   ' * (_print_depth + 2)
-        printed_header = False
-
-        if verbose and (self._inputs or self._pairs):
-            print(f"{indent1}Running Groebner basis reduction (GM):")
-            printed_header = True
 
         consumed = 0
         while (self._inputs or self._pairs) and batch_size:
@@ -310,18 +308,15 @@ class GroebnerEqStore2(FilteringEqStore):
             reduced_lead = lead_term(reduced)
 
             if reduced_lead is None:
-                if verbose:
-                    self._print_status(indent2, consumed)
+                if progress is not None and progress.shown:
+                    progress.update_to(consumed)
+                    progress.set_status(self._status())
                 continue
 
             if reduced.terms == frozenset([frozenset()]):
-                if verbose:
-                    print(
-                        f"\n{indent2}Contradiction found!"
-                        f"  (processed: {consumed}"
-                        f"  --  basis: {self.num_eqs}"
-                        f"  --  solved: {len(self.solved_vars)})"
-                    )
+                if progress is not None:
+                    progress.close(quiet=True)
+                log.debug("Contradiction found after %d processed (%s)", consumed, self._status())
                 raise ValueError("Inconsistent")
 
             # ── insert, generate pairs, interreduce, propagate ───
@@ -332,11 +327,14 @@ class GroebnerEqStore2(FilteringEqStore):
             if len(reduced_lead) <= 1:
                 self._propagate()
 
-            if verbose:
-                self._print_status(indent2, consumed)
+            if progress is not None and progress.shown:
+                progress.update_to(consumed)
+                progress.set_status(self._status())
 
-        if printed_header:
-            print()
+        if progress is not None:
+            progress.close(summary=(
+                f"Groebner reduction (GM): {consumed:,} processed ({self._status()})"
+            ))
 
         return consumed
 
@@ -657,14 +655,8 @@ class GroebnerEqStore2(FilteringEqStore):
                 self._gen[i] += 1
                 self._regenerate_pairs_for(i)
 
-    # ── verbose output ───────────────────────────────────────────
+    # ── progress status ──────────────────────────────────────────
 
-    def _print_status(self, indent, consumed):
+    def _status(self):
         pending = len(self._inputs) + len(self._pairs)
-        print(
-            f"\r\033[K{indent}Processed: {consumed}"
-            f"  --  Basis: {self.num_eqs}"
-            f"  --  Queue: {pending}"
-            f"  --  Solved: {len(self.solved_vars)}",
-            end=''
-        )
+        return f"Basis: {self.num_eqs} -- Queue: {pending} -- Solved: {len(self.solved_vars)}"

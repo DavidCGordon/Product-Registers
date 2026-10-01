@@ -4,6 +4,7 @@ from typing import Any, Self
 
 import numba
 import numpy as np
+from numba.core import types as nb_types
 
 from PyPR.JSON_Serialization import Serializable
 
@@ -615,10 +616,10 @@ class FeedbackRegister(Serializable):
         return new_obj
 
 # FULLY COMPILED IMPLEMENTATIONS FOR PERIOD:
-u8 = numba.types.uint8
-u64 = numba.types.uint64
-output_type = numba.types.Optional(numba.types.Tuple([u64,u64]))
-update_type = numba.types.FunctionType(numba.void(u8[:],u8[:]))
+u8 = nb_types.uint8
+u64 = nb_types.uint64
+output_type = nb_types.Optional(nb_types.Tuple([u64,u64]))
+update_type = nb_types.FunctionType(numba.void(u8[:],u8[:]))
 
 @numba.njit(output_type(u8[:], update_type, u64))
 def _period_compiled_unsafe_(state, update_fn, limit: int) -> tuple[int,int] | None:
@@ -716,7 +717,7 @@ def _period_compiled_safe_(state, update_fn, limit: int) -> tuple[int,int] | Non
 
     return period, preperiod
 
-@numba.njit(numba.void(u8[:],u8[:],update_type,numba.types.Optional(u64)))
+@numba.njit(numba.void(u8[:],u8[:],update_type,nb_types.Optional(u64)))
 def _run_compiled_(
     state: np.ndarray,
     prev_state: np.ndarray,

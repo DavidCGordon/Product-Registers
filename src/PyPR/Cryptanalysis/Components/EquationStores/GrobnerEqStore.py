@@ -2,12 +2,16 @@ import bisect
 import heapq
 from functools import cmp_to_key
 
+from PyPR.Reporting import get_logger
+
 from PyPR.BooleanLogic.BooleanANF import BooleanANF
 from PyPR.BooleanLogic.FunctionInputs import CONST
 
 from PyPR.Cryptanalysis.Components.EquationStores.FilteringEqStore import (
     FilteringEqStore,
 )
+
+log = get_logger(__name__)
 
 
 def monomial_compare(term_1,term_2):
@@ -158,22 +162,22 @@ class GroebnerEqStore(FilteringEqStore):
             heapq.heappush(self.queue, pq_node(lead_term(equation), equation))
             self.seen.add(equation)
 
-    def process_pending(self, *, verbose=False, batch_size=None, _print_depth=0):
-        return self._consume_queue(num=batch_size, verbose=verbose, _print_depth=_print_depth)
+    def process_pending(self, *, batch_size=None):
+        return self._consume_queue(num=batch_size)
 
-    def _consume_queue(self, num=None, verbose=False, _print_depth=0):
+    def _status(self):
+        return f"Basis: {self.num_eqs} -- Queue: {len(self.queue)} -- Solved: {len(self.solved_vars)}"
+
+    def _consume_queue(self, num=None):
+        # A full reduction (no num) reports its own progress. A batch is a
+        # slice of a loop its caller is running -- SplitGrob calls this
+        # hundreds of times per solve -- so reporting is left to that caller.
+        progress = log.progress("Groebner reduction: processed") if num is None and self.queue else None
+
         # if no num provided, consume the whole queue
         # (-1) will decrement but never reach 0
         if num == None:
             num = -1
-
-        _indent_1 = '|   ' * (_print_depth + 1)
-        _indent_2 = '|   ' * (_print_depth + 2)
-        _printed_progress = False
-
-        if verbose and self.queue:
-            print(f"{_indent_1}Running Groebner basis reduction:")
-            _printed_progress = True
 
         # main loop
         consumed = 0
@@ -188,25 +192,16 @@ class GroebnerEqStore(FilteringEqStore):
 
             # don't process 0 equations
             if reduced_lead == None:
-                if verbose:
-                    print(
-                        f"\r\033[K{_indent_2}Processed: {consumed}"
-                        f"  --  Basis: {self.num_eqs}"
-                        f"  --  Queue: {len(self.queue)}"
-                        f"  --  Solved: {len(self.solved_vars)}",
-                        end=''
-                    )
+                if progress is not None and progress.shown:
+                    progress.update_to(consumed)
+                    progress.set_status(self._status())
                 continue
 
             # raise error for contradictions:
             if reduced.terms == frozenset([frozenset()]):
-                if verbose:
-                    print(
-                        f"\n{_indent_2}Contradiction found!"
-                        f"  (processed: {consumed}"
-                        f"  --  basis: {self.num_eqs}"
-                        f"  --  solved: {len(self.solved_vars)})"
-                    )
+                if progress is not None:
+                    progress.close(quiet=True)
+                log.debug("Contradiction found after %d processed (%s)", consumed, self._status())
                 raise ValueError("Inconsistent")
 
             # add in new eq:
@@ -238,13 +233,12 @@ class GroebnerEqStore(FilteringEqStore):
                         try:
                             self._simplify()
                         except ValueError:
-                            if verbose:
-                                print(
-                                    f"\n{_indent_2}Contradiction found during simplification!"
-                                    f"  (processed: {consumed}"
-                                    f"  --  basis: {self.num_eqs}"
-                                    f"  --  solved: {len(self.solved_vars)})"
-                                )
+                            if progress is not None:
+                                progress.close(quiet=True)
+                            log.debug(
+                                "Contradiction found during simplification after %d processed (%s)",
+                                consumed, self._status(),
+                            )
                             raise
                         # _simplify rebuilds the equation/lead_term lists;
                         # relocate insert_idx in the newly filtered basis.
@@ -272,17 +266,14 @@ class GroebnerEqStore(FilteringEqStore):
                         self.seen.add(s_poly)
                         count += 1
 
-            if verbose:
-                print(
-                    f"\r\033[K{_indent_2}Processed: {consumed}"
-                    f"  --  Basis: {self.num_eqs}"
-                    f"  --  Queue: {len(self.queue)}"
-                    f"  --  Solved: {len(self.solved_vars)}",
-                    end=''
-                )
+            if progress is not None and progress.shown:
+                progress.update_to(consumed)
+                progress.set_status(self._status())
 
-        if _printed_progress:
-            print()
+        if progress is not None:
+            progress.close(summary=(
+                f"Groebner reduction: {consumed:,} processed ({self._status()})"
+            ))
 
         return consumed
 

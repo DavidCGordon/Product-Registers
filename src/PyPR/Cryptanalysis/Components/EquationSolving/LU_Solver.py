@@ -1,11 +1,14 @@
-import time
-
 import numba
 import numpy as np
+from numba.core import types as nb_types
+
+from PyPR.Reporting import get_logger
 
 from PyPR.Cryptanalysis.Components.Adapters.store_repr import to_coef_matrix
 
-u8 = numba.types.uint8
+log = get_logger(__name__)
+
+u8 = nb_types.uint8
 @numba.njit(u8[:](u8[:,:],u8[:,:],u8[:]))
 def lu_solve(L,U,z):
 
@@ -84,10 +87,10 @@ def reduce(equation_store, additional_constants=None):
     return solution
 
 
+@log.stage("LU solve")
 def solve(
     equation_store, feedback_fn, output_fn, keystream, *,
     test_length=1000, verify=None, additional_constants=None,
-    verbose=False, _print_depth=0,
 ):
     """Solve a system of GF(2) equations via LU reduction + exhaustive guess.
 
@@ -119,14 +122,9 @@ def solve(
         For NAA this contains keystream values at equation positions.
         For FAA/RAA (which use consistency mode) this is None.
     :type additional_constants: np.ndarray[np.uint8] | None
-    :param verbose: Whether to print progress.
-    :type verbose: bool
-    :param _print_depth: Indentation level for verbose output.
-    :type _print_depth: int
-    :return: ``(initial_state, guesses_tried, pruned_guess_bits)`` —
-        the recovered state (or None), total guesses tested, and
-        independent guess dimensions after pruning.
-    :rtype: tuple[list[int] | None, int, int]
+    :return: The recovered state (or None), the number of guesses tried, and
+        the number of independent guess dimensions after pruning.
+    :rtype: SolveResult
     """
     from PyPR.Cryptanalysis.Components.EquationSolving.GuessSolver import (
         guess_and_solve,
@@ -143,15 +141,12 @@ def solve(
         equation_store, additional_constants
     )[variable_indices].copy()
 
-    if verbose:
-        print(f"{'|   ' * (_print_depth+1)}Collecting guess effect vectors:")
-
-    effect_collection_start = time.time()
+    log.step("Collecting guess effect vectors")
+    matrix_solves = log.progress("Matrix solves", total=len(guess_bits))
     effects_with_monomials = []
     unstable_bits = np.zeros_like(base_solution)
     for t in range(len(guess_bits)):
-        if verbose:
-            print(f"\r{'|   ' * (_print_depth+2)}Matrix Solves: {t+1}/{len(guess_bits)}", end='')
+        matrix_solves.update()
 
         v, comb = guess_bits[t]
         if additional_constants is not None:
@@ -164,10 +159,7 @@ def solve(
         difference = solution ^ base_solution
         effects_with_monomials.append((difference, comb))
         unstable_bits |= difference
-
-    if verbose:
-        print(f"\n{'|   ' * (_print_depth+1)}Finished collecting guess effect vectors:")
-        print(f"{'|   ' * (_print_depth+1)}Time: {time.time() - effect_collection_start} s")
+    matrix_solves.close()
 
     # prune impossible monomials: a monomial can't be 1 if it contains a stable zero
     pruned_effects = []
@@ -180,10 +172,10 @@ def solve(
         if not impossible:
             pruned_effects.append(effect_vector)
 
+    log.step("Guessing")
     return guess_and_solve(
         feedback_fn, output_fn, base_solution, pruned_effects,
         keystream, test_length=test_length, verify=verify,
-        verbose=verbose, _print_depth=_print_depth,
     )
 
 
@@ -204,11 +196,10 @@ class LUSolver:
 
     def solve(
         self, equation_store, feedback_fn, output_fn, keystream, *,
-        test_length=1000, verify=None, verbose=False, _print_depth=0,
+        test_length=1000, verify=None,
     ):
         return solve(
             equation_store, feedback_fn, output_fn, keystream,
             test_length=test_length, verify=verify,
             additional_constants=self.additional_constants,
-            verbose=verbose, _print_depth=_print_depth,
         )

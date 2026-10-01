@@ -36,17 +36,17 @@ class CONST(BooleanFunction):
 
 
     def _generate_c(self,
-        c_strings: dict[BooleanFunction,str],
+        c_strings: Mapping[BooleanFunction, str],
         array_name: str
     ) -> str:
         return f"{self.value}"
     def _generate_VHDL(self,
-        vhdl_strings: dict[BooleanFunction,str],
+        vhdl_strings: Mapping[BooleanFunction, str],
         array_name: str
     ) -> str:
         return f" '{self.value}' "
     def _generate_python(self,
-        python_strings: dict[BooleanFunction,str],
+        python_strings: Mapping[BooleanFunction, str],
         array_name: str
     ) -> str:
         return f"{self.value}"
@@ -190,17 +190,17 @@ class VAR(BooleanFunction):
 
 
     def _generate_c(self,
-        c_strings: dict[BooleanFunction,str],
+        c_strings: Mapping[BooleanFunction, str],
         array_name: str
     ) -> str:
         return f"{array_name}[{self.index}]"
     def _generate_VHDL(self,
-        vhdl_strings: dict[BooleanFunction,str],
+        vhdl_strings: Mapping[BooleanFunction, str],
         array_name: str
     ) -> str:
         return f"{array_name}({self.index})"
     def _generate_python(self,
-        python_strings: dict[BooleanFunction,str],
+        python_strings: Mapping[BooleanFunction, str],
         array_name: str
     ) -> str:
         return f"{array_name}[{self.index}]"

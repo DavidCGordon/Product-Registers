@@ -97,9 +97,9 @@ CMPR(components: list[MPR | CMPR | FeedbackFunction])
 | `max_period` | `@cached_property → int` — LCM of all block periods |
 | `expected_period` | `@cached_property → float` |
 | `cycle_lengths` | `@cached_property → list[tuple[int,int]]` — (period, multiplicity) |
-| `monomial_profiles(verbose=False, force_default=False)` | `→ list[MonomialProfile]` — one per bit |
-| `root_expressions(locked_list=None, verbose=False, force_default=False)` | `→ list[RootExpression]` — one per bit |
-| `estimate_LC(output_bit, locked_list=None, verbose=False)` | `→ tuple[int,int]` — (lower, upper) bounds |
+| `monomial_profiles(force_default=False)` | `→ list[MonomialProfile]` — one per bit |
+| `root_expressions(locked_list=None, force_default=False)` | `→ list[RootExpression]` — one per bit |
+| `estimate_LC(output_bit, locked_list=None)` | `→ tuple[int,int]` — (lower, upper) bounds |
 | `fixpoint` | `@property → list[int]` — state where F(s)=s |
 | `reverse_clock(state)` | `→ list[int]` — predecessor state |
 | `update_matrices` | `@cached_property → list[ndarray]` — GF(2) matrix per block |
@@ -245,8 +245,8 @@ XNOR(*args)
 
 | Method | Notes |
 |--------|-------|
-| `sat(solver_name="cadical195", verbose=False)` | `→ dict[int,bool] \| None` — a satisfying assignment (variables absent from the dict are don't-care), or `None` if unsatisfiable |
-| `enum_models(solver_name="cadical195", verbose=False)` | `→ Iterator[dict[int,bool]]` — every satisfying assignment, in the same partial form |
+| `sat(solver_name="cadical195")` | `→ dict[int,bool] \| None` — a satisfying assignment (variables absent from the dict are don't-care), or `None` if unsatisfiable |
+| `enum_models(solver_name="cadical195")` | `→ Iterator[dict[int,bool]]` — every satisfying assignment, in the same partial form |
 | `functionally_equivalent(other)` | `→ bool` — same truth table, decided as unsatisfiability of `XOR(self, other)` |
 | `tseytin(prev_clauses=None, prev_node_labels=None, prev_variable_labels=None)` | `→ (clauses, node_labels, variable_labels)` — CNF encoding; pass a previous result back in to encode several circuits on shared wires |
 | `tseytin_labels(node_labels=None, variable_labels=None)` / `tseytin_clauses(label_map)` | The two passes `tseytin` runs, exposed separately. A node's last label is its result wire; labels ±1 are reserved for the constants, with the unit clause `(1,)` fixing them |
@@ -312,7 +312,7 @@ Templates are callables: `template(cmpr: CMPR) → dict[int, BooleanFunction]`
 from PyPR.Cryptanalysis.Components.Annihilators.SparseAnnihilator import annihilators
 from PyPR.Cryptanalysis.Components.Annihilators.GaussianAnnihilator import annihilators as annihilators_gaussian
 
-(d_ann, d_mult), basis = annihilators(output_fn, verbose=False)
+(d_ann, d_mult), basis = annihilators(output_fn)
 # d_ann: optimal annihilator degree
 # d_mult: optimal (f * annihilator) degree
 # basis: list[BooleanFunction] — basis for the annihilator space
@@ -357,20 +357,13 @@ CubeEqGenerator(
     feedback_fn: FeedbackFunction,
     output_fn: BooleanFunction | list[BooleanFunction],
     limit: int,
-    monomial_profiles: list[MonomialProfile] | None = None,
-    variable_blocks: list[list[int]] | None = None,
-    include_variables: bool = True,
-    complete_subsets: bool = False,
-    include_constant: bool = True,
-    time_limit: float | None = None,
-    verbose: bool = False,
-    print_depth: int = 0
-) → Iterator[...]
+    var_map: dict[tuple[int,...], int],   # monomial -> index; from get_var_map(...)
+) → Iterator[np.ndarray | list[np.ndarray]]
 ```
 
 - Fastest generator (~1000x faster than Symbolic).
-- Requires `monomial_profiles` and `variable_blocks` for full functionality.
-- Use `cmpr.monomial_profiles()` and `cmpr.blocks` to get these.
+- Build `var_map` with `get_var_map(feedback_fn, monomial_profile, variable_blocks, ...)`
+  (same module), from `cmpr.monomial_profiles()` and `cmpr.blocks`.
 
 ### SubstitutionEqGenerator
 
@@ -439,6 +432,7 @@ from PyPR.Cryptanalysis.Components.EquationSolving.GuessSolver import guess_and_
 Each solver class has two methods:
 - `reduce(equation_store, ...)` — applies the solver's reduction (LU back-substitution, RREF, or Gröbner basis) without guessing free variables.
 - `solve(equation_store, feedback_fn, output_fn, keystream, *, ...)` — full pipeline: `reduce` + exhaustive guess-and-prune via `GuessSolver`. Derives `guess_bits` and `variable_indices` internally from the store. `LUSolver` is the most efficient (reuses cached decomposition); `GaussElimSolver` re-derives effect vectors from the RREF.
+  Returns a `SolveResult` named tuple `(state, guesses, guess_bits)` (from `GuessSolver`), so `state, _, _ = solver.solve(...)` works.
 
 Solver configuration is set at construction:
 - `LUSolver(additional_constants=None)` / `GaussElimSolver(additional_constants=None)` — `additional_constants` is set by NAA internally
@@ -458,21 +452,17 @@ from PyPR.Cryptanalysis.Attacks.naive_algebraic_attack import NAA_offline, NAA_o
 attack_data = NAA_offline(
     feedback_fn, output_fn, init_rounds,
     time_limit,             # seconds for offline phase
-    verbose=False,
-    print_depth=0,
     monomial_profiles=None,  # from cmpr.monomial_profiles()
     variable_blocks=None     # from cmpr.blocks
 )
-# attack_data keys: 'keystream needed', 'guess vars', 'upper matrix', 'lower matrix',
-#                   'idx_to_comb', 'comb_to_idx', 'equation times'
+# attack_data: NAAOfflineData with fields keystream_needed, guess_vars, upper_matrix,
+#              lower_matrix, idx_to_comb, comb_to_idx, equation_times
 
 result = NAA_online(
     feedback_fn, output_fn,
     keystream,      # np.ndarray of output bits
     attack_data,
     test_length=1000,
-    verbose=False,
-    print_depth=0,
     solver=LUSolver(),         # or GaussElimSolver() (GrobnerSolver not supported for NAA)
 )
 # Solver classes: LUSolver, GaussElimSolver, GrobnerSolver
@@ -494,17 +484,16 @@ attack_data = FAA_offline(
     feedback_fn, annihilator, multiple_fn,
     init_rounds, max_time,
     time_limit=120,
-    verbose=False,
     monomial_profiles=None,
     variable_blocks=None
 )
-# attack_data keys: 'annihilator equations', 'idx to comb map', 'keystream needed', ...
+# attack_data: FAAOfflineData with fields annihilator_equations, linear_relation,
+#              idx_to_comb, comb_to_idx, num_vars, keystream_needed, margin
 
-comb_to_idx = attack_data['comb to idx map']
+comb_to_idx = attack_data.comb_to_idx
 result = FAA_online(
     feedback_fn, output_fn,
     keystream, attack_data,
-    verbose=False,
     solver=LUSolver(),                              # or GaussElimSolver(), GrobnerSolver()
     online_store=LUEqStore(comb_to_idx, consistent=True),  # or EqStore(comb_to_idx), GroebnerEqStore()
 )
@@ -514,8 +503,34 @@ result = FAA_online(
 
 ```python
 from PyPR.Cryptanalysis.Attacks.reduced_algebraic_attack import RAA_offline, RAA_online
-# Same online interface as FAA (solver, online_store)
+# Same online interface as FAA (solver, online_store); offline returns RAAOfflineData
+# (annihilator_equations, multiple_equations, idx_to_comb, comb_to_idx, num_vars,
+#  keystream_needed, margin). Cube attacks return CubeAttackData (equations,
+#  known_bits, comb_to_idx, idx_to_comb, num_vars).
 ```
+
+### Output: logging and progress
+
+Functions take no `verbose` / `print_depth` arguments; one setting controls how much prints.
+Output goes to standard output; pipe it (`python run.py > run.txt`) to keep a record.
+
+```python
+import logging
+import PyPR
+PyPR.logging.level = logging.INFO     # nested phases, results, live progress bars (rich)
+PyPR.logging.level = logging.DEBUG    # plus per-step solver/store detail
+PyPR.logging.level = logging.WARNING  # the default: warnings and errors only
+PyPR.logging.level = "OFF"            # nothing at all (level names as strings also work)
+```
+
+In a terminal or notebook, progress is drawn as live bars. Piped output gets no bars; an open
+meter writes a plain progress line every ~10 s instead.
+
+Library code reports through `PyPR.Reporting.get_logger(__name__)`: `@log.stage(title)` on a
+function (one nesting level per call, closes with "title finished: T"), `log.step(title)` as a
+statement (ends the previous step), `log.progress(desc, total=...)` for a meter
+(`update` / `update_to` / `set_status` / `close`). Close a meter before logging the loop's
+result, or the summary prints after it. Generator functions cannot be stages; they log lines.
 
 ---
 
@@ -646,14 +661,14 @@ mult_anf = AND(output_fn, ann).translate_ANF()
 mult_fn = mult_anf.to_BooleanFunction()
 
 attack_data = FAA_offline(C, ann, mult_fn, 0, 500,
-    time_limit=30, verbose=True,
+    time_limit=30,
     monomial_profiles=C.monomial_profiles(), variable_blocks=C.blocks)
 
 secret = 42
 F = FeedbackRegister(secret, C)
-ks = np.array([int(output_fn.eval(reg._state)) for reg in F.run(attack_data['keystream needed'], compiled=False)])
+ks = np.array([int(output_fn.eval(reg._state)) for reg in F.run(attack_data.keystream_needed, compiled=False)])
 
-result = FAA_online(C, output_fn, ks, attack_data, verbose=True)
+result = FAA_online(C, output_fn, ks, attack_data)
 ```
 
 ### Enumerate CMPR bit structure

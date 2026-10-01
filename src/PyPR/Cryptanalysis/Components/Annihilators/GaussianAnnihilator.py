@@ -1,6 +1,9 @@
+import logging
 from itertools import chain, combinations
 
 import numpy as np
+
+from PyPR.Reporting import get_logger
 
 from PyPR.BooleanLogic import BooleanFunction
 from PyPR.BooleanLogic.FunctionInputs import CONST, VAR
@@ -10,9 +13,11 @@ from PyPR.Cryptanalysis.Components.EquationSolving.GaussElim import reduce_matri
 from PyPR.Cryptanalysis.Components.EquationStores.EqStore import EqStore
 from PyPR.Cryptanalysis.Components.EquationStores.LUEqStore import LUEqStore
 
+log = get_logger(__name__)
+
 
 # internal use only:
-def _generate_monomials(bits, degree=None, verbose=False):
+def _generate_monomials(bits, degree=None):
     if degree == None:
         degree = len(bits)
 
@@ -21,16 +26,13 @@ def _generate_monomials(bits, degree=None, verbose=False):
         for r in range(degree+1)
     )
 
-    count = 0
+    built = log.progress("Monomials built", level=logging.DEBUG)
     output: list[BooleanFunction] = [CONST(1)]
     for comb in combs:
         if comb != ():
-            if verbose:
-                print(f"\rBuilding Monomials: {count}",end='')
-                count += 1
-
+            built.update()
             output.append(AND(*(VAR(v) for v in comb)))
-    print("\n")
+    built.close()
     return output
 
 # u8 = numba.types.uint8
@@ -86,7 +88,6 @@ def _generate_monomials(bits, degree=None, verbose=False):
 def build_constraint_data(
     input_fn: BooleanFunction,
     candidate_anns: list[BooleanFunction],
-    verbose: bool = False
 ) -> tuple[int, tuple[
     np.ndarray[tuple[int,int],np.dtype[np.uint8]], EqStore,
     np.ndarray[tuple[int,int],np.dtype[np.uint8]], EqStore
@@ -118,8 +119,6 @@ def build_constraint_data(
     :type input_fn: BooleanFunction
     :param candidate_anns: A basis for the space of annihilators we wish to search
     :type candidate_anns: list[BooleanFunction]
-    :param verbose: Whether or not to print updates as the function runs, defaults to False
-    :type verbose: bool, optional
     :return: A tuple containing the rank of the annihilator subspace, and the contraints.
     :rtype: tuple[int, tuple[
         np.ndarray[tuple[int,int],np.dtype[np.uint8]], DynamicEqStore,
@@ -131,9 +130,9 @@ def build_constraint_data(
     mults = EqStore()
 
     # build a matching basis for ann/mult constraints:
+    built = log.progress("Constraints built", total=len(candidate_anns), level=logging.DEBUG)
     for i,candidate in enumerate(candidate_anns):
-        if verbose:
-            print(f"\rBuilding Constraints: {i+1}/{len(candidate_anns)}",end='')
+        built.update()
 
         candidate_anf = candidate.translate_ANF()
         linearly_independent = dependence_check.insert_equation(
@@ -148,7 +147,11 @@ def build_constraint_data(
                 identifier=i
             )
         else:
-            print("DEPENDENT!!! BAD!!! ", i,candidate)
+            # the candidates are meant to be a basis; a dependent one adds
+            # nothing to the search space, so it is skipped
+            log.warning("Candidate %d is linearly dependent on earlier candidates; skipping it: %s",
+                        i, candidate)
+    built.close()
     degree_constraints = anns.equations[:anns.num_eqs,:anns.num_vars].T
     zero_constraints = mults.equations[:mults.num_eqs,:mults.num_vars].T
     num_candidates = dependence_check.rank
@@ -214,11 +217,11 @@ def ann_solve(
     free_vars = [i for i in range(len(free_vars)) if free_vars[i]]
     return pivots, free_vars, reduced_matrix
 
+@log.stage("Annihilator search")
 def annihilators(
     input_fn: BooleanFunction,
     subspace: list[BooleanFunction] | None = None,
     annihilator_only: bool = False,
-    verbose: bool = False
 ) -> tuple[
         tuple[int,int],
         list[BooleanFunction]
@@ -268,34 +271,32 @@ def annihilators(
     :param annihilator_only: Whether to consider all low degree pairs, or only solve
         for strict annihilators, defaults to False
     :type annihilator_only: bool, optional
-    :param verbose: Whether to print output as the function runs, defaults to False
-    :type verbose: bool, optional
-    :return: A tuple containting the degree pair (ann_degree, mult_degree) and basis for the best 
+    :return: A tuple containting the degree pair (ann_degree, mult_degree) and basis for the best
         (i.e. minimal maximum degree) annihilator space (if `annihilator_only = True` then this only
         consider strict annihilators)
     :rtype: list[tuple[int,int], list[BooleanFunction]]
     """
-    print("Starting!")
     points = {}
 
     # allow users to pass no subspace to use any ann up to the degree of F
+    log.step("Building constraints")
     if subspace == None:
         subspace = _generate_monomials(
             input_fn.idxs_used(),
             input_fn.degree(),
-            verbose
         )
 
     # build contraints:
     _num_candidates, constraints = build_constraint_data(
-        input_fn, subspace, verbose
+        input_fn, subspace
     )
 
     # pull out equation ids to recontruct later
     _, ann_eq_store, _, _ = constraints
     ann_eq_ids = ann_eq_store.equation_ids
 
-    print("\n\nSolving Constraints:\n\n")
+    log.step("Degree walk")
+    solves = log.progress("Degree pairs solved")
 
     mult_degree = 0
     ann_degree = input_fn.degree()
@@ -303,12 +304,9 @@ def annihilators(
         mult_degree <= input_fn.degree() and
         ann_degree >= 0
     ):
-        if verbose: print(
-            "\r\x1B[2A" +
-            f"|   Annihilator Degree: {ann_degree}\n" +
-            f"|   Multiple Degree: {mult_degree}\n"
-            ,end=''
-        )
+        solves.update()
+        if solves.shown:
+            solves.set_status(f"Annihilator degree: {ann_degree} -- Multiple degree: {mult_degree}")
 
         # solve system using contraints
         pivots, free_vars, reduced_matrix = ann_solve(
@@ -323,13 +321,12 @@ def annihilators(
             mult_degree += 1
             if annihilator_only:
                 break
-
-    if verbose:
-        print("\nPOINTS: ", points.keys())
+    solves.close()
 
     selected = min(points.items(), key = lambda x: sorted(x[0],reverse=True))
     pivots, free_vars, reduced_matrix = selected[1]
     degrees = selected[0]
+    log.info("Feasible (annihilator, multiple) degrees: %s; selected %s", list(points), degrees)
 
     outputs = []
     for v in free_vars:
@@ -348,7 +345,6 @@ def ann_iterator(
     input_fn: BooleanFunction,
     subspace: list[BooleanFunction] | None = None,
     annihilator_only: bool = False,
-    verbose: bool = True,
     yield_rate: int = 1
 ):
     """Like `annihilators`, this function finds a basis for the space of optimal annihilators
@@ -399,14 +395,13 @@ def ann_iterator(
     :param annihilator_only: Whether to consider all low degree pairs, or only solve
         for strict annihilators, defaults to False
     :type annihilator_only: bool, optional
-    :param verbose: Whether to print output as the function runs, defaults to False
-    :type verbose: bool, optional
-    :return: A tuple containting the degree pair (ann_degree, mult_degree) and basis for the best 
+    :return: A tuple containting the degree pair (ann_degree, mult_degree) and basis for the best
         (i.e. minimal maximum degree) annihilator space (if `annihilator_only = True` then this only
         consider strict annihilators)
     :rtype: list[tuple[int,int], list[BooleanFunction]]
     """
-    print("Starting!")
+    # a generator runs inside its caller's loop, so it logs lines and a meter
+    # rather than opening a stage of its own
     points = {}
 
     # allow users to pass no subspace to use any ann up to the degree of F
@@ -414,20 +409,18 @@ def ann_iterator(
         subspace = _generate_monomials(
             input_fn.idxs_used(),
             input_fn.degree(),
-            verbose
         )
 
     # build contraints:
     _num_candidates, constraints = build_constraint_data(
-        input_fn, subspace, verbose
+        input_fn, subspace
     )
 
     # pull out equation ids to recontruct later
     _, ann_eq_store, _, _ = constraints
     ann_eq_ids = ann_eq_store.equation_ids
 
-
-    print("\n\nSolving Constraints:\n\n\n")
+    solves = log.progress("Degree pairs solved")
 
     mult_degree = 0
     ann_degree = input_fn.degree()
@@ -437,13 +430,9 @@ def ann_iterator(
         ann_degree >= 0
     ):
         count += 1
-        if verbose: print(
-            "\r\x1B[3A" +
-            f"|   Iteration: {count}\n" +
-            f"|   Annihilator Degree: {ann_degree}\n" +
-            f"|   Multiple Degree: {mult_degree}\n",
-            end=''
-        )
+        solves.update()
+        if solves.shown:
+            solves.set_status(f"Annihilator degree: {ann_degree} -- Multiple degree: {mult_degree}")
 
         # solve system using contraints
         pivots, free_vars, reduced_matrix = ann_solve(
@@ -483,8 +472,8 @@ def ann_iterator(
                 points,
             )
 
-    if verbose:
-        print("\nPOINTS: ", points.keys())
+    solves.close()
 
     selected = min(points.items(), key = lambda x: sorted(x[0],reverse=True))
+    log.info("Feasible (annihilator, multiple) degrees: %s; selected %s", list(points), selected[0])
     return selected

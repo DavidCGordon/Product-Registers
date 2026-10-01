@@ -99,7 +99,6 @@ def test_online_inserter_accepts_equations_for_each_store_shape(make_store, inde
 
     insert_eq, finalize = make_online_inserter(
         store, _IDX_TO_COMB, total_eqs=3, num_vars=len(_COMB_TO_IDX),
-        verbose=False,
     )
     # x0 = 1, x1 = 0, x2 = 1, as coefficient vectors over _COMB_TO_IDX
     vectors = [
@@ -122,7 +121,7 @@ def test_online_inserter_never_stops_early_for_an_accumulator():
     """A pure accumulator has no notion of being determined, so it never stops."""
     store = EqStore(_COMB_TO_IDX)
     insert_eq, finalize = make_online_inserter(
-        store, _IDX_TO_COMB, total_eqs=2, num_vars=len(_COMB_TO_IDX), verbose=False,
+        store, _IDX_TO_COMB, total_eqs=2, num_vars=len(_COMB_TO_IDX),
     )
     stops = [insert_eq(np.array([1, 1, 0, 0, 0], dtype=np.uint8), 0),
              insert_eq(np.array([0, 0, 1, 0, 0], dtype=np.uint8), 1)]
@@ -141,7 +140,7 @@ def test_online_inserter_stops_exactly_when_a_filtering_store_is_determined():
     idx_to_comb = {v: k for k, v in comb_to_idx.items()}
     store = LUEqStore(comb_to_idx, consistent=True)
     insert_eq, finalize = make_online_inserter(
-        store, idx_to_comb, total_eqs=3, num_vars=len(comb_to_idx), verbose=False,
+        store, idx_to_comb, total_eqs=3, num_vars=len(comb_to_idx),
     )
     # x0 = 1, x1 = 0, x2 = 1
     vectors = [[1, 1, 0, 0], [0, 0, 1, 0], [1, 0, 0, 1]]

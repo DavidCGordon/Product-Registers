@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import time
 from functools import cached_property
 from typing import Any
 
 import galois as gl
 import numpy as np
+
+from PyPR.Reporting import format_duration, get_logger
 
 from PyPR.BooleanLogic import CONST, VAR, XOR
 
@@ -22,6 +25,8 @@ from PyPR.Tools.MersenneTools import (
 from PyPR.Tools.RootCounting.JordanSet import JordanSet
 from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile, TermSet
 from PyPR.Tools.RootCounting.RootExpression import RootExpression
+
+log = get_logger(__name__)
 
 
 class CMPR(FeedbackFunction):
@@ -404,8 +409,8 @@ class CMPR(FeedbackFunction):
 
 
 
+    @log.stage("Monomial profiles", level=logging.DEBUG)
     def monomial_profiles(self,
-        verbose: bool = False,
         force_default: bool = False
     ) -> list[MonomialProfile]:
         """Compute a monomial profile for each bit of the register.
@@ -421,8 +426,6 @@ class CMPR(FeedbackFunction):
         faster computation. Otherwise falls back to the default
         composition-based algorithm.
 
-        :param verbose: If True, print progress information.
-        :type verbose: bool
         :param force_default: If True, skip the mesh optimization even
             when it would be valid.
         :type force_default: bool
@@ -436,13 +439,13 @@ class CMPR(FeedbackFunction):
             # check if optimization not valid due to 1 bit MPR:
             if len(self.blocks[block_id]) == 1:
                 use_mesh_optimization = False
-                if verbose: print("Found 1-bit MPR")
+                log.debug("Mesh optimization unavailable: block %d has one bit", block_id)
                 break
 
             # check if optimization not valid due to repeated sizes
             if len(self.blocks[block_id]) in block_sizes:
                 use_mesh_optimization = False
-                if verbose: print("Found duplicate size")
+                log.debug("Mesh optimization unavailable: block size %d repeats", len(self.blocks[block_id]))
                 break
             block_sizes.add(len(self.blocks[block_id]))
 
@@ -454,32 +457,29 @@ class CMPR(FeedbackFunction):
 
             if not (used_bits <= allowed_bits):
                 use_mesh_optimization = False
-                if verbose: print("Found non-simple chaining function")
+                log.debug("Mesh optimization unavailable: block %d has non-simple chaining", block_id)
                 break
 
         if use_mesh_optimization and not force_default:
-            return self._mp_mesh_optimization(verbose)
+            return self._mp_mesh_optimization()
         else:
-            return self._mp_default(verbose)
+            return self._mp_default()
 
-    def _mp_default(self, verbose: bool = False) -> list[MonomialProfile]:
-        if verbose: print("Running default monomial profile algorithm")
+    def _mp_default(self) -> list[MonomialProfile]:
+        log.debug("Default monomial profile algorithm")
         prof_table = [MonomialProfile() for i in range(self.size)] # map: bit -> expression
         block_table = [MonomialProfile() for i in range(len(self.blocks))]
 
         #fill in the following blocks:
         for block_id in range(len(self.blocks)):
             start_time = time.time()
-            if verbose: print("Profiling Chaining")
 
             chaining_profile = MonomialProfile.from_merged(
                 fn_list = [self.fn_list[i] for i in self.blocks[block_id]],
                 blocks = self.blocks
             ).to_BooleanFunction()
-
-            if verbose:
-                print(f"Chaining Profile: {chaining_profile.dense_str()}")
-                print(f"Profiling Time: {time.time()-start_time}\n")
+            log.debug("Block %d chaining profile: %s (%s)", block_id, chaining_profile,
+                      format_duration(time.time()-start_time))
 
             # combine function
             block_fn = chaining_profile.remap_constants([
@@ -488,8 +488,6 @@ class CMPR(FeedbackFunction):
             ])
 
             start_time = time.time()
-            if verbose:
-                print("Starting ANF Composition")
 
             # compose MPs into the block table:
             block_table[block_id] = block_fn.eval_ANF(block_table)
@@ -502,15 +500,13 @@ class CMPR(FeedbackFunction):
             for bit in self.blocks[block_id]:
                 prof_table[bit] = block_table[block_id].__copy__()
 
-            if verbose:
-                num_terms = len(block_table[block_id].terms)
-                print(f'Block {block_id} finished  -  Num Terms: {num_terms}')
-                print(f"ANF Composition Time: {time.time()-start_time}\n\n\n")
+            log.debug("Block %d: %d terms, composed in %s", block_id,
+                      len(block_table[block_id].terms), format_duration(time.time()-start_time))
 
         return prof_table
 
-    def _mp_mesh_optimization(self, verbose: bool = False) -> list[Any]:
-        if verbose: print("Running monomial profile algorithm with the mesh optimization")
+    def _mp_mesh_optimization(self) -> list[Any]:
+        log.debug("Monomial profile algorithm with the mesh optimization")
 
         expr_table: list[Any] = [None for i in range(self.size)]
 
@@ -545,9 +541,6 @@ class CMPR(FeedbackFunction):
         for block_id in range(1,len(self.blocks)):
             start_time = time.time()
 
-            if verbose:
-                print(f"Iterating over mesh for block {block_id} (degree {degrees[block_id]})")
-
             monomial_profile = mesh_optimization.mp_compute_single_mesh(
                 sizes[:block_id+1],
                 degrees[:block_id+1],
@@ -562,11 +555,9 @@ class CMPR(FeedbackFunction):
             for bit in self.blocks[block_id]:
                 expr_table[bit] = monomial_profile.__copy__()
 
-            if verbose:
-                num_terms = len(monomial_profile.terms)
-                print(f'Block {block_id} finished  -  Num Terms: {num_terms}')
-                print(f"ANF Composition Time: {end_time-start_time}")
-                print(f"Copying Time: {time.time()-end_time}\n\n\n")
+            log.debug("Block %d (degree %d): %d terms, mesh in %s, copying in %s", block_id,
+                      degrees[block_id], len(monomial_profile.terms),
+                      format_duration(end_time-start_time), format_duration(time.time()-end_time))
 
         return expr_table
 
@@ -578,9 +569,9 @@ class CMPR(FeedbackFunction):
 
 
 
+    @log.stage("Root expressions", level=logging.DEBUG)
     def root_expressions(self,
         locked_list: list[int] | None = None,
-        verbose: bool = False,
         force_default: bool = False
     ) -> list[RootExpression]:
         """Compute a root expression for each bit of the register.
@@ -599,8 +590,6 @@ class CMPR(FeedbackFunction):
             truthy value means the block is unlocked (contributes roots).
             If None, all blocks are unlocked.
         :type locked_list: list[int] | None
-        :param verbose: If True, print progress information.
-        :type verbose: bool
         :param force_default: If True, skip the mesh optimization even
             when it would be valid.
         :type force_default: bool
@@ -614,13 +603,13 @@ class CMPR(FeedbackFunction):
             # check if optimization not valid due to 1 bit MPR:
             if len(self.blocks[block_id]) == 1:
                 use_mesh_optimization = False
-                if verbose: print("Found 1-bit MPR")
+                log.debug("Mesh optimization unavailable: block %d has one bit", block_id)
                 break
 
             # check if optimization not valid due to repeated sizes
             if len(self.blocks[block_id]) in block_sizes:
                 use_mesh_optimization = False
-                if verbose: print("Found duplicate size")
+                log.debug("Mesh optimization unavailable: block size %d repeats", len(self.blocks[block_id]))
                 break
             block_sizes.add(len(self.blocks[block_id]))
 
@@ -632,19 +621,18 @@ class CMPR(FeedbackFunction):
 
             if not (used_bits <= allowed_bits):
                 use_mesh_optimization = False
-                if verbose: print("Found non-simple chaining function")
+                log.debug("Mesh optimization unavailable: block %d has non-simple chaining", block_id)
                 break
 
         if use_mesh_optimization and not force_default:
-            return self._re_mesh_optimization(locked_list, verbose)
+            return self._re_mesh_optimization(locked_list)
         else:
-            return self._re_default(locked_list, verbose)
+            return self._re_default(locked_list)
 
     def _re_default(self,
         locked_list: list[int] | None = None,
-        verbose: bool = False
     ) -> list[RootExpression]:
-        if verbose: print("Running default root expression algorithm")
+        log.debug("Default root expression algorithm")
         expr_table = [RootExpression({}) for i in range(self.size)] # map: bit -> expression
         block_table = [RootExpression({}) for i in range(len(self.blocks))]
 
@@ -652,16 +640,12 @@ class CMPR(FeedbackFunction):
         for block_id in range(len(self.blocks)):
             start_time = time.time()
 
-            if verbose: print("Profiling Chaining")
-
             monomial_profile = MonomialProfile.from_merged(
                 fn_list = [self.fn_list[i] for i in self.blocks[block_id]],
                 blocks = self.blocks
             ).to_BooleanFunction()
-
-            if verbose:
-                print(f"Chaining Profile: {monomial_profile.dense_str()}")
-                print(f"Profiling Time: {time.time()-start_time}\n")
+            log.debug("Block %d chaining profile: %s (%s)", block_id, monomial_profile,
+                      format_duration(time.time()-start_time))
 
             block_fn = monomial_profile.remap_constants([
                 (0, RootExpression.logical_zero()),
@@ -669,9 +653,6 @@ class CMPR(FeedbackFunction):
             ])
 
             start_time = time.time()
-
-            if verbose:
-                print("Starting ANF Composition")
 
             block_table[block_id] = block_fn.eval_ANF(block_table)
 
@@ -694,18 +675,17 @@ class CMPR(FeedbackFunction):
             for bit in self.blocks[block_id]:
                 expr_table[bit] = block_table[block_id].__copy__()
 
-            if verbose:
+            if log.logger.isEnabledFor(logging.DEBUG):
                 num_terms = sum(len(table_entry) for table_entry in block_table[block_id].root_table.values())
-                print(f'Block {block_id} finished  -  Num Terms: {num_terms}')
-                print(f"ANF Composition Time: {time.time()-start_time}\n\n\n")
+                log.debug("Block %d: %d terms, composed in %s", block_id, num_terms,
+                          format_duration(time.time()-start_time))
 
         return expr_table
 
     def _re_mesh_optimization(self,
         locked_list: list[int] | None = None,
-        verbose: bool = False
     ) -> list[Any]:
-        if verbose: print("Running root expression algorithm with the mesh optimization")
+        log.debug("Root expression algorithm with the mesh optimization")
 
         expr_table: list[Any] = [None for i in range(self.size)]
 
@@ -742,9 +722,6 @@ class CMPR(FeedbackFunction):
         for block_id in range(1,len(self.blocks)):
             start_time = time.time()
 
-            if verbose:
-                print(f"Iterating over mesh for block {block_id} (degree {degrees[block_id]})")
-
             root_expression = mesh_optimization.re_compute_single_mesh(
                 sizes[:block_id+1],
                 degrees[:block_id+1],
@@ -760,20 +737,20 @@ class CMPR(FeedbackFunction):
             for bit in self.blocks[block_id]:
                 expr_table[bit] = root_expression.__copy__()
 
-            if verbose:
+            if log.logger.isEnabledFor(logging.DEBUG):
                 num_terms = sum(len(table_entry) for table_entry in root_expression.root_table.values())
-                print(f'Block {block_id} finished  -  Num Terms: {num_terms}')
-                print(f"ANF Composition Time: {end_time-start_time}")
-                print(f"Copying Time: {time.time()-end_time}\n\n\n")
+                log.debug("Block %d (degree %d): %d terms, mesh in %s, copying in %s", block_id,
+                          degrees[block_id], num_terms,
+                          format_duration(end_time-start_time), format_duration(time.time()-end_time))
 
         return expr_table
 
 
 
+    @log.stage("Linear complexity estimate")
     def estimate_LC(self,
         output_bit: int,
         locked_list: list[int] | None = None,
-        verbose: bool = False
     ) -> tuple[int, int]:
         """Estimate the linear complexity bounds for a single output bit.
 
@@ -788,8 +765,6 @@ class CMPR(FeedbackFunction):
         :param locked_list: A list of flags (one per block) indicating
             which blocks are unlocked. If None, all blocks are unlocked.
         :type locked_list: list[int] | None
-        :param verbose: If True, print timing information.
-        :type verbose: bool
         :return: A (lower, upper) pair bounding the linear complexity.
         :rtype: tuple[int, int]
         :raises ValueError: If `output_bit` is not a bit of this register.
@@ -803,15 +778,11 @@ class CMPR(FeedbackFunction):
                 f"[0, {self.size}), but got {output_bit}"
             )
 
-        t1 = time.time()
-        REs = self.root_expressions(locked_list,verbose = verbose)
+        log.step("Root expressions")
+        REs = self.root_expressions(locked_list)
         bitRE = REs[output_bit]
-        t2 = time.time()
 
-        if verbose:
-            print(f"Total RE generation time: {t2-t1} s\n\n\n")
-
-        t1 = time.time()
+        log.step("Evaluating bounds")
         #get the length of the block bit is in.
         # the blocks partition the register, and output_bit was checked above,
         # so exactly one block contains it
@@ -824,10 +795,7 @@ class CMPR(FeedbackFunction):
 
         upper = bitRE.upper()
         lower = max(blockLen,bitRE.lower())
-
-        t2 = time.time()
-        if verbose:
-            print(f"Terms evaluated in {t2-t1} s")
+        log.info("Bit %d: linear complexity between %d and %d", output_bit, lower, upper)
 
         return (lower,upper)
 

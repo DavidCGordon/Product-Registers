@@ -19,10 +19,14 @@ from typing import Any, Self
 from pysat.formula import CNF
 from pysat.solvers import Solver
 
+from PyPR.Reporting import format_duration, get_logger
+
 from PyPR.BooleanLogic.BooleanFunction import BooleanFunction
 from PyPR.BooleanLogic.FunctionInputs import VAR
 from PyPR.BooleanLogic.Gates import AND, OR, XOR
 from PyPR.BooleanLogic.Latex import LatexStyle, LatexTerm
+
+log = get_logger(__name__)
 
 
 def tseytin(self,
@@ -202,7 +206,6 @@ def tseytin_clauses(self,
 
 def satisfiable(self,
     solver_name: str = "cadical195",
-    verbose: bool = False
 ) -> dict[int,bool] | None:
     """Solve the SAT problem for a given BooleanFunction
 
@@ -218,8 +221,6 @@ def satisfiable(self,
         which will be used as the solver, defaults to "cadical195", which we observed
         to work well experimentally.
     :type solver_name: str, optional
-    :param verbose: if True, print statistics and timings for debugging, defaults to False
-    :type verbose: bool, optional
 
     :return: if the function is unsatisfiable, return None. otherwise, returns a dictionary
         which maps variables to their boolean values in a satisfying assignment. Any variables 
@@ -228,21 +229,15 @@ def satisfiable(self,
     """
     clauses, node_map, var_map = self.tseytin()
     clauses += [(node_map[self][-1],)]
-    num_variables = node_map[self][-1] + 1
-    num_clauses = len(clauses)
-
-    if verbose:
-        print("Tseytin finished")
-        print(f'Number of variables: {num_variables}')
-        print(f'Number of clauses: {num_clauses}')
+    log.debug("Tseytin encoding: %d variables, %d clauses", node_map[self][-1] + 1, len(clauses))
 
     cnf = CNF(from_clauses=clauses)
     with Solver(name = solver_name, bootstrap_with=cnf, use_timer=True) as solver:
         satisfiable = solver.solve()
         assignments: Any = solver.get_model()
-
-    if verbose:
-        print(solver.time())
+    solve_time = solver.time()   # None when the solver kept no timer
+    log.debug("SAT solve (%s): %s", solver_name,
+              "untimed" if solve_time is None else format_duration(solve_time))
 
     if satisfiable:
         return {k: (assignments[v-1]>0) for k,v in var_map.items()}
@@ -251,7 +246,6 @@ def satisfiable(self,
 
 def enumerate_models(self,
     solver_name: str = 'cadical195',
-    verbose: bool = False
 ) -> Iterator[dict[int,bool]]:
     """Enumerate solutions to the SAT problem for a given BooleanFunction
 
@@ -270,8 +264,6 @@ def enumerate_models(self,
         which will be used as the solver, defaults to "cadical195", which we observed
         to work well experimentally.
     :type solver_name: str, optional
-    :param verbose: if `True` print statistics and timings for debugging, defaults to False
-    :type verbose: bool, optional
 
     :return: if the function is unsatisfiable, return None. otherwise, on each iteration,
         return a dictionary which maps variables to their boolean values in a satisfying 
@@ -280,15 +272,8 @@ def enumerate_models(self,
     """
     clauses, node_map, var_map = self.tseytin()
     clauses += [(node_map[self][-1],)]
-    num_variables = len(node_map)
-    num_clauses = len(clauses)
     cnf = CNF(from_clauses=clauses)
-
-    if verbose:
-        print(cnf.nv, len(cnf.clauses))
-        print("Tseytin finished")
-        print(f'Number of variables: {num_variables}')
-        print(f'Number of clauses: {num_clauses}')
+    log.debug("Tseytin encoding: %d variables, %d clauses", cnf.nv, len(cnf.clauses))
 
     with Solver(name = solver_name, bootstrap_with=cnf, use_timer=True) as solver:
         for assignment in solver.enum_models(): # type: ignore (this is from bad typing in pysat)
@@ -393,19 +378,19 @@ class _TseytinFuse(BooleanFunction):
         self.arg_limit = None
         self._build_skeleton()
 
-    def _generate_JSON_entry(self, node_ids: dict[Any, int]) -> dict[str, Any]:
+    def _generate_JSON_entry(self, ids: dict[Any, int]) -> dict[str, Any]:
         """Store the template (by reference) and the arguments, but not the skeleton.
 
         The skeleton fields are derived from the template at construction, and
         `_arg_wires` would not survive JSON anyway (its keys are ints), so they
         are rebuilt on parsing instead of stored.
 
-        :param node_ids: A map from each object to its id.
-        :type node_ids: dict[Any, int]
+        :param ids: A map from each object to its id.
+        :type ids: dict[Any, int]
         :return: The node's data.
         :rtype: dict[str, Any]
         """
-        data = super()._generate_JSON_entry(node_ids)
+        data = super()._generate_JSON_entry(ids)
         for derived in ("_arg_wires", "_own_wires", "_skeleton"):
             data.pop(derived, None)
         return data
@@ -413,19 +398,19 @@ class _TseytinFuse(BooleanFunction):
     @classmethod
     def _parse_JSON_entry(cls,
         object_data: dict[str, Any],
-        parsed_functions: list[Any]
+        parsed_objects: list[Any]
     ) -> Self:
         """Rebuild the node through its constructor, which rebuilds the skeleton.
 
         :param object_data: The data written for this node.
         :type object_data: dict[str, Any]
-        :param parsed_functions: The objects rebuilt so far, indexed by id.
-        :type parsed_functions: list[Any]
+        :param parsed_objects: The objects rebuilt so far, indexed by id.
+        :type parsed_objects: list[Any]
         :return: The rebuilt fusion node.
         :rtype: _TseytinFuse
         """
-        template = parsed_functions[object_data["__refs__"]["template"]]
-        args = [parsed_functions[arg_id] for arg_id in object_data["args"]]
+        template = parsed_objects[object_data["__refs__"]["template"]]
+        args = [parsed_objects[arg_id] for arg_id in object_data["args"]]
         return cls(template, *args)
 
     def _copy(
