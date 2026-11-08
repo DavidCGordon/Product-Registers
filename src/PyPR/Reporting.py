@@ -426,7 +426,8 @@ class Meter:
     ) -> None:
         """Close the meter: remove its bar, and log its summary line.
 
-        Closing twice does nothing.
+        Closing twice does nothing, and a meter whose total is 0 (a loop over
+        nothing) logs no default summary.
 
         :param summary: A line to log instead of the default
             `description: count/total in time (rate)`. Defaults to None.
@@ -440,6 +441,9 @@ class Meter:
         for display in self._displays:
             display.remove(self)
         if not self.shown or quiet:
+            return
+        # a loop over nothing ("Matrix solves: 0/0") has nothing to summarize
+        if summary is None and self.total == 0:
             return
         if summary is None:
             elapsed = time.perf_counter() - self.start

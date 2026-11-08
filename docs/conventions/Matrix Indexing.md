@@ -11,7 +11,7 @@ For an $r \times c$ matrix $M$:
 - Columns are displayed from left to right: column 0 is the leftmost column.
 - The first coordinate is the vertical coordinate; the second is the horizontal coordinate.
 
-Thus the displayed entry in row `i` and column `j` is exactly the value returned by `M[i, j]` in NumPy. Do not silently reinterpret a displayed matrix as if its rows were written bottom-to-top.
+Thus the displayed entry in row `i` and column `j` is exactly the value returned by `M[i, j]` in NumPy. A displayed matrix is never to be read as if its rows were written bottom-to-top.
 
 ## Column Vectors
 
@@ -38,7 +38,7 @@ $$
 
 with `M[i, j] = 1` exactly when the update for state coordinate `i` reads coordinate `j`. This is also the contract of `FeedbackFunction.update_matrix`.
 
-For a one-bit vector, for example,
+For a two-entry vector ($m = 1$), for example,
 
 $$
 \begin{pmatrix}1&0\\1&1\end{pmatrix}
@@ -47,7 +47,7 @@ $$
 \begin{pmatrix}a_0\\a_0\mathbin\oplus a_1\end{pmatrix}.
 $$
 
-The lower-triangular matrix therefore performs the downward zeta sum on a column vector indexed by subsets in increasing integer order. Its transpose performs the upward zeta sum:
+The lower-triangular matrix therefore performs the downward zeta transform, $(\mathsf{B}v)_T = \bigoplus_{S \subseteq T} v_S$ (see [Division Property](../theory/Division%20Property.md) and [Möbius Inversion on the Bit-Subset Lattice](../theory/Moebius%20Inversion%20on%20the%20Bit-Subset%20Lattice.md)), on a column vector indexed by subsets in increasing integer order; the indexing of subsets by integers is fixed in [Binary and Bit Indices](#binary-and-bit-indices) below. Its transpose performs the upward zeta sum, over supersets instead of subsets:
 
 $$
 \begin{pmatrix}1&1\\0&1\end{pmatrix}

@@ -25,7 +25,7 @@ def test_copy_leaves_original_intact(copier):
     # chaining draws from both random and numpy's generator, so seed both
     random.seed(0)
     np.random.seed(0)
-    C.generateChaining(template=fast_template())
+    C.generate_chaining(template=fast_template())
     C.compile()
     original_fn_list = C.fn_list
     original_nodes = list(C.fn_list)
@@ -83,7 +83,7 @@ def test_copy_simulates_identically(copier):
     # chaining draws from both random and numpy's generator, so seed both
     random.seed(0)
     np.random.seed(0)
-    C.generateChaining(template=fast_template())
+    C.generate_chaining(template=fast_template())
     C2 = copier(C)
 
     reg, reg2 = FeedbackRegister(1, C), FeedbackRegister(1, C2)
@@ -122,36 +122,36 @@ def test_register_deepcopy_threads_memo_into_fn():
     assert F2 is not F
 
 def test_is_linear():
-    """isLinear used to return from inside its loop after the first gate type.
+    """is_linear used to return from inside its loop after the first gate type.
 
     It is decided on algebraic degree, not gate names: an LFSR built from its
     ANF still contains AND nodes (one per monomial, single-variable included),
     so a gate-name check would call it nonlinear."""
     F = Fibonacci(5, "12")
-    assert "AND" in F.gateSummary()
-    assert F.isLinear()
-    assert F.isLinear(allowAffine=True)
-    assert MPR(5, "12").isLinear()
+    assert "AND" in F.gate_summary()
+    assert F.is_linear()
+    assert F.is_linear(allow_affine=True)
+    assert MPR(5, "12").is_linear()
 
     # chaining multiplies bits of neighbouring MPR blocks, so the result has degree > 1
     C = CMPR([MPR(5, "12"), MPR(3, "5")])
     # chaining draws from both random and numpy's generator, so seed both
     random.seed(0)
     np.random.seed(0)
-    C.generateChaining(template=fast_template())
-    assert not C.isLinear()
-    assert not C.isLinear(allowAffine=True)
+    C.generate_chaining(template=fast_template())
+    assert not C.is_linear()
+    assert not C.is_linear(allow_affine=True)
 
 def test_is_linear_affine_split():
     """A constant monomial makes an update affine but not linear: it no longer
     fixes the zero state."""
     affine = FeedbackFunction([VAR(1), XOR(VAR(0), CONST(1))])
-    assert not affine.isLinear()
-    assert affine.isLinear(allowAffine=True)
+    assert not affine.is_linear()
+    assert affine.is_linear(allow_affine=True)
 
     # x0 + 1 + 1 = x0: the constants cancel in the ANF, so this one is linear
     cancelled = FeedbackFunction([VAR(1), XOR(VAR(0), CONST(1), CONST(1))])
-    assert cancelled.isLinear()
+    assert cancelled.is_linear()
 
 def test_write_vhdl_output_uses_declared_signal(tmp_path):
     path = tmp_path / "fpr.vhd"

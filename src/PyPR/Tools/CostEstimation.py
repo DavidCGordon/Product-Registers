@@ -8,14 +8,14 @@ Both functions return a count of *coefficient flips* — a hardware-agnostic uni
 lets you compare asymptotic scaling without the large constant-factor advantage of
 the cube method (JIT, array-level XOR) obscuring the picture.
 
-See Theory/Cube Equation Generation.md for the mathematical background.
+See docs/theory/Cube Equation Generation.md for the mathematical background.
 """
 from __future__ import annotations
 
 import math
 from typing import TYPE_CHECKING
 
-from PyPR.BooleanLogic.Gates import AND, NAND, NOR, OR, XNOR, XOR
+from PyPR.BooleanLogic.Gates import AND, NAND, NOR, NOT, OR, XNOR, XOR
 
 from PyPR.Tools.RootCounting.MonomialProfile import MonomialProfile, TermSet
 
@@ -34,9 +34,10 @@ def estimate_cost_comp(
 
     Walks the binarized function tree of every feedback function and the output
     function, computing the monomial profile and cumulative cost bottom-up via
-    dynamic programming. Multiplication cost is ``(|M1| * |M2|) / 2`` and addition
-    cost is ``min(|M1|, |M2|)``. These assume O(1) coefficient lookup, which is
-    favorable to composition (see Theory doc).
+    dynamic programming. Multiplication cost is ``(|M1| * |M2|) / 2``, addition
+    cost is ``min(|M1|, |M2|)``, and negation is free (it flips the constant term
+    only). These assume O(1) coefficient lookup, which is favorable to
+    composition (see Theory doc).
 
     :param feedback_fn: The register's feedback function.
     :type feedback_fn: FeedbackFunction
@@ -64,6 +65,11 @@ def estimate_cost_comp(
 
             if node.is_leaf():
                 cost_cache[node] = 0
+                continue
+
+            # inverting an ANF flips its constant term only, so a NOT costs nothing
+            if type(node) is NOT:
+                cost_cache[node] = cost_cache[node.args[0]]
                 continue
 
             left_cost = cost_cache[node.args[0]]

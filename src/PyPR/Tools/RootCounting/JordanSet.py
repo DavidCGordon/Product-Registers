@@ -32,7 +32,7 @@ class JordanSet:
 
         return JordanSet(new_roots, multiplicities)
 
-    def isFull(self):
+    def is_full(self):
         for b in self.roots:
             if self.roots[b] != b:
                 return False

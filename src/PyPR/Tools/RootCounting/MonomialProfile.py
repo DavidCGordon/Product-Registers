@@ -4,7 +4,7 @@ from PyPR.BooleanLogic import AND, CONST, VAR, XOR
 
 from PyPR.Tools.RootCounting.Combinatorics import binsum, choose
 from PyPR.Tools.RootCounting.OverlappingRectangle import rectangle_solve
-from PyPR.Tools.RootCounting.PartialOrders import maximalElements
+from PyPR.Tools.RootCounting.PartialOrders import maximal_elements
 
 
 # A list of Blocks, and the corresponding weight
@@ -55,7 +55,7 @@ class TermSet:
 
 
 
-def isMonomialSubset(a,b):
+def is_monomial_subset(a,b):
     # used in MonomialProfile.__mul__
     # Don't exclude terms with smaller bases:
     # Because a termset represents terms with at least 1 variable (1 up to count)
@@ -138,8 +138,8 @@ class MonomialProfile:
     def __xor__(self, other): return self.__add__(other)
     def __add__(self, other):
         #clean out redundant subsets and merge.
-        new_terms = maximalElements(
-            leq_ordering=isMonomialSubset,
+        new_terms = maximal_elements(
+            leq_ordering=is_monomial_subset,
             inputs=[self.terms, other.terms]
         )
 
@@ -151,8 +151,8 @@ class MonomialProfile:
         new_terms = [a*b for a, b in product(self.terms, other.terms)]
 
         #clean out redundant subsets.
-        new_terms = maximalElements(
-            leq_ordering = isMonomialSubset,
+        new_terms = maximal_elements(
+            leq_ordering = is_monomial_subset,
             inputs = [new_terms]
         )
 

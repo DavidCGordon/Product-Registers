@@ -1,10 +1,12 @@
 # 2-adic Integers and Rational Sequences
 
-The arithmetic an FCSR realizes. An LFSR computes in $\mathbb{F}_2[[x]]$, where
-carries are discarded; an FCSR computes in $\mathbb{Z}_2$, where they are kept
-and propagated. This document covers the 2-adic side: which sequences are
-rational, how clocking acts on the fraction, and which fractions give sequences
-with no transient.
+This document develops the arithmetic that a feedback-with-carry shift register
+(FCSR) realizes. A linear feedback shift register (LFSR) computes in
+$\mathbb{F}_2[[x]]$, where carries are discarded; an FCSR computes in
+$\mathbb{Z}_2$, the 2-adic integers, where they are kept and propagated. The
+document covers the 2-adic side: which sequences are rational, how clocking acts
+on the fraction, and which fractions give sequences with no transient. It
+assumes modular arithmetic and no prior knowledge of registers.
 
 For how this is built in hardware terms — the interleaved carry cells, the tap
 derivation, the encoding of a fraction as a bit pattern — see
@@ -59,7 +61,11 @@ $$\boxed{\;\sigma(p) = \frac{p - s_0 q}{2}, \qquad s_0 = p \bmod 2.\;}$$
 
 Then the emitted sequence is $s_0, s_1, s_2, \ldots$ where $s_t$ is the low bit
 of $\sigma^t(p)$. **This is what an FCSR does**: one clock is one application of
-$\sigma$, and the bit it emits is the parity of the current numerator.
+$\sigma$, and the bit it emits is the parity of the current numerator. The
+identification of a register state with a numerator, and the proof that the
+clock acts on it as $\sigma$, are in
+[FCSR Implementation](../architecture/FCSR%20Implementation.md) §One clock as an
+integer identity.
 
 $\sigma$ is well defined — $p - s_0 q$ is even by the choice of $s_0$ — and it is
 the only step the rest of this document needs.
@@ -75,8 +81,9 @@ representative, and positivity is needed below: the bound
 $|\sigma(p)| \leq (|p| + q)/2$ comes from
 $|p - s_0 q| \leq |p| + s_0 q \leq |p| + q$, whose last step assumes $q \geq 0$.
 
-The forward direction is what *synthesis* rests on — `BM_FCSR` can only return a
-fraction for an observed sequence because one exists — and it takes three lines.
+The forward direction is what *synthesis* rests on — `BM_FCSR`, the routine in
+`fcsrSynthesis.py` that recovers a fraction from an observed prefix, can only
+return one because one exists — and it takes three lines.
 Let the sequence have preperiod $k$ and period $T \geq 1$; write
 $A = \sum_{i<k} s_i 2^i$ for the transient, $c = \sum_{i<T} s_{k+i} 2^i$ for one
 period, and $B \in \mathbb{Z}_2$ for the value of the tail
@@ -101,7 +108,7 @@ on $(|p| + q)/2 \leq q$, so the bound is preserved.
 so two iterates coincide; $\sigma$ is a function, so the numerators repeat from
 there, and with them the bits. $\square$
 
-## Two measures of size: $d$ and $\Phi$
+## Two measures of size
 
 The **2-adic complexity** of a sequence is the number of value cells in the
 smallest FCSR generating it — the $d$ of
@@ -109,17 +116,8 @@ smallest FCSR generating it — the $d$ of
 part linear complexity plays for LFSRs: the size of the smallest generator in
 the relevant class, an LFSR length there and a cell count here.
 
-A note on units when comparing against the literature. Papers on FCSRs use
-"2-adic complexity" and "2-adic span" for a quantity on the $\log_2 \Phi$ scale
-rather than for a cell count, and they do not always say which they mean. The
-two differ by a small additive constant — a register realizing $p/q$ carries
-about $\log_2 \Phi$ value cells — so they agree on which sequences are hard and
-disagree only on the number attached. Within this repository the name always
-means the cell count $d$. When quoting a figure across that boundary, say which
-one it is: `fcsrSynthesis.py` benchmarks against `HuSha2019`, and a comparison
-is only meaningful with both sides measured the same way.
-
-The quantity synthesis actually tracks is not $d$ but the size of the fraction,
+The quantity synthesis actually tracks is not $d$ but the **size of the
+fraction**,
 
 $$\Phi(p, q) = \max(|p|, |q|),$$
 
@@ -127,16 +125,35 @@ which is `phi` in `fcsrSynthesis.py` and what `BM_FCSR` compares — at each
 discrepancy it tests
 `phi(num_curr, den_curr) < scale * phi(num_prev, den_prev)`.
 
+The literature uses the name "2-adic complexity" differently, which matters
+whenever figures are compared. Papers on FCSRs use "2-adic complexity" and
+"2-adic span" for a quantity on the $\log_2 \Phi$ scale rather than for a cell
+count, and they do not always say which they mean. The two differ by a small
+additive constant — a register realizing $p/q$ carries about $\log_2 \Phi$ value
+cells — so they agree on which sequences are hard and disagree only on the
+number attached. Within this repository the name always means the cell count
+$d$. A figure quoted across that boundary has to be labelled with its scale:
+`fcsrSynthesis.py` cites `HuSha2019` as a point of comparison, and a comparison
+is only meaningful with both sides measured the same way.
+
 `FCSR_size` is what the implementation computes when it needs a cell count for
 a given fraction, and what it returns is an upper bound rather than the
-minimum: a cell count *sufficient* to realize $p/q$ under `state_from_frac`'s
-encoding, which need not be the least $d$ over all FCSRs generating the
-sequence. `FCSR_size(-1, 1)` returns $2$,
+minimum: a cell count *sufficient* to realize $p/q$ under the encoding
+`FCSR.state_from_frac` uses to turn a fraction into a register state, which need
+not be the least $d$ over all FCSRs generating the sequence. `FCSR_size(-1, 1)` returns $2$,
 while `FCSR(1, 1)` is a well-formed register with a single value cell whose
 state `[1]` emits $1, 1, 1, \ldots$, the expansion of $-1/1$.
 
 Minimizing $\Phi$ and minimizing `FCSR_size` select the same fraction, but only
-*within one sequence*, and that is all the reduce-or-not convention needs.
+*within one sequence*. That is the comparison relevant to the convention of not
+reducing a fraction before encoding it
+([FCSR Implementation](../architecture/FCSR%20Implementation.md) §Encoding a
+fraction). `BM_FCSR` targets the $\Phi$-minimal fraction for the observed
+sequence; by steps 1 and 2 below that fraction is the reduced one, and by steps
+3 and 4 it is also the `FCSR_size`-minimal one. So `from_seq`, which encodes the
+fraction `BM_FCSR` returns without reducing it, loses nothing in register size
+by doing so, provided `BM_FCSR` returns that fraction, which §How many bits pin
+the minimal fraction defers to `KlapperGoresky1993`.
 
 1. Fix a sequence and let $p_0/q_0$ generate it, with $q_0 > 0$ odd and
    $\gcd(p_0, q_0) = 1$ — reduce any generating fraction to get one. Any other
@@ -154,11 +171,14 @@ Minimizing $\Phi$ and minimizing `FCSR_size` select the same fraction, but only
    $1 + \lceil\log_2(|mp_0|/3 + 1)\rceil$ and $\lceil \log_2 mq_0\rceil$ in the
    other, as are the maxima and logarithms applied to them.
 
-   The special cases are $p/q \in \{0/1,\ 1/1\}$, where `FCSR_size` returns the
+   The one special case in `FCSR_size` is $p/q = 1/1$, where it returns the
    cell count the register actually needs rather than the one the logarithm
-   gives. Neither disturbs the conclusion. $0/1$ scales to $0/m$, which is not
-   in lowest terms for $m > 1$, so $m = 1$ is the only case. For $1/1$ the
-   special case returns $2$ at $m = 1$ while the positive branch governs
+   gives. (The zero fraction is not special-cased there: `FCSR_size(0, m)` goes
+   through the non-positive branch and equals $\max(1, \lceil \log_2 m \rceil)$,
+   minimized at $m = 1$ by the monotonicity just stated. The pair of special
+   cases $0/1$ and $1/1$ belongs to `FCSR.state_from_frac`.) The special case
+   does not disturb the conclusion. For $1/1$ it returns $2$ at $m = 1$ while
+   the positive branch governs
    $m \geq 3$, giving $3, 4, 4, 5$ at $m = 3, 5, 7, 9$ — so the minimum is still
    at $m = 1$, now because $2$ is below the branch's values rather than because
    one branch runs throughout.
@@ -420,6 +440,5 @@ including the equivalence of eventual periodicity and rationality proved above.
 uses in place of the published version.
 
 `HuSha2019` — bounds on the 2-adic complexity of T-function output sequences;
-recorded in `bibliography.bib` as the benchmark `fcsrSynthesis.py` is compared
-against. §Two measures of size above is where the units of that comparison are
+cited in `fcsrSynthesis.py` as a point of comparison. §Two measures of size above is where the units of that comparison are
 discussed.

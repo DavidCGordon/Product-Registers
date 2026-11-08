@@ -31,44 +31,51 @@ def SubstitutionEqGenerator(
     to one of the output functions passed in. These tuples each have the same (time, equation, 
     extra_constant) format as if only one output function is passed.\n
 
-    ## How it works:
+    **How it works**
+
     On the `n`th iteration, the stored equations represent the equations at time `t=n`, in terms of
     the variables at time `t=0`. this relationship (between `t=n` and `t=0`) is the same as the relationship
     between `t=n+1` and `t=1` (the equations in the feedback_fn). This means that the equations at t=n+1 can
     be computed by substituting the feedback function equations for the variable in the equations for
     time `t=n`. 
     
-    ## Comparison to Symbolic Equation Generator:
+    **Comparison to Symbolic Equation Generator**
+
     In implementation, these two generators are almost identical. The main line which is different,
     which replaces the functions, simply composes in a different direction:
-     - **Symbolic:** `current_equations = feedback_functions.compose(current_equations)`
-     - **Substitution:** `current_equations = current_equations.compose(feedback_functions)`
+
+    - **Symbolic:** `current_equations = feedback_functions.compose(current_equations)`
+    - **Substitution:** `current_equations = current_equations.compose(feedback_functions)`
 
     However, there's actually a surprising number of consequences to this:
-    - The symbolic equation generator allows you to give initial symbolic expressions (useful for 
-        describing on of the starting state variables in terms of initialization, or replacing known
-        variables with constants), and works correctly when manipulating symbols. Because the
-        substition generator assumes the `t=0` and `t=1` equations in order to work, it doesnt have 
-        this ability. This can drastically simplify the equations (compared to generating them in full 
-        complexity and then simplifying) and if you need/can take advantage of this functionality, 
-        you should use the symbolic generator.
-     - In the substitution generator, we only need the `t=n` equation for a bit to compute the `t=n+1`
-        equation for the same bit. In contrast, the symbolic equation generator needs expressions for
-        every bit. This means that if only a small portion of the bits are needed to compute the output
-        function (which is often the case), the substituion generator can do less work by only computing
-        equations for those bits.
-     - firstly, it changes the size distributions of the ANF multiplications involved,
-        which can affect performance. This is fairly subtle and complicated, so it's discussed 
-        in more depth in the performance section
 
-    ## Performance:
+    - The symbolic equation generator allows you to give initial symbolic expressions (useful for 
+      describing on of the starting state variables in terms of initialization, or replacing known
+      variables with constants), and works correctly when manipulating symbols. Because the
+      substition generator assumes the `t=0` and `t=1` equations in order to work, it doesnt have
+      this ability. This can drastically simplify the equations (compared to generating them in full
+      complexity and then simplifying) and if you need/can take advantage of this functionality,
+      you should use the symbolic generator.
+    - In the substitution generator, we only need the `t=n` equation for a bit to compute the `t=n+1`
+      equation for the same bit. In contrast, the symbolic equation generator needs expressions for
+      every bit. This means that if only a small portion of the bits are needed to compute the output
+      function (which is often the case), the substituion generator can do less work by only computing
+      equations for those bits.
+    - firstly, it changes the size distributions of the ANF multiplications involved,
+      which can affect performance. This is fairly subtle and complicated, so it's discussed
+      in more depth in the performance section
+
+    **Performance**
+
     The main speed gains come from a couple of things:
+
     1. There is huge amount of reuse, both in reusing evalutions of the states in different cubes, and
-        reusing older coefficients to cover large amounts of the sum. 
+       reusing older coefficients to cover large amounts of the sum.
     2. The summation indices are the same everytime; after precomputation, this looks like a very tight loop
-        of summing values in an array. The storage of everything in dense arrays also helps with cache locality
+       of summing values in an array. The storage of everything in dense arrays also helps with cache locality
     3. because the algorithm is so computer-friendly (especially relative to handling symbolics), we can
-        numba compile it to speed it up even further. 
+       numba compile it to speed it up even further.
+
     altogether this is probably 2-3 orders of magnitude faster than the other methods
 
     :param feedback_fn: The function used to update the state on each clock cycle
@@ -83,7 +90,7 @@ def SubstitutionEqGenerator(
     :rtype: Iterator[
         tuple[int, BooleanFunction, int] | 
         list[tuple[int, BooleanFunction, int]] 
-    ]
+        ]
     """
     output_fn_list, return_list = normalize_output_fn(output_fn)
 

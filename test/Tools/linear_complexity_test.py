@@ -15,12 +15,13 @@ Both RNGs must be seeded in any test that builds chaining: the templates draw
 their taps through `np.random.choice` (TemplateBuilding.SAMPLE), not through
 `random`.
 """
+import itertools
 import random
 
 import numpy as np
 import pytest
 
-from PyPR.BooleanLogic import AND, VAR
+from PyPR.BooleanLogic import AND, VAR, XOR
 from PyPR.BooleanLogic.ChainingGeneration.Templates import (
     arman_template,
     fast_template,
@@ -47,7 +48,7 @@ def test_berlekamp_massey_cmpr():
     random.seed(0)
     np.random.seed(0)
     C = CMPR([M7.__copy__(), M5.__copy__(), M3.__copy__()])
-    C.generateChaining(template=old_ANF_template(max_and=4, max_xor=4))
+    C.generate_chaining(template=old_ANF_template(max_and=4, max_xor=4))
     C.compile()
 
     F = FeedbackRegister(2**C.size - 1, C)
@@ -77,7 +78,7 @@ def test_estimate_lc_bounds():
     random.seed(0)
     np.random.seed(0)
     C = CMPR([M7.__copy__(), M5.__copy__(), M3.__copy__(), M2.__copy__()])
-    C.generateChaining(template=old_ANF_template())
+    C.generate_chaining(template=old_ANF_template())
     C.compile()
 
     lower, upper = C.estimate_LC(0)
@@ -100,7 +101,7 @@ def test_root_expressions_basic():
     random.seed(0)
     np.random.seed(0)
     C = CMPR([M7.__copy__(), M5.__copy__(), M3.__copy__(), M2.__copy__()])
-    C.generateChaining(template=old_ANF_template())
+    C.generate_chaining(template=old_ANF_template())
 
     REs = C.root_expressions()
     assert len(REs) == C.size
@@ -114,7 +115,7 @@ def test_root_expressions_with_filter():
     random.seed(0)
     np.random.seed(0)
     C = CMPR([M7.__copy__(), M5.__copy__(), M3.__copy__(), M2.__copy__()])
-    C.generateChaining(template=old_ANF_template())
+    C.generate_chaining(template=old_ANF_template())
 
     REs = C.root_expressions()
     filt = AND(VAR(0), VAR(1))
@@ -132,7 +133,7 @@ def test_monomial_profiles_basic():
     random.seed(0)
     np.random.seed(0)
     C = CMPR([M7.__copy__(), M5.__copy__(), M3.__copy__(), M2.__copy__()])
-    C.generateChaining(template=old_ANF_template())
+    C.generate_chaining(template=old_ANF_template())
 
     MPs = C.monomial_profiles()
     assert len(MPs) == C.size
@@ -149,7 +150,7 @@ def test_update_matrices():
     random.seed(0)
     np.random.seed(0)
     C = CMPR([M7.__copy__(), M5.__copy__(), M3.__copy__(), M2.__copy__()])
-    C.generateChaining(template=arman_template())
+    C.generate_chaining(template=arman_template())
 
     for i, matrix in enumerate(C.update_matrices):
         block_size = len(C.blocks[i])
@@ -161,21 +162,49 @@ def test_resolvent_matrices():
     random.seed(0)
     np.random.seed(0)
     C = CMPR([M7.__copy__(), M5.__copy__(), M3.__copy__(), M2.__copy__()])
-    C.generateChaining(template=arman_template())
+    C.generate_chaining(template=arman_template())
 
     resolvents = C.resolvent_matrices
     assert len(resolvents) == len(C.blocks)
 
-def test_resolvent_matrix_shapes():
-    """Resolvent matrices should have correct shape per block (notebook cell 206).
+def test_propagation_matrices_default_update_all_ones():
+    """With the default update every bit of a block reaches every other bit.
 
-    Note: propagation_matrices is skipped because SequenceTransform.__eq__
-    does not support comparison with int, so the `!= 0` mask fails.
+    The resolvent is (I + UD)^{-1} = sum_t U^t D^t, and U is multiplication
+    by x on F_2[x]/P. x is invertible of finite order N, so U^t e_j = x^{t+j}
+    reaches every x^i (docs/theory/Resolvent Analysis.md, Proposition).
     """
     random.seed(0)
     np.random.seed(0)
     C = CMPR([M7.__copy__(), M5.__copy__(), M3.__copy__(), M2.__copy__()])
-    C.generateChaining(template=arman_template())
+    C.generate_chaining(template=arman_template())
+
+    for i, mask in enumerate(C.propagation_matrices):
+        block_size = len(C.blocks[i])
+        assert mask.shape == (block_size, block_size)
+        assert mask.all(), f"Block {i}: a zero in the propagation matrix"
+
+
+def test_propagation_matrices_other_update_polynomials():
+    """A non-default update need not reach every bit.
+
+    Entry (i, j) is 1 exactly when x^i appears in u^t x^j for some t >= 0.
+    With u = 1 the update is the identity, so only the diagonal is reached.
+    With P = x^4 + x + 1 and u = x + x^3 three entries stay zero.
+    """
+    identity = CMPR([MPR(4, "13", [1, 0, 0, 0])]).propagation_matrices[0]
+    assert (identity == np.eye(4, dtype=np.uint8)).all()
+
+    partial = CMPR([MPR(4, "13", [0, 1, 0, 1])]).propagation_matrices[0]
+    assert int(partial.sum()) == 13
+
+
+def test_resolvent_matrix_shapes():
+    """Resolvent matrices should have correct shape per block (notebook cell 206)."""
+    random.seed(0)
+    np.random.seed(0)
+    C = CMPR([M7.__copy__(), M5.__copy__(), M3.__copy__(), M2.__copy__()])
+    C.generate_chaining(template=arman_template())
 
     for i, matrix in enumerate(C.resolvent_matrices):
         block_size = len(C.blocks[i])
@@ -235,7 +264,7 @@ def test_upper_bound_holds_for_a_chained_cmpr(sizes):
     random.seed(42)
     np.random.seed(42)
     fn = CMPR([MPR(s, PRIMITIVE[s]) for s in sizes])
-    fn.generateChaining(fast_template())
+    fn.generate_chaining(fast_template())
     fn.compile()
     size = len(fn)
 
@@ -264,7 +293,7 @@ def test_chaining_raises_the_upper_bound_above_the_unchained_one(sizes):
     _, plain_upper = plain.estimate_LC(0)
 
     chained = CMPR([MPR(s, PRIMITIVE[s]) for s in sizes])
-    chained.generateChaining(fast_template())
+    chained.generate_chaining(fast_template())
     _, chained_upper = chained.estimate_LC(0)
 
     assert chained_upper > plain_upper, (
@@ -276,7 +305,7 @@ def test_chaining_raises_the_upper_bound_above_the_unchained_one(sizes):
 def test_bounds_are_ordered_and_at_least_the_block_size(sizes):
     """`lower <= upper`, and `lower` is floored at the output bit's block size.
 
-    `estimate_LC` takes `max(blockLen, re.lower())` because the bit's own block
+    `estimate_LC` takes `max(block_len, re.lower())` because the bit's own block
     always contributes its full size regardless of what the statistical
     estimate says.  The ordering of the pair is structural and holds even
     though `lower` is only an expectation.
@@ -309,3 +338,184 @@ def test_locking_every_block_does_not_raise_the_upper_bound(sizes):
         assert locked <= unlocked, (
             f"{sizes} bit {bit}: locking raised the upper bound from {unlocked} to {locked}"
         )
+
+
+@pytest.mark.parametrize("sizes", [(5, 3), (7, 4, 3), (7, 5, 3, 2)])
+def test_mesh_path_agrees_with_the_default_path(sizes):
+    """The mesh optimization is a faster route to the same root expressions.
+
+    Both bounds are compared on every bit. Two things the mesh path has to
+    get right, and once did not, are covered by the seeds below: a constant
+    term in a block's own chaining adds the root 1, and a constant in an
+    upstream block is inherited, because any product of upstream terms
+    contains 1 * 1 = 1.
+    """
+    polys = {7: "83", 5: "25", 4: "13", 3: "B", 2: "7"}
+    for max_and in (1, 2, 3):
+        for seed in range(5):
+            random.seed(seed)
+            np.random.seed(seed)
+            fn = CMPR([MPR(n, polys[n]) for n in sizes])
+            fn.generate_chaining(template=arman_template(max_and=max_and))
+            mesh = fn.root_expressions()
+            default = fn.root_expressions(force_default=True)
+            for bit in range(fn.size):
+                assert (mesh[bit].upper(), mesh[bit].lower()) == (default[bit].upper(), default[bit].lower()), (
+                    f"{sizes} max_and={max_and} seed={seed} bit {bit}"
+                )
+
+
+def test_mesh_path_agrees_with_the_default_path_under_locking():
+    """The two paths also agree for every pattern of locked blocks.
+
+    A locked block (falsy flag) adds no roots of its own. The mesh path once
+    wrote the source block's roots regardless of its flag, and turned a
+    locked block into a field of size 0.
+    """
+    polys = {7: "83", 4: "13", 3: "B"}
+    for max_and in (1, 3):
+        random.seed(0)
+        np.random.seed(0)
+        fn = CMPR([MPR(n, polys[n]) for n in (7, 4, 3)])
+        fn.generate_chaining(template=arman_template(max_and=max_and))
+        for flags in itertools.product([0, 1], repeat=3):
+            mesh = fn.root_expressions(list(flags))
+            default = fn.root_expressions(list(flags), force_default=True)
+            for bit in range(fn.size):
+                assert (mesh[bit].upper(), mesh[bit].lower()) == (default[bit].upper(), default[bit].lower()), (
+                    f"max_and={max_and} flags={flags} bit {bit}"
+                )
+
+
+def test_locking_a_block_removes_its_size_as_the_lower_floor():
+    """estimate_LC floors the lower bound at the bit's block size only if that block is unlocked."""
+    random.seed(0)
+    np.random.seed(0)
+    fn = CMPR([MPR(7, "83"), MPR(4, "13"), MPR(3, "B")])
+    fn.generate_chaining(template=arman_template(max_and=1))
+    source_bit = fn.blocks[0][0]
+    unlocked_lower, _ = fn.estimate_LC(source_bit)
+    locked_lower, locked_upper = fn.estimate_LC(source_bit, locked_list=[0, 1, 1])
+    # the source block takes no chaining input, so locked it contributes nothing
+    assert unlocked_lower >= 7
+    assert locked_upper == 0
+    assert locked_lower == 0
+
+
+def test_mesh_path_requires_pairwise_coprime_sizes(monkeypatch):
+    """Sizes 6 and 4 differ but share a factor, so root_expressions takes the default path.
+
+    The mesh multiplies root counts across fields, which is exact only when
+    the fields meet in F_2 (Root Expressions, Proposition 3); F_64 and F_16
+    share F_4.
+    """
+    import PyPR.Tools.RootCounting.MeshOptimization as mesh_optimization
+
+    calls = []
+    original = mesh_optimization.re_compute_single_mesh
+    monkeypatch.setattr(
+        mesh_optimization, "re_compute_single_mesh",
+        lambda *args: calls.append(args) or original(*args),
+    )
+    for sizes, polys in [((6, 4), {6: "43", 4: "13"}), ((5, 4), {5: "25", 4: "13"})]:
+        random.seed(0)
+        np.random.seed(0)
+        fn = CMPR([MPR(n, polys[n]) for n in sizes])
+        fn.generate_chaining(template=arman_template(max_and=2))
+        calls.clear()
+        fn.root_expressions()
+        used_mesh = len(calls) > 0
+        assert used_mesh == (sizes == (5, 4)), f"{sizes}: mesh used = {used_mesh}"
+
+
+def test_mesh_path_on_a_block_without_chaining_input():
+    """A block that takes no input from upstream keeps only its own roots and monomials.
+
+    The mesh reads a block's degree as the rate for trading weight upstream,
+    and that degree counts the block's own linear term, so a block with no
+    upstream input would otherwise be treated as chaining linearly.
+    """
+    fn = CMPR([MPR(7, "83"), MPR(5, "25"), MPR(3, "B")])  # no chaining generated
+    for block in fn.blocks:
+        bit = block[0]
+        assert fn.root_expressions()[bit].upper() == len(block)
+        assert fn.monomial_profiles()[bit].upper() == len(block)
+
+
+def test_monomial_profile_mesh_path_agrees_with_the_default_path():
+    """Mesh and default monomial profiles give the same counts."""
+    polys = {7: "83", 5: "25", 4: "13", 3: "B", 2: "7"}
+    for sizes in [(5, 3), (7, 4, 3), (7, 5, 3, 2)]:
+        for max_and in (1, 3):
+            random.seed(0)
+            np.random.seed(0)
+            fn = CMPR([MPR(n, polys[n]) for n in sizes])
+            fn.generate_chaining(template=arman_template(max_and=max_and))
+            mesh = fn.monomial_profiles()
+            default = fn.monomial_profiles(force_default=True)
+            for bit in range(fn.size):
+                assert mesh[bit].upper() == default[bit].upper(), f"{sizes} max_and={max_and} bit {bit}"
+
+
+def test_monomial_profile_mesh_path_with_repeated_and_one_bit_blocks():
+    """Monomials are indexed by register, so the mesh needs no condition on block sizes.
+
+    Repeated sizes and one-bit blocks run through the mesh and give the same
+    counts as the default path.
+    """
+    for components in [
+        [MPR(4, "13"), MPR(4, "19")],
+        [MPR(5, "25"), MPR(5, "29"), MPR(3, "B")],
+        [MPR(5, "25"), MPR(1, "3"), MPR(3, "B")],
+    ]:
+        for seed in range(2):
+            random.seed(seed)
+            np.random.seed(seed)
+            fn = CMPR([component.__copy__() for component in components])
+            fn.generate_chaining(template=arman_template(max_and=2))
+            mesh = fn.monomial_profiles()
+            default = fn.monomial_profiles(force_default=True)
+            for bit in range(fn.size):
+                assert mesh[bit].upper() == default[bit].upper(), f"{[len(b) for b in fn.blocks]} seed={seed} bit {bit}"
+
+
+def test_mesh_path_locking_without_chaining_constants():
+    """With no constant in any chaining function, a locked block must not supply the root 1.
+
+    The templates often add a constant, which hides the case; this register's
+    chaining is written by hand without one.
+    """
+    fn = CMPR([MPR(7, "83"), MPR(4, "13"), MPR(3, "B")])
+    source, middle, last = fn.blocks
+    for i, bit in enumerate(middle):
+        fn.fn_list[bit] = XOR(fn.fn_list[bit], AND(VAR(source[i]), VAR(source[i + 1])))
+    for i, bit in enumerate(last):
+        fn.fn_list[bit] = XOR(fn.fn_list[bit], VAR(middle[i]))
+    for flags in itertools.product([0, 1], repeat=3):
+        mesh = fn.root_expressions(list(flags))
+        default = fn.root_expressions(list(flags), force_default=True)
+        for bit in range(fn.size):
+            assert (mesh[bit].upper(), mesh[bit].lower()) == (default[bit].upper(), default[bit].lower()), (
+                f"flags={flags} bit {bit}"
+            )
+
+
+def test_chaining_nonlinear_in_own_bits_is_rejected():
+    """A block whose update multiplies its own bits is outside the model, so the estimators refuse it.
+
+    On such a (7, 4, 3) register Berlekamp-Massey measured 90 and 81 where
+    the mesh gave 32 and 35 and the default path 4 and 7: neither is a bound.
+    """
+    fn = CMPR([MPR(7, "83"), MPR(4, "13"), MPR(3, "B")])
+    source, middle, last = fn.blocks
+    for i, bit in enumerate(middle):
+        fn.fn_list[bit] = XOR(fn.fn_list[bit], AND(VAR(middle[(i + 1) % len(middle)]), VAR(source[i])))
+    for i, bit in enumerate(last):
+        fn.fn_list[bit] = XOR(fn.fn_list[bit], VAR(middle[i]))
+    with pytest.raises(ValueError, match="multiplies its own bits"):
+        fn.root_expressions()
+    with pytest.raises(ValueError, match="multiplies its own bits"):
+        fn.monomial_profiles()
+    with pytest.raises(ValueError, match="multiplies its own bits"):
+        fn.estimate_LC(0)
+

@@ -1,8 +1,8 @@
 # Coset Regions
 
-Cross-field products of coset classes have a natural geometric interpretation: each component field defines an axis, coset weight is the coordinate, and a product of coset classes sweeps out a rectangular **region** in this multi-dimensional space. This picture makes the five root-expression propositions visually intuitive and provides a shared vocabulary for discussing root expression structure.
+Cross-field products of coset classes have a geometric interpretation: each component field defines an axis, coset weight is the coordinate, and a product of coset classes sweeps out a rectangular **region** in this multi-dimensional space. This document fixes the vocabulary of that picture — axis, cell, region, gap — and reads each of the five root-expression propositions as a statement about intervals and rectangles.
 
-For the formal definitions of cyclotomic cosets, coset weight, and coset classes $\langle e \cdot w \rangle$, see [Root Expressions — Coset Classes](../theory/Root%20Expressions%20and%20LC%20Estimation.md#coset-classes). For the five propositions that govern root expression arithmetic, see [Root Expressions — Propositions](../theory/Root%20Expressions%20and%20LC%20Estimation.md#the-five-root-expression-propositions). For the exponential notation $\alpha^{p/q}$ used in the examples, see [Roots and the Algebraic Closure](../theory/Roots%20and%20the%20Algebraic%20Closure.md#the-notation-alphapq).
+The picture rests on definitions made elsewhere. Exponents of a primitive element of $\mathbb{F}_{2^e}$ are represented in $\{1, \ldots, 2^e - 1\}$, so the identity $1 = \alpha^{2^e - 1}$ has the all-ones exponent, of weight $e$. The **coset class** $\langle e \cdot w \rangle$ is the set of roots in $\mathbb{F}_{2^e}$ whose exponent has coset weight (binary Hamming weight) from 1 to $w$; for the formal definitions of cyclotomic cosets, coset weight, and coset classes, see [Root Expressions — Coset Classes](../theory/Root%20Expressions%20and%20LC%20Estimation.md#coset-classes). For the five propositions that govern root expression arithmetic, see [Root Expressions — Propositions](../theory/Root%20Expressions%20and%20LC%20Estimation.md#the-five-root-expression-propositions). For the exponential notation $\alpha^{p/q}$ used in the examples, see [Roots and the Algebraic Closure](../theory/Roots%20and%20the%20Algebraic%20Closure.md#fractional-exponent-notation).
 
 ## The Geometric Picture
 
@@ -10,7 +10,7 @@ Consider a CMPR with two MPR blocks of sizes 3 and 5. Each block's roots live in
 
 ### The Trivial Coset and Single-Field Roots
 
-Each axis carries $e$ positions: the identity element $\{1\}$, followed by weight classes $1, 2, \ldots, e-1$. The identity gets its own position because the weight-$e$ exponent — the all-ones bit pattern $\underbrace{11\ldots 1}_e$ — wraps to $0$ modulo $2^e - 1$, giving $\alpha^0 = 1$. In the grid we pull this element to the front and separate it from the nontrivial weights with a dashed line:
+Each axis carries $e$ positions: the identity element $\{1\}$, followed by weight classes $1, 2, \ldots, e-1$. The identity gets its own position because, with exponents represented in $\{1, \ldots, 2^e - 1\}$, the weight-$e$ exponent — the all-ones bit pattern $\underbrace{11\ldots 1}_e$, that is $2^e - 1$ — represents the element $\alpha^{2^e - 1} = 1$. In the grid we pull this element to the front and separate it from the nontrivial weights with a dashed line:
 
 <div align="center">
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 345 175" width="580" style="max-width:100%">
@@ -66,7 +66,7 @@ The warm-shaded cells along the $\{1\}$ row and column are **single-field roots*
 
 ### Coset Classes as Intervals
 
-A single coset class $\langle e \cdot w \rangle$ is an interval on its axis — it selects all weights from $1$ up to $w$, leaving the $\{1\}$ position empty. The exception is the **full coset** $\langle e \cdot e \rangle$: since the weight-$e$ exponent wraps to the identity, the full coset crosses the gap to include $\{1\}$, covering every element of $\mathbb{F}_{2^e}^*$. On the $\mathbb{F}_{2^3}$ axis:
+A single coset class $\langle e \cdot w \rangle$ is an interval on its axis — it selects all weights from $1$ up to $w$, leaving the $\{1\}$ position empty. The exception is the **full coset** $\langle e \cdot e \rangle$ — the coset class of maximal weight, not a single Frobenius orbit: since the weight-$e$ exponent represents the identity, the full coset crosses the gap to include $\{1\}$, covering every element of $\mathbb{F}_{2^e}^\times$. On the $\mathbb{F}_{2^3}$ axis:
 
 <div align="center">
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 142" width="520" style="max-width:100%">
@@ -99,7 +99,7 @@ A single coset class $\langle e \cdot w \rangle$ is an interval on its axis — 
 </svg>
 </div>
 
-These counts match Proposition 1: $|\langle 3 \cdot 1 \rangle| = \binom{3}{1} = 3$, $|\langle 3 \cdot 2 \rangle| = \binom{3}{1} + \binom{3}{2} = 6$, $|\langle 3 \cdot 3 \rangle| = 2^3 - 1 = 7$. Notice that $\langle 3 \cdot 3 \rangle$ is the only interval that fills the $\{1\}$ cell — it spans the gap to cover the full multiplicative group $\mathbb{F}_{2^3}^*$.
+These counts match Proposition 1: $|\langle 3 \cdot 1 \rangle| = \binom{3}{1} = 3$, $|\langle 3 \cdot 2 \rangle| = \binom{3}{1} + \binom{3}{2} = 6$, $|\langle 3 \cdot 3 \rangle| = 2^3 - 1 = 7$. Notice that $\langle 3 \cdot 3 \rangle$ is the only interval that fills the $\{1\}$ cell — it spans the gap to cover the full multiplicative group $\mathbb{F}_{2^3}^\times$.
 
 ### Cross-Field Products as Rectangles
 
@@ -196,7 +196,7 @@ The weight saturates at $e$: $\langle 3 \cdot 2 \rangle \cdot \langle 3 \cdot 2 
 </svg>
 </div>
 
-Once a coset class fills $\{1\}$, that field can contribute the identity to cross-field products — meaning a root from the other field can appear on its own. This is why the full coset is the saturation point: $\langle e \cdot e \rangle = \mathbb{F}_{2^e}^*$.
+Once a coset class fills $\{1\}$, that field can contribute the identity to cross-field products — meaning a root from the other field can appear on its own. This is why the full coset is the saturation point: $\langle e \cdot e \rangle = \mathbb{F}_{2^e}^\times$.
 
 ## Regions in Root Expressions
 
@@ -248,13 +248,13 @@ Suppose a chaining function produces the root expression $\langle 3 \cdot 1 \ran
 </svg>
 </div>
 
-The overlap (Proposition 5) is $\langle 3 \cdot \min(1,2) \rangle \langle 5 \cdot \min(2,1) \rangle = \langle 3 \cdot 1 \rangle \langle 5 \cdot 1 \rangle$, the single cell at $(1, 1)$ — exactly the component-wise minimum of the weight bounds:
+Both terms use the same two fields, of coprime degrees 3 and 5, so the overlap (Proposition 5) is $\langle 3 \cdot \min(1,2) \rangle \langle 5 \cdot \min(2,1) \rangle = \langle 3 \cdot 1 \rangle \langle 5 \cdot 1 \rangle$, the single cell at $(1, 1)$ — exactly the component-wise minimum of the weight bounds:
 
 $$|A \cup B| = |A| + |B| - |A \cap B| = 45 + 30 - 15 = 60$$
 
 ## Concrete Root Example
 
-To connect the geometry back to actual roots: consider the roots of two MPR blocks of sizes 3 and 7 (fields $\mathbb{F}_{2^3}$ and $\mathbb{F}_{2^7}$, orders 7 and 127).
+To connect the geometry back to individual roots, consider the roots of two MPR blocks of sizes 3 and 7 (fields $\mathbb{F}_{2^3}$ and $\mathbb{F}_{2^7}$, orders 7 and 127).
 
 In the exponential notation, $\alpha^{1/7}$ is a weight-1 root from $\mathbb{F}_{2^3}$ (exponent 1 has binary representation $001$). The root $\alpha^{5/7}$ is weight-2 (exponent 5 = $101$ in binary). Similarly, $\alpha^{1/127}$ is weight-1 from $\mathbb{F}_{2^7}$.
 
@@ -275,13 +275,13 @@ The "region" is the rectangle that a coset class product sweeps out in this grid
 
 ## Higher Dimensions
 
-For a CMPR with $k$ blocks of distinct sizes, the grid has $k$ axes — each with its own $\{1\}$ position and dashed gap. A product term $\prod_{i=1}^{k} \langle s_i \cdot w_i \rangle$ is a $k$-dimensional box (hyperrectangle). The propositions generalize naturally:
+For a CMPR with $k$ blocks of pairwise coprime sizes (the hypothesis of Proposition 3), the grid has $k$ axes — each with its own $\{1\}$ position and dashed gap. A product term $\prod_{i=1}^{k} \langle s_i \cdot w_i \rangle$ is a $k$-dimensional box (hyperrectangle). The propositions read as statements about boxes:
 
 - **Proposition 3** says the volume (root count) of a box is the product of its side lengths.
-- **Proposition 5** says the intersection of two boxes is the box with component-wise minimum side lengths.
+- **Proposition 5** says the intersection of two boxes is the box whose side on each axis is the intersection of their sides. On an axis both terms use, that is the class with the smaller weight. On an axis only one term uses, the other term's side is the $\{1\}$ position alone, so the intersection is $\{1\}$ if the first term's class is the full coset and empty otherwise.
 - **Proposition 4** says the union count uses inclusion-exclusion over the intersections.
 
-The CMPR root expression algorithm builds up the root expression table block by block. Each block adds one axis to the grid — the new block's $\langle s_i \cdot 1 \rangle$ — and the chaining function determines how the new axis combines with the existing ones.
+The [CMPR root expression algorithm](../theory/Root%20Expressions%20and%20LC%20Estimation.md#the-cmpr-root-expression-algorithm) builds up the root expression table block by block. Each block adds one axis to the grid — the new block's $\langle s_i \cdot 1 \rangle$ — and the chaining function determines how the new axis combines with the existing ones.
 
 A product term with $\langle s_i \cdot s_i \rangle$ on one axis extends across the gap on that axis, meaning the corresponding field can contribute $1$ to the product. In a $k$-dimensional grid, faces of the hyperrectangle that touch a $\{1\}$ boundary represent roots from fewer than $k$ subfields.
 
@@ -290,11 +290,11 @@ A product term with $\langle s_i \cdot s_i \rangle$ on one axis extends across t
 | Term | Meaning |
 |---|---|
 | **Axis** | One component field $\mathbb{F}_{2^{s_i}}$ of the CMPR |
-| **$\{1\}$ position** | The identity element on each axis — the weight-$e$ exponent wrapping to $\alpha^0 = 1$ |
+| **$\{1\}$ position** | The identity element on each axis — the weight-$e$ exponent $2^e - 1$, which represents $\alpha^{2^e - 1} = 1$ |
 | **Gap** | The dashed separator between $\{1\}$ and the nontrivial weight positions |
 | **Coordinate** | Coset weight along that axis ($1$ to $e-1$, plus the $\{1\}$ position) |
 | **Cell** | A specific weight pair/tuple — the set of cross-product roots at those weights |
 | **Single-field cell** | A cell on a $\{1\}$ row/column — its root lives in one subfield only |
 | **Region** | A rectangle (or hyperrectangle) in the grid — the set of cells covered by a coset class product |
 | **Root expression** | A union of regions — the full set of possible roots in a signal |
-| **Full coset** | $\langle e \cdot e \rangle = \mathbb{F}_{2^e}^*$ — the only coset class that crosses the gap |
+| **Full coset** | $\langle e \cdot e \rangle = \mathbb{F}_{2^e}^\times$ — the only coset class that crosses the gap |

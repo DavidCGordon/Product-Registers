@@ -1,6 +1,6 @@
 # Möbius Inversion on the Bit-Subset Lattice
 
-This document develops the Möbius transform on the Boolean lattice — the lattice-theoretic tool that converts between a Boolean function's truth table and its [Algebraic Normal Form](Algebraic%20Normal%20Form.md). Matrix rows, columns, and vector orientation follow [Matrix Indexing](../conventions/Matrix%20Indexing.md). The approach here proves the transform works via interval counting on the bit-subset poset; for the equivalent matrix perspective (Kronecker products, Pascal's triangle mod 2, butterfly decomposition), see the [ANF doc](Algebraic%20Normal%20Form.md#the-transform-matrix). The connection to binomial coefficients mod 2, via Lucas' theorem, makes this the natural framework for decomposing expressions like $\binom{dn}{k} \pmod{2}$ (see [Binomial Decimation Identity](Binomial%20Decimation%20Identity.md)).
+This document develops the Möbius transform on the Boolean lattice — the lattice-theoretic tool that converts between a Boolean function's truth table and its [Algebraic Normal Form](Algebraic%20Normal%20Form.md). Matrix rows, columns, and vector orientation follow [Matrix Indexing](../conventions/Matrix%20Indexing.md). The approach here proves the transform works via interval counting on the bit-subset poset; for the equivalent matrix perspective (Kronecker products, Pascal's triangle mod 2, butterfly decomposition), see [Algebraic Normal Form](Algebraic%20Normal%20Form.md#the-transform-matrix). One application is to expressions like $\binom{dn}{k} \pmod{2}$: for fixed $d$ and $k$ this is a Boolean function of the bits of $n$, so it has ANF coefficients, and the transform computes them (see [Binomial Decimation Identity](Binomial%20Decimation%20Identity.md)).
 
 ## The Bit-Subset Partial Order
 
@@ -38,7 +38,7 @@ $$f(n) \;=\; \bigoplus_{i=0}^{2^m - 1}\; a_i \,\binom{n}{i} \pmod{2}$$
 
 with coefficients $a_i \in \{0,1\}$. This is the **Algebraic Normal Form** (ANF) of $f$.
 
-Each term $\binom{n}{i} \pmod{2}$ acts as a monomial: by Lucas' theorem and the bit-product identity above, $\binom{n}{i} \equiv \prod_{b \in \text{bits}(i)} n_b \pmod{2}$. When $i = 0$, the empty product is 1 (the constant monomial). When $i = 3 = 11_2$, the monomial is $n_0 \cdot n_1$. And so on — each $i$ selects a distinct subset of input bits to AND together, and the ANF is the XOR of the selected monomials.
+Each term $\binom{n}{i} \pmod{2}$ acts as a monomial. By the equivalence of the previous section it equals 1 exactly when $i \preccurlyeq n$, and the product $\prod_{b \in \text{bits}(i)} n_b$ equals 1 under the same condition, namely when every bit set in $i$ is also set in $n$. Hence $\binom{n}{i} \equiv \prod_{b \in \text{bits}(i)} n_b \pmod{2}$. When $i = 0$, the empty product is 1 (the constant monomial). When $i = 3 = 11_2$, the monomial is $n_0 \cdot n_1$. And so on — each $i$ selects a distinct subset of input bits to AND together, and the ANF is the XOR of the selected monomials.
 
 **Proof of uniqueness.** There are $2^{2^m}$ Boolean functions and $2^{2^m}$ possible coefficient vectors $(a_0, \ldots, a_{2^m - 1})$, so it suffices to show the representation map is injective — equivalently, that the $2^m$ functions $\{n \mapsto \binom{n}{i}\}_{i=0}^{2^m - 1}$ are linearly independent over $\mathbb{F}_2$.
 
@@ -162,9 +162,9 @@ The zeta and Möbius transforms coincide — the transform is self-inverse — b
 
 ### The Walsh-Hadamard Transform: A Different Decomposition
 
-The **Walsh-Hadamard transform** (WHT) is a separate transform that also operates on Boolean-indexed vectors but uses a different base matrix, works over $\mathbb{R}$ instead of $\mathbb{F}_2$, and measures something fundamentally different.
+The **Walsh-Hadamard transform** (WHT) is a separate transform that also operates on Boolean-indexed vectors but uses a different base matrix, works over $\mathbb{R}$ instead of $\mathbb{F}_2$, and measures a different quantity.
 
-**The $\{0,1\} \to \{-1,+1\}$ lifting.** The WHT works by reinterpreting a Boolean function $f: \{0,1\}^m \to \{0,1\}$ as a real-valued function $\hat{f}: \{0,1\}^m \to \{-1,+1\}$ via the substitution $b \mapsto (-1)^b$: output 0 becomes $+1$ and output 1 becomes $-1$. This lifts $f$ from the additive world of $\mathbb{F}_2$ (where XOR is addition) to the multiplicative world of $\mathbb{R}$ (where XOR becomes multiplication of $\pm 1$ signs).
+**The $\{0,1\} \to \{-1,+1\}$ lifting.** The WHT works by reinterpreting a Boolean function $f: \{0,1\}^m \to \{0,1\}$ as a real-valued function $F: \{0,1\}^m \to \{-1,+1\}$, $F(x) = (-1)^{f(x)}$, via the substitution $b \mapsto (-1)^b$: output 0 becomes $+1$ and output 1 becomes $-1$. This lifts $f$ from the additive world of $\mathbb{F}_2$ (where XOR is addition) to the multiplicative world of $\mathbb{R}$ (where XOR becomes multiplication of $\pm 1$ signs).
 
 **Linear functions and characters.** For each subset $S \subseteq \{0, \ldots, m-1\}$, define the **linear function** $\ell_S(x) = \bigoplus_{b \in S} x_b$ — the XOR (parity) of the input bits in $S$. After lifting, this becomes the **character** $\chi_S(x) = (-1)^{\ell_S(x)} = \prod_{b \in S} (-1)^{x_b}$, which outputs $+1$ when the parity is even and $-1$ when odd.
 
@@ -178,13 +178,13 @@ Each term is $+1$ when $f(x)$ agrees with $\ell_S(x)$ and $-1$ when they disagre
 
 $$H = \begin{pmatrix} 1 & 1 \\ 1 & -1 \end{pmatrix}$$
 
-Applied to the vector $(f(0), f(1))$, it computes:
-- $f(0) + f(1)$: the sum — measures the "constant" component (correlation with $\ell_\emptyset$, which is always 0).
-- $f(0) - f(1)$: the difference — measures correlation with the input bit $x_0$.
+Applied to the lifted vector $(F(0), F(1)) = \bigl((-1)^{f(0)}, (-1)^{f(1)}\bigr)$, it computes:
+- $F(0) + F(1) = W_f(\emptyset)$: the sum, which is the correlation with $\ell_\emptyset$, the function that is always 0.
+- $F(0) - F(1) = W_f(\{0\})$: the difference, which is the correlation with the input bit $x_0$, since $(-1)^{f(x) \oplus x}$ equals $F(0)$ at $x = 0$ and $-F(1)$ at $x = 1$.
 
-The $m$-bit WHT is the Kronecker power $H^{\otimes m}$, just as the Möbius transform is $T_1^{\otimes m}$.
+The $m$-bit WHT is the Kronecker power $H^{\otimes m}$, just as the Möbius transform is the Kronecker power $T_1^{\otimes m}$ of the one-bit matrix $T_1 = \begin{pmatrix} 1 & 0 \\ 1 & 1 \end{pmatrix}$ (see [Algebraic Normal Form](Algebraic%20Normal%20Form.md#the-kronecker-product)).
 
-**Comparison.** Both transforms decompose Boolean functions into a basis, but the bases are fundamentally different:
+**Comparison.** Both transforms decompose Boolean functions into a basis, but the bases differ:
 
 | | Möbius / ANF | Walsh-Hadamard |
 |---|---|---|
@@ -197,7 +197,7 @@ The $m$-bit WHT is the Kronecker power $H^{\otimes m}$, just as the Möbius tran
 
 Over $\mathbb{F}_2$, the Hadamard matrix collapses to $\begin{pmatrix} 1 & 1 \\ 1 & 1 \end{pmatrix}$ (since $-1 \equiv 1$), which is singular — the WHT does not exist over $\mathbb{F}_2$. The Möbius transform replaces it entirely for the $\mathbb{F}_2$ setting.
 
-The two transforms answer different questions about the same function: the ANF/Möbius decomposition reveals the algebraic structure (which products of variables appear), while the Walsh-Hadamard decomposition reveals the statistical structure (how far $f$ is from each linear function). Both are computed via butterfly operations from their Kronecker factorizations, which is the main source of the naming confusion — some sources call any such Kronecker-butterfly transform "Walsh-Hadamard." In this project, we use **Möbius transform** exclusively for the $T_1^{\otimes m}$ operation over $\mathbb{F}_2$.
+The two transforms answer different questions about the same function: the ANF/Möbius decomposition reveals the algebraic structure (which products of variables appear), while the Walsh-Hadamard decomposition reveals the statistical structure (how far $f$ is from each linear function). Both are computed via butterfly operations from their Kronecker factorizations, which is the main source of the naming confusion — some sources call any such Kronecker-butterfly transform "Walsh-Hadamard." This documentation uses **Möbius transform** exclusively for the $T_1^{\otimes m}$ operation over $\mathbb{F}_2$.
 
 ## Connections
 

@@ -1,6 +1,7 @@
 from functools import reduce
 
 from PyPR.BooleanLogic import BooleanFunction
+from PyPR.BooleanLogic.FunctionInputs import CONST
 
 
 # unified interface for inverting both bool-like objects and custom objects like
@@ -14,6 +15,67 @@ def invert(bool_like):
     # we can overwrite __invert__() in the desired way
     else:
         return bool_like.__invert__()
+
+
+def _merge_associative(node, gate, cache, subfunctions, in_place, cancel):
+    """`_merge_redundant` for an associative gate: one `gate` over the terms of every
+    same-gate argument, nested to any depth.
+
+    Terms are an insertion-ordered dict used as a set. With `cancel` (XOR) a term
+    occurring twice is dropped, since x ^ x = 0; otherwise (AND, OR) it is kept
+    once, since x & x = x | x = x. A subfunction is a single term, never flattened,
+    because its other parents still need it whole.
+
+    The result's arguments are not built here but deferred to the end of the walk
+    (`cache.pending`), and that is what makes a nested chain linear rather than
+    quadratic. A same-gate argument that is not a subfunction has this node as its
+    only parent, so its result is discarded once absorbed: rather than copying its
+    terms, this node takes them over, folding the smaller set into the larger.
+    Building every intermediate gate in full instead copied the whole chain
+    beneath it at each level. The order of the merged terms is unspecified.
+
+    When merging leaves a single term the term itself is returned, and an XOR
+    left with none returns `CONST(0)`.
+    """
+    if len(node.args) == 1:
+        return cache[node.args[0]]
+
+    pending = cache.pending
+    terms = {}
+    for arg in node.args:
+        result = cache[arg]
+
+        # a single term: a different gate, a leaf, or a subfunction
+        if type(result) is not gate or arg in subfunctions:
+            if result not in terms:
+                terms[result] = None
+            elif cancel:
+                del terms[result]
+            continue
+
+        made_for, nested = pending[result]
+        # Take the argument's terms over when they are the larger set. Only a
+        # result made for `arg` itself: one passed through a one-argument gate
+        # may belong to a node with other parents.
+        if made_for is arg and len(nested) > len(terms):
+            del pending[result]  # absorbed and unreachable: never written
+            terms, nested = nested, terms
+        for term in nested:
+            if term not in terms:
+                terms[term] = None
+            elif cancel:
+                del terms[term]
+
+    # what is left may not need a gate at all: a single term stands for itself,
+    # and an XOR whose terms all cancelled is the constant 0 (the empty sum)
+    if len(terms) == 1:
+        return next(iter(terms))
+    if cancel and not terms:
+        return CONST(0)
+
+    result = node if in_place else gate(arg_limit = node.arg_limit)
+    pending[result] = (node, terms)
+    return result
 
 class XOR(BooleanFunction):
     def __init__(self, *args, arg_limit = None):
@@ -39,42 +101,8 @@ class XOR(BooleanFunction):
         return "(" + " ^ ".join(python_strings[arg] for arg in self.args) + ")"
 
 
-    def _merge_redundant(self,
-        cache,
-        subfunctions,
-        in_place = False
-    )->"BooleanFunction":
-        if len(self.args) == 1:
-            return cache[self.args[0]]
-
-        # merge nested args:
-        new_args = {} # Dicts maintain order
-        for arg in self.args:
-            if arg in subfunctions:
-                if cache[arg] in new_args:
-                    new_args[cache[arg]] += 1
-                else:
-                    new_args[cache[arg]] = 1
-                continue
-
-            if type(cache[arg]) == XOR:
-                for nested_arg in cache[arg].args:
-                    if nested_arg in new_args:
-                        new_args[nested_arg] += 1
-                    else:
-                        new_args[nested_arg] = 1
-
-            elif cache[arg] in new_args:
-                new_args[cache[arg]] += 1
-            else:
-                new_args[cache[arg]] = 1
-        new_args = [arg for arg, count in new_args.items() if (count%2)]
-
-        if in_place:
-            self.args = tuple(new_args)
-            return self
-        else:
-            return XOR(*new_args, arg_limit = self.arg_limit)
+    def _merge_redundant(self, cache, subfunctions, in_place = False):
+        return _merge_associative(self, XOR, cache, subfunctions, in_place, cancel = True)
 
 
     def _binarize(self,cache):
@@ -170,31 +198,7 @@ class AND(BooleanFunction):
         return "(" + " & ".join(python_strings[arg] for arg in self.args) + ")"
 
     def _merge_redundant(self, cache, subfunctions, in_place = False):
-        if len(self.args) == 1:
-            return cache[self.args[0]]
-
-        seen = set()
-        new_args = []
-        for arg in self.args:
-            if arg in subfunctions:
-                new_args.append(cache[arg])
-                continue
-
-            if type(cache[arg]) == AND:
-                for nested_arg in cache[arg].args:
-                    if nested_arg not in seen:
-                        seen.add(nested_arg)
-                        new_args.append(nested_arg)
-
-            elif cache[arg] not in seen:
-                seen.add(cache[arg])
-                new_args.append(cache[arg])
-
-        if in_place:
-            self.args = tuple(new_args)
-            return self
-        else:
-            return AND(*new_args, arg_limit = self.arg_limit)
+        return _merge_associative(self, AND, cache, subfunctions, in_place, cancel = False)
 
 
     def _binarize(self, cache):
@@ -289,31 +293,7 @@ class OR(BooleanFunction):
 
 
     def _merge_redundant(self, cache, subfunctions, in_place = False):
-        if len(self.args) == 1:
-            return cache[self.args[0]]
-
-        seen = set()
-        new_args = []
-        for arg in self.args:
-            if arg in subfunctions:
-                new_args.append(cache[arg])
-                continue
-
-            if type(cache[arg]) == OR:
-                for nested_arg in cache[arg].args:
-                    if nested_arg not in seen:
-                        seen.add(nested_arg)
-                        new_args.append(nested_arg)
-
-            elif cache[arg] not in seen:
-                seen.add(cache[arg])
-                new_args.append(cache[arg])
-
-        if in_place:
-            self.args = tuple(new_args)
-            return self
-        else:
-            return OR(*new_args, arg_limit = self.arg_limit)
+        return _merge_associative(self, OR, cache, subfunctions, in_place, cancel = False)
 
 
     def _binarize(self, cache):
@@ -387,6 +367,13 @@ class XNOR(BooleanFunction):
     def __init__(self, *args, arg_limit = None):
         self.arg_limit = arg_limit
         self.args = args
+
+    def _merge_redundant(self, cache, subfunctions, in_place = False):
+        # with one argument this gate is a negation, so it cannot be dropped
+        # the way a one-argument XOR, AND or OR can
+        if len(self.args) == 1:
+            return NOT(cache[self.args[0]])
+        return super()._merge_redundant(cache, subfunctions, in_place)
 
     def _eval(self, values, array):
         return invert(reduce(
@@ -499,6 +486,13 @@ class NAND(BooleanFunction):
         self.arg_limit = arg_limit
         self.args = args
 
+    def _merge_redundant(self, cache, subfunctions, in_place = False):
+        # with one argument this gate is a negation, so it cannot be dropped
+        # the way a one-argument XOR, AND or OR can
+        if len(self.args) == 1:
+            return NOT(cache[self.args[0]])
+        return super()._merge_redundant(cache, subfunctions, in_place)
+
     def _eval(self, values, array):
         return invert(reduce(
             lambda a, b: a & b,
@@ -609,6 +603,13 @@ class NOR(BooleanFunction):
     def __init__(self, *args, arg_limit = None):
         self.arg_limit = arg_limit
         self.args = args
+
+    def _merge_redundant(self, cache, subfunctions, in_place = False):
+        # with one argument this gate is a negation, so it cannot be dropped
+        # the way a one-argument XOR, AND or OR can
+        if len(self.args) == 1:
+            return NOT(cache[self.args[0]])
+        return super()._merge_redundant(cache, subfunctions, in_place)
 
     def _eval(self, values, array):
         return invert(reduce(

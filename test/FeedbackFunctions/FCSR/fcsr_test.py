@@ -1,4 +1,4 @@
-"""Tests for FCSR: construction, fromSeq round-trip, state_from_frac, 2-adic structure.
+"""Tests for FCSR: construction, from_seq round-trip, state_from_frac, 2-adic structure.
 
 Derived from ProductRegisters.ipynb (Library Basics > FCSRs, and
 Applications > Berlekamp-Massey Variants for Register Synthesis).
@@ -68,28 +68,28 @@ def test_state_from_frac_negative_num():
     assert len(state) == 2 * size - 1
 
 
-# ── fromSeq round-trip ──────────────────────────────────────────────────
+# ── from_seq round-trip ──────────────────────────────────────────────────
 
-def test_fcsr_fromSeq_round_trip():
-    """FCSR.fromSeq should recover a register that reproduces the input sequence."""
+def test_fcsr_from_seq_round_trip():
+    """FCSR.from_seq should recover a register that reproduces the input sequence."""
     F = FCSR(3, 5)
     reg = FeedbackRegister(2**F.size - 1, F)
     seq = [state[0] for state in reg.run(compiled=False, limit=80)]
 
-    init_state, recovered = FCSR.fromSeq(seq)
+    init_state, recovered = FCSR.from_seq(seq)
     rec_reg = FeedbackRegister(init_state, recovered)
     seq2 = [state[0] for state in rec_reg.run(compiled=False, limit=80)]
-    assert seq == seq2, "FCSR fromSeq round-trip failed"
+    assert seq == seq2, "FCSR from_seq round-trip failed"
 
-def test_fcsr_fromSeq_random():
-    """fromSeq on a random sequence should reproduce the sequence prefix."""
+def test_fcsr_from_seq_random():
+    """from_seq on a random sequence should reproduce the sequence prefix."""
     random.seed(42)
     seq = [random.randint(0, 1) for _ in range(60)]
 
-    init_state, recovered = FCSR.fromSeq(seq)
+    init_state, recovered = FCSR.from_seq(seq)
     rec_reg = FeedbackRegister(init_state, recovered)
     seq2 = [state[0] for state in rec_reg.run(compiled=False, limit=60)]
-    assert seq == seq2, "FCSR fromSeq on random sequence failed"
+    assert seq == seq2, "FCSR from_seq on random sequence failed"
 
 
 # ── BM_FCSR ─────────────────────────────────────────────────────────────
@@ -303,7 +303,7 @@ def test_positive_numerators_leave_the_feedback_open():
 # -- FCSR_size agrees with state_from_frac -----------------------------------
 #
 # Two functions compute the register size for a fraction: FCSR_size (which
-# BM_FCSR returns) and state_from_frac (which fromSeq actually uses). They must
+# BM_FCSR returns) and state_from_frac (which from_seq actually uses). They must
 # agree, or BM_FCSR hands a size to callers that does not fit the state
 # state_from_frac would build. p = q = 1 is the case where the logarithmic
 # sizing is tight and both special-case it -- a positive numerator needs the

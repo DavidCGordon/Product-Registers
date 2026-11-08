@@ -1,3 +1,11 @@
+"""Boolean functions as DAGs of gate and leaf nodes.
+
+Every whole-function method is a loop over `BooleanFunction.postorder` that
+calls one hook per node; code generation shares one driver,
+`_generate_assignments`. See docs/architecture/BooleanFunction Traversal and
+Code Generation.md for the walk's contract, the hooks a node class provides,
+and how subfunctions and overrides become separate assignments.
+"""
 from collections.abc import Callable, Collection, Iterator, Mapping
 from typing import Any, Protocol, Self
 
@@ -41,6 +49,20 @@ class _CopiesWithMemo(dict):
 
     def __missing__(self, node: Any) -> Any:
         return self.memo[id(node)]
+
+
+class _MergeResults(dict):
+    """`merge_redundant`'s results keyed by original node, plus the arguments not yet written.
+
+    A `_merge_redundant` hook may return a node whose arguments it has not built
+    yet, and record them in `pending` instead: the result maps to the node it was
+    made for and its arguments, as an insertion-ordered dict used as a set.
+    `merge_redundant` writes every pending result's arguments once the walk is
+    done. The associative gates use this to merge a nested chain without building
+    each intermediate gate in full (see `Gates._merge_associative`).
+    """
+
+    pending: dict[Any, tuple[Any, dict[Any, None]]]
 
 
 class IndexableContainer[K,V](Protocol):
@@ -621,7 +643,8 @@ class BooleanFunction(Serializable):
         output_name: str = 'output',
         subfunction_prefix: str = 'fn',
         array_name: str = 'array',
-        overrides: Mapping["BooleanFunction", str] | None = None
+        overrides: Mapping["BooleanFunction", str] | None = None,
+        optimize: bool = False
     ) -> list[str]:
         """Generates Python statements computing the function.
 
@@ -641,10 +664,35 @@ class BooleanFunction(Serializable):
         :param overrides: Nodes to write as the given string instead of generating
             them; an overridden node gets no statement of its own. Defaults to None.
         :type overrides: Mapping[BooleanFunction, str] | None
+        :param optimize: If True, statements are generated for an optimized form
+            of the function, with fewer operations, when there is one (see
+            `PyPR.BooleanLogic.Optimization.optimize`); the function itself is
+            not changed. That form computes the same value on every assignment
+            of bits, and only of bits: it is not for evaluation over other
+            objects. If False (the default), or when optimizing saves no
+            operations, the function is written as it stands.
+        :type optimize: bool
         :return: One Python statement per line, dependencies first.
         :rtype: list[str]
+        :raises ValueError: If `optimize` is True and `overrides` is given:
+            overrides name nodes of this function, which the optimized form
+            does not contain.
         """
-        assignments = self._generate_assignments(
+        function = self
+        if optimize:
+            if overrides:
+                raise ValueError(
+                    "overrides cannot be combined with optimize=True: they name "
+                    "nodes of this function, which the optimized form does not contain"
+                )
+            # imported here: Optimization is built on this module
+            from PyPR.BooleanLogic.Optimization import operation_count
+            from PyPR.BooleanLogic.Optimization import optimize as optimize_functions
+            optimized = optimize_functions([self])
+            if operation_count(optimized) < operation_count([self]):
+                function = optimized[0]
+
+        assignments = function._generate_assignments(
             "_generate_python",
             array_name,
             output_name,
@@ -794,7 +842,7 @@ class BooleanFunction(Serializable):
             a dict or list, but other types are accepted as well.
         :type index_map: Any
         :param in_place: If `True`, modify the function in place and return self,
-        instead of returning a new function. Defaults to `False`
+            instead of returning a new function. Defaults to `False`
         :type in_place: bool, optional
         :return: A BooleanFunction with the indices remapped.
         :rtype: BooleanFunction
@@ -835,7 +883,7 @@ class BooleanFunction(Serializable):
             the constants). This pair structure allows for keys/constants which are not hashable. 
         :type const_map: Any
         :param in_place: If `True`, modify the function in place and return self,
-        instead of returning a new function. Defaults to `False`
+            instead of returning a new function. Defaults to `False`
         :type in_place: bool, optional
         :return: A BooleanFunction with the constants remapped.
         :rtype: BooleanFunction
@@ -871,7 +919,7 @@ class BooleanFunction(Serializable):
         :param shift_amount: The amount to shift each index (e.g. `i` becomes `i + shift amount`)
         :type index_map: int
         :param in_place: If `True`, modify the function in place and return self,
-        instead of returning a new function. Defaults to `False`
+            instead of returning a new function. Defaults to `False`
         :type in_place: bool, optional
         :return: A BooleanFunction with the indices shifted.
         :rtype: BooleanFunction
@@ -893,7 +941,7 @@ class BooleanFunction(Serializable):
         list needed to pass inputs to a function.
         
         :param in_place: If `True`, modify the function in place and return self,
-        instead of returning a new function. Defaults to`False`
+            instead of returning a new function. Defaults to`False`
         :type in_place: bool, optional
         :return: A BooleanFunction with consecutive variables
         :rtype: BooleanFunction
@@ -919,7 +967,7 @@ class BooleanFunction(Serializable):
             a dict or list, but other types are accepted as well.
         :type input_map: Any
         :param in_place: If `True`, modify the function in place and return self,
-        instead of returning a new function. Defaults to `False`
+            instead of returning a new function. Defaults to `False`
         :type in_place: bool, optional
         :raises NotImplementedError: If not overriden
         """
@@ -939,7 +987,7 @@ class BooleanFunction(Serializable):
             a dict or list, but other types are accepted as well.
         :type input_map: Any
         :param in_place: If `True`, modify the function in place and return self,
-        instead of returning a new function. Defaults to `False`
+            instead of returning a new function. Defaults to `False`
         :type in_place: bool, optional
         :return: A BooleanFunction with the indices remapped.
         :rtype: BooleanFunction
@@ -970,13 +1018,16 @@ class BooleanFunction(Serializable):
         simplifications might be possible for your given node.
 
         :param cache: a dictionary mapping child nodes to their corresponding output.
+            A child's output may not have its arguments yet: one listed in
+            `cache.pending` gets them when the walk ends, so a hook that reads a
+            child's `args` must read `cache.pending[output]` for such a child.
         :type cache: dict[BooleanFunction,BooleanFunction]
         :param subfunctions: The subfunctions of the root node on which
             `merge_redundant` was called. Only membership is meaningful: it is
             passed as a set, so testing it is constant time.
         :type subfunctions: Collection[BooleanFunction]
         :param in_place: If `True`, modify the function in place and return self,
-        instead of returning a new function. Defaults to `False`
+            instead of returning a new function. Defaults to `False`
         :type in_place: bool, optional
         :return: A reduced or simplified version of this node.
         :rtype: BooleanFunction
@@ -994,10 +1045,15 @@ class BooleanFunction(Serializable):
     ) -> "BooleanFunction":
         """Performs some basic heuristic simplifications on a BooleanFunction
 
-        Performs several basic heuristic simplifications. By default, first removes 
-        non-unary functions with only one input, as these have no effect 
-        on the output. Secondly, merge any associative gates (e.g. XOR, AND, OR),
-        unless the child is a subfunction (does not include leaves).
+        Performs several basic heuristic simplifications. By default, first removes
+        XOR, AND and OR gates with only one input, as these have no effect
+        on the output (a one-input XNOR, NAND or NOR is a negation, and becomes a NOT).
+        Secondly, merge any associative gates (e.g. XOR, AND, OR),
+        unless the child is a subfunction (does not include leaves). Merging
+        removes repeated arguments: a repeated pair cancels in an XOR (an XOR
+        left with nothing is `CONST(0)`), and is kept once in an AND or OR. The
+        order of a merged gate's arguments is unspecified, and may differ from
+        the order they appeared in.
         Even these basic simplifications can result in a dramatically
         simplified function when applied recursively, and help clean up 
         structures created during function composition or other modifications.
@@ -1020,7 +1076,8 @@ class BooleanFunction(Serializable):
         # and a list made that quadratic in the number of subfunctions
         subfunctions = set(self.subfunctions())
 
-        new_nodes = {}
+        new_nodes = _MergeResults()
+        new_nodes.pending = {}
         for node in self.postorder():
             if node.is_leaf():
                 new_nodes[node] = node
@@ -1028,6 +1085,10 @@ class BooleanFunction(Serializable):
                 new_nodes[node] = node._merge_redundant(
                     new_nodes, subfunctions, in_place = in_place,
                 )
+
+        # every result exists now, so the arguments hooks deferred can be written
+        for result, (_made_for, args) in new_nodes.pending.items():
+            result.args = tuple(args)
         return new_nodes[self]
 
     # evaluation
@@ -1110,7 +1171,9 @@ class BooleanFunction(Serializable):
         """Just-In-Time compiles a given function, enabling faster evaluation.
 
         Generates the function as a python function and compiles it with numba's njit
-        functionality. The resulting function is then both stored inside the function's
+        functionality. The code compiled is `generate_python(optimize=True)`: an
+        optimized form of the function where that saves operations, and the
+        function as written otherwise. The resulting function is then both stored inside the function's
         `_compiled` field, and also returned, allowing for immediate use. Any changes to
         the function will not be reflected until the function is recompiled. Additionally,
         due to the limitations of the numba jit compiler, this only works for evaluations
@@ -1123,7 +1186,7 @@ class BooleanFunction(Serializable):
         :rtype: Any
         """
         self._compiled = None
-        python_body = "\n    ".join(self.generate_python())
+        python_body = "\n    ".join(self.generate_python(optimize=True))
 
         exec(f"""
 @njit(parallel=True)
@@ -1297,12 +1360,14 @@ self._compiled = _compiled
         the function can also recieve the output of previous calls as input, and will continue to build
         out the constraints, reusing variables where possible. This means the same function can also be
         used to add onto existing output. For example:
-        ```python
-        tseytin_data = function_1.tseytin()
-        tseytin_data = function_2.tseytin(*tseytin_data)
-        tseytin_data = function_3.tseytin(*tseytin_data)
-        ...
-        ```
+
+        .. code-block:: python
+
+            tseytin_data = function_1.tseytin()
+            tseytin_data = function_2.tseytin(*tseytin_data)
+            tseytin_data = function_3.tseytin(*tseytin_data)
+            ...
+
         Or equivalently called in a for loop will create a set of constraints which describes all functions
         and which reuses variables where appropriate. This updating lets you create complicated queries,
         if you need to interact with the sat solver more deeply than just calling `fn.sat()`
@@ -1327,7 +1392,7 @@ self._compiled = _compiled
             list[tuple[int, ...]],
             dict[BooleanFunction,list[int]],
             dict[int,int]
-        ]
+            ]
         """
         raise NotImplementedError  # defined in SAT.py
 
@@ -1356,12 +1421,14 @@ self._compiled = _compiled
         the function can also recieve the output of previous calls as input, and will continue to build
         out the constraints, reusing variables where possible. This means the same function can also be
         used to add onto existing output. For example:
-        ```python
-        labels = function_1.tseytin_labels()
-        labels = function_2.tseytin_labels(*labels)
-        labels = function_3.tseytin_labels(*labels)
-        ...
-        ```
+
+        .. code-block:: python
+
+            labels = function_1.tseytin_labels()
+            labels = function_2.tseytin_labels(*labels)
+            labels = function_3.tseytin_labels(*labels)
+            ...
+
         Or equivalently called in a for loop will create a set of labels which covers all functions
         and which reuses variables where appropriate. This is an important part of the `tseytin` function.
         
@@ -1379,7 +1446,7 @@ self._compiled = _compiled
         :rtype: tuple[
             dict[BooleanFunction,list[int]],
             dict[int,int]
-        ]
+            ]
         """
         raise NotImplementedError  # defined in SAT.py
 
@@ -1486,12 +1553,14 @@ self._compiled = _compiled
         the function can also recieve the output of previous calls as input, and will continue 
         to add in new IDs, reusing IDs where possible. This means the same function can also be
         used to add onto existing output. For example:
-        ```python
-        ids = object_1.generate_ids()
-        ids = object_2.generate_ids(ids)
-        ids = object_3.generate_ids(ids)
-        ...
-        ```
+
+        .. code-block:: python
+
+            ids = object_1.generate_ids()
+            ids = object_2.generate_ids(ids)
+            ids = object_3.generate_ids(ids)
+            ...
+
         For efficiency reasons, this method both mutates the input and returns the mutated
         list of ids by default. This can be disabled by setting the parameter `in_place=False`
 

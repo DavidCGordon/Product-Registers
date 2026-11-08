@@ -12,7 +12,7 @@ import random
 
 import numpy as np
 
-from PyPR.BooleanLogic import AND, CONST, VAR
+from PyPR.BooleanLogic import AND, CONST, NOT, VAR
 from PyPR.BooleanLogic.ChainingGeneration.Templates import arman_template
 
 from PyPR.FeedbackFunctions import CMPR, MPR
@@ -32,7 +32,7 @@ def test_comp_cost_positive():
     random.seed(0)
     np.random.seed(0)  # chaining also draws from numpy's generator
     C = CMPR([M7.__copy__(), M5.__copy__(), M3.__copy__()])
-    C.generateChaining(template=arman_template(3))
+    C.generate_chaining(template=arman_template(3))
     cost = estimate_cost_comp(C, VAR(0), C.monomial_profiles())
     assert cost > 0, f"Expected positive comp cost, got {cost}"
 
@@ -42,9 +42,23 @@ def test_cube_cost_positive():
     random.seed(0)
     np.random.seed(0)  # chaining also draws from numpy's generator
     C = CMPR([M7.__copy__(), M5.__copy__(), M3.__copy__()])
-    C.generateChaining(template=arman_template(3))
+    C.generate_chaining(template=arman_template(3))
     cost = estimate_cost_cube(C, VAR(0), C.monomial_profiles())
     assert cost > 0, f"Expected positive cube cost, got {cost}"
+
+
+def test_comp_cost_of_a_negation_is_free():
+    """A NOT adds nothing to the composition cost: inverting an ANF flips its
+    constant term only. (A NOT used to crash the estimator, which read a second
+    argument from every gate.)"""
+    random.seed(0)
+    np.random.seed(0)  # chaining also draws from numpy's generator
+    C = CMPR([M7.__copy__(), M5.__copy__(), M3.__copy__()])
+    C.generate_chaining(template=arman_template(3))
+    mps = C.monomial_profiles()
+    plain = estimate_cost_comp(C, AND(VAR(0), VAR(1)), mps)
+    negated = estimate_cost_comp(C, NOT(AND(VAR(0), VAR(1))), mps)
+    assert negated == plain
 
 
 def test_comp_greater_than_cube_for_cmpr():
@@ -52,7 +66,7 @@ def test_comp_greater_than_cube_for_cmpr():
     random.seed(0)
     np.random.seed(0)  # chaining also draws from numpy's generator
     C = CMPR([M7.__copy__(), M5.__copy__(), M3.__copy__()])
-    C.generateChaining(template=arman_template(3))
+    C.generate_chaining(template=arman_template(3))
     mps = C.monomial_profiles()
     comp = estimate_cost_comp(C, VAR(0), mps)
     cube = estimate_cost_cube(C, VAR(0), mps)
@@ -76,7 +90,7 @@ def test_zero_output_gives_zero_cube_cost():
     random.seed(0)
     np.random.seed(0)  # chaining also draws from numpy's generator
     C = CMPR([M7.__copy__(), M5.__copy__()])
-    C.generateChaining(template=arman_template())
+    C.generate_chaining(template=arman_template())
     cost = estimate_cost_cube(C, CONST(0), C.monomial_profiles())
     assert cost == 0, f"Expected 0 cube cost for CONST(0), got {cost}"
 
@@ -87,7 +101,7 @@ def test_deterministic_with_seed():
         random.seed(seed)
         np.random.seed(seed)
         C = CMPR([M7.__copy__(), M5.__copy__(), M3.__copy__()])
-        C.generateChaining(template=arman_template(3))
+        C.generate_chaining(template=arman_template(3))
         mps = C.monomial_profiles()
         return (
             estimate_cost_comp(C, VAR(0), mps),
@@ -103,14 +117,14 @@ def test_larger_cmpr_higher_costs():
     random.seed(0)
     np.random.seed(0)  # chaining also draws from numpy's generator
     C_small = CMPR([M7.__copy__(), M3.__copy__()])
-    C_small.generateChaining(template=arman_template())
+    C_small.generate_chaining(template=arman_template())
     mps_s = C_small.monomial_profiles()
     comp_s = estimate_cost_comp(C_small, VAR(0), mps_s)
     cube_s = estimate_cost_cube(C_small, VAR(0), mps_s)
 
     random.seed(0)
     C_large = CMPR([M7.__copy__(), M5.__copy__(), M3.__copy__()])
-    C_large.generateChaining(template=arman_template())
+    C_large.generate_chaining(template=arman_template())
     mps_l = C_large.monomial_profiles()
     comp_l = estimate_cost_comp(C_large, VAR(0), mps_l)
     cube_l = estimate_cost_cube(C_large, VAR(0), mps_l)

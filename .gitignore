@@ -69,6 +69,8 @@ instance/
 .webassets-cache
 .scrapy
 docs/_build/
+# The API pages Sphinx generates from the docstrings on every build.
+docs/api/
 .pybuilder/
 target/
 .ipynb_checkpoints

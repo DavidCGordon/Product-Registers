@@ -166,7 +166,7 @@ def test_berlekamp_massey_returns_the_dual_polynomial(n, family):
     This is the definition of the dual relationship.  Polynomial Conventions.md
     keeps BM's natural output rather than reversing it, precisely so that the
     register constructors round-trip; if this ever returned the primal
-    (reversed) polynomial instead, `Fibonacci(*Fibonacci.fromSeq(seq))` would
+    (reversed) polynomial instead, `Fibonacci(*Fibonacci.from_seq(seq))` would
     stop reproducing `seq`.
     """
     reg = FeedbackRegister(1, family(n, PRIMITIVE[n]))

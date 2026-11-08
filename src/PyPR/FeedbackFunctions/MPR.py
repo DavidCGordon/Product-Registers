@@ -149,8 +149,8 @@ class MPR(FeedbackFunction):
         """
         #create a feedback register to determine minimal polynomial
         seq = []
-        testReg = FeedbackRegister(2**self.size-1,self)
-        for state in testReg.run((self.size+1)*2):
+        test_reg = FeedbackRegister(2**self.size-1,self)
+        for state in test_reg.run((self.size+1)*2):
             seq.append(state[0])
         _, m = berlekamp_massey(seq)
         return [int(x) for x in m]

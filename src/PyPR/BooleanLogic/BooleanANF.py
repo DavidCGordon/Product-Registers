@@ -213,22 +213,22 @@ class BooleanANF(Serializable):
         :return: A string representation of the function
         :rtype: str
         """
-        stringBeginning = ""
-        termStrings = []
+        string_beginning = ""
+        term_strings = []
         for term in self.terms:
             if term == frozenset():
-                stringBeginning = "True,"
+                string_beginning = "True,"
             elif len(term) == 1:
-                termStrings.append(repr(tuple(term)[0]) + ",")
+                term_strings.append(repr(tuple(term)[0]) + ",")
             else:
                 #if the internal objects have an order, sort terms.
                 try:
-                    termStrings.append("(" + ",".join(repr(t) for t in sorted(term)) + "),")
+                    term_strings.append("(" + ",".join(repr(t) for t in sorted(term)) + "),")
                 except TypeError:
-                    termStrings.append("(" + ",".join(repr(t) for t in term) + "),")
+                    term_strings.append("(" + ",".join(repr(t) for t in term) + "),")
 
         #sort string terms, and print vaguely by size
-        return stringBeginning + "".join(sorted(termStrings, key = lambda x: len(x)))[:-1]
+        return string_beginning + "".join(sorted(term_strings, key = lambda x: len(x)))[:-1]
 
     # Generic container methods
     def __len__(self) -> int:

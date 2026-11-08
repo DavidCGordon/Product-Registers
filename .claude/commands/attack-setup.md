@@ -50,7 +50,7 @@ from PyPR.BooleanLogic.ChainingGeneration.Templates import arman_template
 M5 = MPR(5, [1,0,1,0,0,1], [1,1,0,0,1])
 M3 = MPR(3, [1,1,0,1], [1,0,1])
 C = CMPR([M5, M3])
-C.generateChaining(template=arman_template(max_and=2))
+C.generate_chaining(template=arman_template(max_and=2))
 
 # Choose an output function
 output_fn = XOR(AND(VAR(0), VAR(1)), VAR(2))

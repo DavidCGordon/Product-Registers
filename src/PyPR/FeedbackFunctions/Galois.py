@@ -31,7 +31,7 @@ class Galois(FeedbackFunction):
     the dual rather than the primal. See
     `docs/conventions/Polynomial Conventions.md` for the full primal/dual
     framework. As a practical consequence,
-    `Galois(*Galois.fromSeq(seq))` reproduces `seq` with no manual
+    `Galois(*Galois.from_seq(seq))` reproduces `seq` with no manual
     reversal at the user boundary.
 
     :ivar size: The number of bits in the register, equal to the degree of
@@ -97,15 +97,15 @@ class Galois(FeedbackFunction):
         :type polynomial: list[int]
         """
         # build the shift (towards zero):
-        newFn = [[[i+1]] for i in range(self.size-1)] + [[]]
+        new_fn = [[[i+1]] for i in range(self.size-1)] + [[]]
 
         # build tap set fn from polynomial
         # the shift by 1
         for i in range(self.size):
             if polynomial[i+1]:
-                newFn[i] += [[0]]
+                new_fn[i] += [[0]]
 
-        self.fn_list = [BooleanFunction.from_ANF(bitFn) for bitFn in newFn]
+        self.fn_list = [BooleanFunction.from_ANF(bitFn) for bitFn in new_fn]
 
         # handle empty top case:
         if not polynomial[-1]:
@@ -125,11 +125,11 @@ class Galois(FeedbackFunction):
             inverse-time taps should be installed.
         :type polynomial: list[int]
         """
-        newFn = [[]] + [[[i-1]] for i in range(1,self.size)]
+        new_fn = [[]] + [[[i-1]] for i in range(1,self.size)]
         for i in range(self.size):
             if polynomial[i]:
-                newFn[i] += [[self.size-1]]
-        self.fn_list = [BooleanFunction.from_ANF(bitFn) for bitFn in newFn]
+                new_fn[i] += [[self.size-1]]
+        self.fn_list = [BooleanFunction.from_ANF(bitFn) for bitFn in new_fn]
 
     def invert(self) -> None:
         """Toggle the register between its forward and time-reversed
@@ -155,7 +155,7 @@ class Galois(FeedbackFunction):
         if 'update_matrix' in self.__dict__: del self.update_matrix
 
     @classmethod
-    def fromSeq(cls,
+    def from_seq(cls,
         seq: list[int],
         bijective: bool = False
     ) -> tuple[list[int], "Galois"]:
@@ -201,16 +201,16 @@ class Galois(FeedbackFunction):
         return s, Galois(L, c[:L+1].tolist())
 
     @classmethod
-    def fromReg(cls,
+    def from_reg(cls,
         F: "FeedbackRegister",
         bit: int = 0,
-        numIters: int | None = None
+        num_iters: int | None = None
     ) -> tuple[list[int], "Galois"]:
         """Recover the Galois LFSR which reproduces a single bit of a running
         register.
 
-        Observes the specified bit of `F` over `numIters` clock cycles to
-        obtain a binary sequence, then applies `fromSeq` to recover the
+        Observes the specified bit of `F` over `num_iters` clock cycles to
+        obtain a binary sequence, then applies `from_seq` to recover the
         Galois LFSR realizing it. This is useful for converting an arbitrary
         (possibly nonlinear) register into a linear surrogate that matches
         a chosen output bit.
@@ -219,17 +219,17 @@ class Galois(FeedbackFunction):
         :type F: FeedbackRegister
         :param bit: The index of the bit to observe.
         :type bit: int
-        :param numIters: The number of clock cycles to observe. Defaults to
+        :param num_iters: The number of clock cycles to observe. Defaults to
             2*F.size + 4, which is enough for Berlekamp-Massey to recover
             any linear recurrence of complexity at most F.size.
-        :type numIters: int | None
+        :type num_iters: int | None
         :return: The initial state and the recovered Galois LFSR.
         :rtype: tuple[list[int], Galois]
         """
-        if not numIters:
-            numIters = 2*F.size + 4
-        seq = [state[bit] for state in F.run(numIters)]
-        return Galois.fromSeq(seq)
+        if not num_iters:
+            num_iters = 2*F.size + 4
+        seq = [state[bit] for state in F.run(num_iters)]
+        return Galois.from_seq(seq)
 
     @cached_property
     def update_matrix(self) -> np.ndarray:

@@ -53,6 +53,42 @@
 }
 
 % ---------------------------------------------------------------------------
+% Used in: src/PyPR/BooleanLogic/Optimization.py
+%          docs/architecture/Logic Optimization.md
+% ---------------------------------------------------------------------------
+@article{BoyarMatthewsPeralta2013,
+  author    = {Boyar, Joan and Matthews, Philip and Peralta, Ren{\'e}},
+  title     = {Logic Minimization Techniques with Applications to Cryptology},
+  journal   = {Journal of Cryptology},
+  volume    = {26},
+  number    = {2},
+  pages     = {280--312},
+  year      = {2013},
+  doi       = {10.1007/s00145-012-9124-7},
+  note      = {Minimizes a circuit in two steps, nonlinear gates first and
+               then the linear parts, and shows the second step is the
+               NP-hard shortest linear program problem. The source for
+               the claim that the optimizer's output cannot be guaranteed
+               minimal, and for treating XOR sharing as its own problem.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: src/PyPR/BooleanLogic/Optimization.py
+%          docs/architecture/Logic Optimization.md
+% ---------------------------------------------------------------------------
+@inproceedings{BraytonMcMullen1982,
+  author    = {Brayton, Robert K. and McMullen, Curtis},
+  title     = {The Decomposition and Factorization of {Boolean} Expressions},
+  booktitle = {Proceedings of the IEEE International Symposium on Circuits
+               and Systems (ISCAS)},
+  pages     = {49--54},
+  year      = {1982},
+  note      = {Algebraic division of sums of products by common divisors.
+               The optimizer's factoring pass is the simplest case: the
+               divisor is a single literal.},
+}
+
+% ---------------------------------------------------------------------------
 % Used in: src/PyPR/FeedbackRegister.py (period detection)
 % ---------------------------------------------------------------------------
 @article{Brent1980,
@@ -67,6 +103,72 @@
   note      = {Introduces the cycle-detection algorithm used in
                FeedbackRegister.period(). PyPR uses a slightly modified
                version of the Wikipedia pseudocode.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: docs/theory/Interleaving and Clock-Controlled Registers.md
+%          (Shrinking Generator section; the construction is described
+%          there but this paper is not yet cited by name in the text)
+%          src/PyPR/Tools/ClockControlled.py (shrinking_generator)
+% ---------------------------------------------------------------------------
+@inproceedings{CoppersmithKrawczykMansour1993,
+  author    = {Coppersmith, Don and Krawczyk, Hugo and Mansour, Yishay},
+  title     = {The Shrinking Generator},
+  booktitle = {Advances in Cryptology --- CRYPTO '93},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {773},
+  pages     = {22--39},
+  year      = {1994},
+  publisher = {Springer},
+  doi       = {10.1007/3-540-48329-2_3},
+  note      = {Introduces the shrinking generator: the output of one LFSR
+               is kept or discarded according to the output of a second.
+               The construction analysed in theory/Interleaving and
+               Clock-Controlled Registers.md.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: docs/theory/Algebraic Attacks.md (FAA section, named in an
+%          OPEN note as the place to look for a citation)
+% ---------------------------------------------------------------------------
+@inproceedings{Courtois2003,
+  author    = {Courtois, Nicolas T.},
+  title     = {Fast Algebraic Attacks on Stream Ciphers with Linear
+               Feedback},
+  booktitle = {Advances in Cryptology --- CRYPTO 2003},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {2729},
+  pages     = {176--194},
+  year      = {2003},
+  publisher = {Springer},
+  doi       = {10.1007/978-3-540-45146-4_11},
+  note      = {Introduces fast algebraic attacks. theory/Algebraic
+               Attacks.md names this paper as the place to look for a
+               citation of its FAA keystream-length statement; the paper
+               has not been checked against that statement.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: docs/theory/Algebraic Attacks.md (Cube Attack section)
+%          docs/theory/Cube Equation Generation.md (cube attack identity)
+%          src/PyPR/Cryptanalysis/Attacks/cube_attacks.py
+%          (the attack is described in all three but this paper is not yet
+%          cited by name in the text)
+% ---------------------------------------------------------------------------
+@inproceedings{DinurShamir2009,
+  author    = {Dinur, Itai and Shamir, Adi},
+  title     = {Cube Attacks on Tweakable Black Box Polynomials},
+  booktitle = {Advances in Cryptology --- EUROCRYPT 2009},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {5479},
+  pages     = {278--299},
+  year      = {2009},
+  publisher = {Springer},
+  doi       = {10.1007/978-3-642-01001-9_16},
+  note      = {Introduces the cube attack. The attack described in
+               theory/Algebraic Attacks.md and the identity that
+               theory/Cube Equation Generation.md attributes to the cube
+               attack literature.},
 }
 
 % ---------------------------------------------------------------------------
@@ -105,6 +207,47 @@
 }
 
 % ---------------------------------------------------------------------------
+% Used in: docs/theory/Interleaving and Clock-Controlled Registers.md
+%          (Alternating-Step Generator section)
+% ---------------------------------------------------------------------------
+@inproceedings{Gunther1987,
+  author    = {G\"{u}nther, C. G.},
+  title     = {Alternating Step Generators Controlled by {De Bruijn}
+               Sequences},
+  booktitle = {Advances in Cryptology --- EUROCRYPT '87},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {304},
+  pages     = {5--14},
+  year      = {1988},
+  publisher = {Springer},
+  doi       = {10.1007/3-540-39118-5_2},
+  note      = {The alternating step generator with a de Bruijn control
+               sequence. Cited in theory/Interleaving and Clock-Controlled
+               Registers.md for the linear-complexity upper bound quoted
+               there for that case.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: src/PyPR/BooleanLogic/Optimization.py
+%          docs/architecture/Logic Optimization.md
+% ---------------------------------------------------------------------------
+@article{HosangadiFallahKastner2006,
+  author    = {Hosangadi, Anup and Fallah, Farzan and Kastner, Ryan},
+  title     = {Optimizing Polynomial Expressions by Algebraic Factorization
+               and Common Subexpression Elimination},
+  journal   = {IEEE Transactions on Computer-Aided Design of Integrated
+               Circuits and Systems},
+  volume    = {25},
+  number    = {10},
+  pages     = {2012--2022},
+  year      = {2006},
+  doi       = {10.1109/TCAD.2006.875712},
+  note      = {Carries the algebraic factoring and extraction methods of
+               logic synthesis over to polynomials, which is the setting
+               of a sum (XOR) of products (AND): the ANF.},
+}
+
+% ---------------------------------------------------------------------------
 % Used in: src/PyPR/Tools/RegisterSynthesis/fcsrSynthesis.py
 % ---------------------------------------------------------------------------
 @article{HuSha2019,
@@ -117,8 +260,8 @@
   year      = {2019},
   url       = {http://ijns.jalaxy.com.tw/contents/ijns-v21-n1/ijns-2019-v21-n1-p1-6.pdf},
   note      = {Bounds on 2-adic complexity of T-function output
-               sequences. Referenced in fcsrSynthesis.py as a
-               benchmark that PyPR's approach can improve upon.},
+               sequences. Cited in fcsrSynthesis.py as a point of
+               comparison.},
 }
 
 % ---------------------------------------------------------------------------
@@ -235,6 +378,27 @@
 }
 
 % ---------------------------------------------------------------------------
+% Used in: src/PyPR/BooleanLogic/Optimization.py
+%          docs/architecture/Logic Optimization.md
+% ---------------------------------------------------------------------------
+@article{KuehlmannParuthiKrohmGanai2002,
+  author    = {Kuehlmann, Andreas and Paruthi, Viresh and Krohm, Florian
+               and Ganai, Malay K.},
+  title     = {Robust {Boolean} Reasoning for Equivalence Checking and
+               Functional Property Verification},
+  journal   = {IEEE Transactions on Computer-Aided Design of Integrated
+               Circuits and Systems},
+  volume    = {21},
+  number    = {12},
+  pages     = {1377--1394},
+  year      = {2002},
+  doi       = {10.1109/TCAD.2002.804386},
+  note      = {Structural hashing of a gate network with complemented
+               edges: a gate is looked up by its kind and inputs before
+               it is created. The optimizer's network is built this way.},
+}
+
+% ---------------------------------------------------------------------------
 % Used in: docs/theory/Binomial Decimation Identity.md
 %          docs/theory/Algebraic Normal Form.md
 %          docs/theory/Moebius Inversion on the Bit-Subset Lattice.md
@@ -304,6 +468,41 @@
                implementation in PyPR follows this paper's pseudocode.
                TODO: locate exact publication venue and complete this
                entry.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: src/PyPR/BooleanLogic/Optimization.py
+%          docs/architecture/Logic Optimization.md
+% ---------------------------------------------------------------------------
+@inproceedings{Paar1997,
+  author    = {Paar, Christof},
+  title     = {Optimized Arithmetic for {Reed-Solomon} Encoders},
+  booktitle = {Proceedings of the IEEE International Symposium on
+               Information Theory (ISIT)},
+  year      = {1997},
+  doi       = {10.1109/ISIT.1997.613165},
+  note      = {Greedy sharing of XOR pairs: repeatedly compute once the
+               pair of inputs that the most sums have in common. The
+               optimizer's pair extraction, which applies the same
+               procedure to AND and OR gates as well.},
+}
+
+% ---------------------------------------------------------------------------
+% Used in: src/PyPR/BooleanLogic/Optimization.py
+%          docs/architecture/Logic Optimization.md
+% ---------------------------------------------------------------------------
+@article{RajskiVasudevamurthy1992,
+  author    = {Rajski, Janusz and Vasudevamurthy, Jagadeesh},
+  title     = {The Testability-Preserving Concurrent Decomposition and
+               Factorization of {Boolean} Expressions},
+  journal   = {IEEE Transactions on Computer-Aided Design of Integrated
+               Circuits and Systems},
+  volume    = {11},
+  number    = {6},
+  year      = {1992},
+  note      = {Extraction restricted to two-literal single-cube divisors
+               and double-cube divisors. The two-literal cube divisor is
+               what pair extraction shares among AND gates.},
 }
 
 % ---------------------------------------------------------------------------

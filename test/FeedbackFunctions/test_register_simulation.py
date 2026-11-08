@@ -38,7 +38,7 @@ def make_small_cmpr():
     # chaining draws from both random and numpy's generator, so seed both
     random.seed(0)
     np.random.seed(0)
-    C.generateChaining(template=fast_template())
+    C.generate_chaining(template=fast_template())
     return C
 
 
@@ -205,7 +205,7 @@ def every_feedback_family():
     construction would be the less readable option.
     """
     crossjoin = CrossJoin(6, PRIMITIVE[6])
-    crossjoin.generateNonlinearity(2)
+    crossjoin.generate_nonlinearity(2)
     return [
         ("MPR", MPR(5, PRIMITIVE[5]), 31),
         ("Fibonacci", Fibonacci(5, "12"), 31),

@@ -99,7 +99,8 @@ def build_constraint_data(
     but you can safely ignore it mostly, since the entire 4-tuple is passed around as just 
     "contraints". Here is the further information if you need more than that for debugging purposes:
 
-    ### Further Explanation:
+    **Further Explanation**
+
 
     for each candidate, if it is linearly independent with the previously collected candidates,
     it is inserted in the annihilator equations, and its corresponding multiple is inserted in the
@@ -123,7 +124,7 @@ def build_constraint_data(
     :rtype: tuple[int, tuple[
         np.ndarray[tuple[int,int],np.dtype[np.uint8]], DynamicEqStore,
         np.ndarray[tuple[int,int],np.dtype[np.uint8]], DynamicEqStore
-    ]]
+        ]]
     """
     dependence_check = LUEqStore()
     anns = EqStore()
@@ -195,7 +196,7 @@ def ann_solve(
     :type constraints: tuple[
         np.ndarray[tuple[int,int],np.dtype[np.uint8]], DynamicEqStore, 
         np.ndarray[tuple[int,int],np.dtype[np.uint8]], DynamicEqStore 
-    ]
+        ]
     :return: A tuple containing the pivots, free variables, and reduced matrix, from which a solution
         can be constructed and the annihilators extracted. 
     :rtype: tuple[ list, list, np.ndarray[tuple[int,int],np.dtype[np.uint8]] ]
@@ -231,7 +232,8 @@ def annihilators(
     If no list is passed for the candidates, the full list of monomials is used, and
     thus any function is a viable annihilator candidate.
 
-    ### Degree Walk:
+    **Degree Walk**
+
     This function performs a walk on the space of degree pairs `(ann_degree, mult_degree)`.
     for any functions `F`, `F+1` is an annihilator, so `(F.degree,0)` is a known feasible pair,
     and where we begin our walk, and we progress the walk according to simple rules.
@@ -244,7 +246,8 @@ def annihilators(
     If `annhilator_only = True`, than we end the walk early, as soon as `mult_degree != 0`, to avoid
     considering non-strict annihilators.
     
-    ### Explanation / Proof:
+    **Explanation / Proof**
+
     This is because we have a form of monotonicity in the degrees: as ann degree decreases, 
     the minimum `mult_degree` must be increase or stay the same. The easy proof of this is that our 
     `ann_solve` function allows any degree up to `ann_degree`. Thus all of the solutions possible 
@@ -355,7 +358,8 @@ def ann_iterator(
     If no list is passed for the candidates, the full list of monomials is used, and
     thus any function is a viable annihilator candidate.
 
-    ### Degree Walk:
+    **Degree Walk**
+
     This function performs a walk on the space of degree pairs `(ann_degree, mult_degree)`.
     for any functions `F`, `F+1` is an annihilator, so `(F.degree,0)` is a known feasible pair,
     and where we begin our walk, and we progress the walk according to simple rules.
@@ -368,7 +372,8 @@ def ann_iterator(
     If `annhilator_only = True`, than we end the walk early, as soon as `mult_degree != 0`, to avoid
     considering non-strict annihilators.
     
-    ### Explanation / Proof:
+    **Explanation / Proof**
+
     This is because we have a form of monotonicity in the degrees: as ann degree decreases, 
     the minimum `mult_degree` must be increase or stay the same. The easy proof of this is that our 
     `ann_solve` function allows any degree up to `ann_degree`. Thus all of the solutions possible 

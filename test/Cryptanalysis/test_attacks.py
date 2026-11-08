@@ -56,7 +56,7 @@ def _target():
     M5 = MPR(5, [1, 0, 1, 0, 0, 1], [1, 1, 0, 0, 1])
     M3 = MPR(3, [1, 1, 0, 1], [1, 0, 1])
     cmpr = CMPR([M5, M3])
-    cmpr.generateChaining(template=arman_template(max_and=2))
+    cmpr.generate_chaining(template=arman_template(max_and=2))
     return cmpr, XOR(AND(VAR(0), VAR(1)), VAR(2))
 
 

@@ -6,7 +6,7 @@ Applications > Berlekamp-Massey Variants for Register Synthesis).
 The final section pins three properties that follow from the polynomial
 conventions rather than from the implementation: a degree-n primitive
 polynomial gives period 2^n - 1, `update_matrix` reproduces the clock as a
-GF(2) matrix-vector product, and `fromSeq` round-trips with no manual
+GF(2) matrix-vector product, and `from_seq` round-trips with no manual
 reversal (the user-facing payoff of taking the constructor input as the
 dual).  See docs/conventions/Polynomial Conventions.md.
 """
@@ -60,71 +60,71 @@ def test_fib_galois_emit_the_same_set_of_sequences(n):
 
 
 def test_fib_galois_from_reg_equivalence():
-    """Galois.fromReg on a Fibonacci register reproduces the same sequence (notebook cell 76)."""
+    """Galois.from_reg on a Fibonacci register reproduces the same sequence (notebook cell 76)."""
     F = Fibonacci(5, '12')
     F.compile()
     fib_reg = FeedbackRegister(31, F)
     seq_fib = [state[0] for state in fib_reg.run(limit=40)]
 
     fib_reg.reset()
-    galois_state, galois_fn = Galois.fromReg(fib_reg, bit=0)
+    galois_state, galois_fn = Galois.from_reg(fib_reg, bit=0)
     gal_reg = FeedbackRegister(galois_state, galois_fn)
     seq_gal = [state[0] for state in gal_reg.run(compiled=False, limit=40)]
 
-    assert seq_fib == seq_gal, "Galois.fromReg should reproduce Fibonacci sequence"
+    assert seq_fib == seq_gal, "Galois.from_reg should reproduce Fibonacci sequence"
 
 
-# ── Fibonacci fromSeq round-trip ────────────────────────────────────────
+# ── Fibonacci from_seq round-trip ────────────────────────────────────────
 
-def test_fibonacci_fromSeq_round_trip():
-    """Fibonacci(*Fibonacci.fromSeq(seq)) reproduces seq on bit 0."""
+def test_fibonacci_from_seq_round_trip():
+    """Fibonacci(*Fibonacci.from_seq(seq)) reproduces seq on bit 0."""
     F = Fibonacci(5, '12')
     reg = FeedbackRegister(31, F)
     seq = [state[0] for state in reg.run(compiled=False, limit=50)]
 
-    init_state, recovered = Fibonacci.fromSeq(seq)
+    init_state, recovered = Fibonacci.from_seq(seq)
     rec_reg = FeedbackRegister(init_state, recovered)
     seq2 = [state[0] for state in rec_reg.run(compiled=False, limit=50)]
-    assert seq == seq2, "Fibonacci fromSeq round-trip failed"
+    assert seq == seq2, "Fibonacci from_seq round-trip failed"
 
 
-def test_galois_fromSeq_round_trip():
-    """Galois(*Galois.fromSeq(seq)) reproduces seq on bit 0."""
+def test_galois_from_seq_round_trip():
+    """Galois(*Galois.from_seq(seq)) reproduces seq on bit 0."""
     G = Galois(5, '12')
     reg = FeedbackRegister(31, G)
     seq = [state[0] for state in reg.run(compiled=False, limit=50)]
 
-    init_state, recovered = Galois.fromSeq(seq)
+    init_state, recovered = Galois.from_seq(seq)
     rec_reg = FeedbackRegister(init_state, recovered)
     seq2 = [state[0] for state in rec_reg.run(compiled=False, limit=50)]
-    assert seq == seq2, "Galois fromSeq round-trip failed"
+    assert seq == seq2, "Galois from_seq round-trip failed"
 
 
 # ── Fibonacci NLFSR ─────────────────────────────────────────────────────
 
-def test_fibonacci_nlfsr_fromSeq():
-    """Fibonacci.fromSeq with nonlinear=True reproduces a nonlinear sequence."""
+def test_fibonacci_nlfsr_from_seq():
+    """Fibonacci.from_seq with nonlinear=True reproduces a nonlinear sequence."""
     random.seed(42)
     seq = [random.randint(0, 1) for _ in range(60)]
 
-    init_state, nlfsr = Fibonacci.fromSeq(seq, nonlinear=True)
+    init_state, nlfsr = Fibonacci.from_seq(seq, nonlinear=True)
     rec_reg = FeedbackRegister(init_state, nlfsr)
     seq2 = [state[0] for state in rec_reg.run(compiled=False, limit=60)]
-    assert seq == seq2, "Nonlinear Fibonacci fromSeq round-trip failed"
+    assert seq == seq2, "Nonlinear Fibonacci from_seq round-trip failed"
 
 
 # ── Cross-synthesis round-trips (notebook cell 122) ─────────────────────
 
 def test_all_synthesis_round_trips():
-    """All fromSeq variants reproduce the original sequence prefix."""
+    """All from_seq variants reproduce the original sequence prefix."""
     random.seed(7)
     seq = [random.randint(0, 1) for _ in range(50)]
 
     for name, factory in [
-        ("Fibonacci", lambda s: FeedbackRegister(*Fibonacci.fromSeq(s))),
-        ("Galois", lambda s: FeedbackRegister(*Galois.fromSeq(s))),
-        ("Fibonacci NL", lambda s: FeedbackRegister(*Fibonacci.fromSeq(s, nonlinear=True))),
-        ("FCSR", lambda s: FeedbackRegister(*FCSR.fromSeq(s))),
+        ("Fibonacci", lambda s: FeedbackRegister(*Fibonacci.from_seq(s))),
+        ("Galois", lambda s: FeedbackRegister(*Galois.from_seq(s))),
+        ("Fibonacci NL", lambda s: FeedbackRegister(*Fibonacci.from_seq(s, nonlinear=True))),
+        ("FCSR", lambda s: FeedbackRegister(*FCSR.from_seq(s))),
     ]:
         reg = factory(seq)
         recovered = [state[0] for state in reg.run(compiled=False, limit=50)]
@@ -435,10 +435,10 @@ def test_invert_rejects_a_non_bijective_register(label, feedback):
         register.invert()
 
 
-def test_invert_rejects_the_nonlinear_register_from_fromSeq():
+def test_invert_rejects_the_nonlinear_register_from_from_seq():
     """The registers `BM_NL` recovers are not bijections, so `invert` refuses.
 
-    `fromSeq(..., nonlinear=True)` builds `Fibonacci(size, [])` and adds the
+    `from_seq(..., nonlinear=True)` builds `Fibonacci(size, [])` and adds the
     recovered rule to the top bit, so the rule lives in `fn_list` while
     `primitive_polynomial` stays empty -- the general route applies.  It rejects
     these because `BM_NL` optimizes for reproducing a sequence, not for
@@ -447,7 +447,7 @@ def test_invert_rejects_the_nonlinear_register_from_fromSeq():
     """
     random.seed(42)
     seq = [random.randint(0, 1) for _ in range(60)]
-    _, nonlinear = Fibonacci.fromSeq(seq, nonlinear=True)
+    _, nonlinear = Fibonacci.from_seq(seq, nonlinear=True)
 
     # the rule really is present, just not as a polynomial
     assert nonlinear.primitive_polynomial == []
@@ -511,8 +511,8 @@ def test_invert_is_an_involution(n, family):
 
 @pytest.mark.parametrize("n", sorted(PRIMITIVE))
 @pytest.mark.parametrize("family", [Fibonacci, Galois])
-def test_fromSeq_round_trips_without_manual_reversal(n, family):
-    """`family(*family.fromSeq(seq))` reproduces seq, as the convention promises.
+def test_from_seq_round_trips_without_manual_reversal(n, family):
+    """`family(*family.from_seq(seq))` reproduces seq, as the convention promises.
 
     This is the user-facing payoff of keeping BM's dual output: the polynomial
     that comes out of synthesis is exactly the one the constructor expects, so
@@ -522,10 +522,10 @@ def test_fromSeq_round_trips_without_manual_reversal(n, family):
     source = FeedbackRegister(1, family(n, PRIMITIVE[n]))
     seq = [int(state[0]) for state in source.run(compiled=False, limit=8 * n)]
 
-    state, recovered = family.fromSeq(seq)
+    state, recovered = family.from_seq(seq)
     replay = FeedbackRegister(state, recovered)
     assert [int(s[0]) for s in replay.run(compiled=False, limit=8 * n)] == seq, (
-        f"{family.__name__}(n={n}): fromSeq round-trip did not reproduce the sequence"
+        f"{family.__name__}(n={n}): from_seq round-trip did not reproduce the sequence"
     )
 
 
@@ -560,8 +560,8 @@ def test_update_matrices_match_the_documented_shift_down_dual_layout():
 
 
 @pytest.mark.parametrize("trial", range(5))
-def test_fromSeq_bijective_register_inverts_and_has_no_transient(trial):
-    """`fromSeq(nonlinear=True, bijective=True)` yields an invertible register.
+def test_from_seq_bijective_register_inverts_and_has_no_transient(trial):
+    """`from_seq(nonlinear=True, bijective=True)` yields an invertible register.
 
     This is the end-to-end payoff of the option.  The default nonlinear fit is
     rejected by `invert` because its state map collapses; the bijective fit is
@@ -572,7 +572,7 @@ def test_fromSeq_bijective_register_inverts_and_has_no_transient(trial):
     random.seed(800 + trial)
     seq = [random.randint(0, 1) for _ in range(20)]
 
-    state, register = Fibonacci.fromSeq(seq, nonlinear=True, bijective=True)
+    state, register = Fibonacci.from_seq(seq, nonlinear=True, bijective=True)
 
     produced = [int(s[0]) for s
                 in FeedbackRegister(state, register).run(compiled=False, limit=len(seq))]
@@ -593,8 +593,8 @@ def test_fromSeq_bijective_register_inverts_and_has_no_transient(trial):
 
 
 @pytest.mark.parametrize("trial", range(5))
-def test_fromSeq_linear_bijective_fit_inverts(trial):
-    """`fromSeq(bijective=True)` on the linear path yields an invertible LFSR.
+def test_from_seq_linear_bijective_fit_inverts(trial):
+    """`from_seq(bijective=True)` on the linear path yields an invertible LFSR.
 
     Berlekamp-Massey's ordinary output taps bit 0 only when its polynomial
     reaches full degree, which failed on a substantial share of uniform random
@@ -604,7 +604,7 @@ def test_fromSeq_linear_bijective_fit_inverts(trial):
     random.seed(900 + trial)
     seq = [random.randint(0, 1) for _ in range(24)]
 
-    state, register = Fibonacci.fromSeq(seq, bijective=True)
+    state, register = Fibonacci.from_seq(seq, bijective=True)
 
     produced = [int(s[0]) for s
                 in FeedbackRegister(state, register).run(compiled=False, limit=len(seq))]
@@ -616,7 +616,7 @@ def test_fromSeq_linear_bijective_fit_inverts(trial):
 
 @pytest.mark.parametrize("trial", range(4))
 def test_galois_bijective_fit_reproduces_and_inverts(trial):
-    """`Galois.fromSeq(bijective=True)` yields an invertible Galois LFSR.
+    """`Galois.from_seq(bijective=True)` yields an invertible Galois LFSR.
 
     Bijectivity is a property of the polynomial rather than of the realization:
     the Galois and Fibonacci registers built from one polynomial have update
@@ -627,7 +627,7 @@ def test_galois_bijective_fit_reproduces_and_inverts(trial):
     random.seed(1300 + trial)
     seq = [random.randint(0, 1) for _ in range(24)]
 
-    state, register = Galois.fromSeq(seq, bijective=True)
+    state, register = Galois.from_seq(seq, bijective=True)
 
     produced = [int(s[0]) for s
                 in FeedbackRegister(state, register).run(compiled=False, limit=len(seq))]
@@ -647,8 +647,8 @@ def test_galois_and_fibonacci_bijective_fits_agree_in_length(trial):
     random.seed(1400 + trial)
     seq = [random.randint(0, 1) for _ in range(24)]
 
-    _, galois = Galois.fromSeq(seq, bijective=True)
-    _, fibonacci = Fibonacci.fromSeq(seq, bijective=True)
+    _, galois = Galois.from_seq(seq, bijective=True)
+    _, fibonacci = Fibonacci.from_seq(seq, bijective=True)
 
     assert galois.size == fibonacci.size, (
         f"trial {trial}: Galois size {galois.size} != Fibonacci size {fibonacci.size}"

@@ -27,19 +27,21 @@ $$
 
 The product is 1 when every coordinate selected by $u$ is 1, and 0 otherwise. Thus $M_u(X)$ is the XOR sum of the monomial indexed by $u$ over the multiset.
 
-Write $u\preceq v$ when $u_i\leq v_i$ for every coordinate. For bit masks this is exactly the bit-subset relation: $u\preceq v$ means that every 1-bit of $u$ is also a 1-bit of $v$.
+Write $u\preccurlyeq v$ when $u_i\leq v_i$ for every coordinate. For bit masks this is exactly the [bit-subset relation](Moebius%20Inversion%20on%20the%20Bit-Subset%20Lattice.md#the-bit-subset-partial-order): $u\preccurlyeq v$ means that every 1-bit of $u$ is also a 1-bit of $v$.
 
 A multiset has the **bit-based division property** $D_\alpha$ when
 
 $$
-M_u(X)=0\qquad\text{for every }u\not\succeq\alpha.
+M_u(X)=0\qquad\text{for every }u\text{ with }\alpha\not\preccurlyeq u.
 $$
 
-Equivalently, only moments whose masks contain $\alpha$ are allowed to remain nonzero. Larger labels are stronger statements because fewer moments are exempt from vanishing. The label $0^n$ imposes no vanishing condition; the label $1^n$ says that every moment except the full-product moment vanishes, which is the familiar integral pattern.
+Equivalently, only moments whose masks contain $\alpha$ are allowed to remain nonzero. Larger labels are stronger statements: if $\beta\preccurlyeq\alpha$, then $D_\alpha$ implies $D_\beta$. Indeed, a mask $u$ with $\beta\not\preccurlyeq u$ also has $\alpha\not\preccurlyeq u$, since $\alpha\preccurlyeq u$ would give $\beta\preccurlyeq\alpha\preccurlyeq u$; so $D_\alpha$ forces $M_u(X)=0$. The label $0^n$ imposes no vanishing condition; the label $1^n$ says that every moment except the full-product moment vanishes.
 
-This definition explains why the division property is naturally a poset theory. The relevant questions are not ordered by ordinary integer size but by coordinatewise containment of masks.
+The labels are therefore ordered by $\preccurlyeq$, the coordinatewise containment of masks, and not by ordinary integer size.
 
-## Three Equivalent Views of the Same Data
+## Three Vectors and Two Conversions
+
+In this section a mask is written as the set of its 1-coordinates: $S$ stands for the mask $u$ whose 1-bits are the elements of $S$, $x^S=\prod_{i\in S}x_i$ is its monomial, and $M_S$ is the moment $M_u(X)$. The structure is the multiset $X$.
 
 There are three vectors that are easy to confuse:
 
@@ -53,7 +55,7 @@ $$
 M_S=\bigoplus_{T\supseteq S}q_T.
 $$
 
-With the matrix convention of this repository, this is the transpose/upward transform $\mathsf C_m$. Since it is self-inverse over $\mathbb F_2$, the same transform recovers the parity of the input-set vector from the exact moment vector.
+In matrix form this is $M=\mathsf C_n q$, where $\mathsf C_n$ is the upward zeta transform of [Dihedral Symmetries of the Boolean Transform](Dihedral%20Symmetries%20of%20the%20Boolean%20Transform.md#the-four-basic-operations): the $2^n\times2^n$ matrix over $\mathbb F_2$, acting on column vectors indexed by masks, with $(\mathsf C_n v)_S=\bigoplus_{T\supseteq S}v_T$. The subscript is the number of variables (that document writes it $m$). Since $\mathsf C_n$ is self-inverse over $\mathbb F_2$, the same transform recovers the parity of the input-set vector from the exact moment vector.
 
 For a Boolean function, ANF coefficients and truth-table values instead satisfy
 
@@ -61,45 +63,61 @@ $$
  f(T)=\bigoplus_{S\subseteq T}a_S,
 $$
 
-which is the downward zeta transform $\mathsf B_m$. Its inverse is again itself over $\mathbb F_2$.
+which is $f=\mathsf B_n a$ for the downward zeta transform $\mathsf B_n$, the matrix with $(\mathsf B_n v)_T=\bigoplus_{S\subseteq T}v_S$. This is the Möbius transform of [Algebraic Normal Form](Algebraic%20Normal%20Form.md#the-transform-matrix). Like $\mathsf C_n$, the matrix $\mathsf B_n$ is its own inverse over $\mathbb F_2$.
 
-So there are two closely related but distinct zeta conversions:
+So there are two zeta conversions:
 
 $$
-\boxed{\text{ANF coefficients }a\xrightarrow{\mathsf B_m}\text{ truth values }f}
+\boxed{\text{ANF coefficients }a\xrightarrow{\mathsf B_n}\text{ truth values }f}
 $$
 
 and
 
 $$
-\boxed{\text{input-set parities }q\xrightarrow{\mathsf C_m}\text{ monomial moments }M}.
+\boxed{\text{input-set parities }q\xrightarrow{\mathsf C_n}\text{ monomial moments }M}.
 $$
 
-This is the division-property analogue of the binomial/Möbius duality. The upward transform is not a new ad hoc operation: it is the same Boolean-lattice zeta transform viewed from the dual direction.
+The two matrices are transposes of each other. The entry of $\mathsf B_n$ in row $T$ and column $S$ is 1 exactly when $S\subseteq T$, and the entry of $\mathsf C_n$ in row $S$ and column $T$ is 1 under the same condition, so $\mathsf C_n=\mathsf B_n^{\top}$. The next section shows that $\mathsf C_n$ is also the conjugate of $\mathsf B_n$ by mask complementation.
+
+The vectors $q$ and $M$ are equivalent descriptions of the structure $X$, since $M=\mathsf C_n q$ and $\mathsf C_n$ is invertible. The vector $a$ belongs to a Boolean function, and this section does not relate that function to $X$.
+
+> **OPEN:** Is the Boolean function of item 3 meant to be the indicator of the structure, $f=q$, so that $a=\mathsf B_n q$? — needs author input.
+> Established so far: $M=\mathsf C_n q$ and $f=\mathsf B_n a$, each derived above; nothing in this document identifies $f$ with $q$.
 
 ## Complement and the Dual Description
 
-The antidiagonal transform $J_m$ sends a mask $S$ to its complement $S^{\mathsf c}$. Conjugating a zeta transform by $J_m$ exchanges subsets and supersets:
+The antidiagonal transform $J_n$ is the permutation matrix that sends a mask $S$ to its complement $S^{\mathsf c}$, so that $(J_n v)_S=v_{S^{\mathsf c}}$. Conjugating a zeta transform by $J_n$ exchanges subsets and supersets. The entry of $J_n\mathsf B_nJ_n$ in row $S$ and column $T$ is the entry of $\mathsf B_n$ in row $S^{\mathsf c}$ and column $T^{\mathsf c}$, which is 1 exactly when $T^{\mathsf c}\subseteq S^{\mathsf c}$, that is, when $S\subseteq T$. This is the entry of $\mathsf C_n$, so
 
 $$
-\mathsf C_m=J_m\mathsf B_mJ_m.
+\mathsf C_n=\mathsf B_n^{\top}=J_n\mathsf B_nJ_n.
 $$
 
-Consequently, a division-property calculation written in terms of present variables and one written in terms of absent variables are related by the same complement operation that appears in the dihedral diagram. The two order-3 compositions are
+Consequently, a division-property calculation written in terms of present variables and one written in terms of absent variables are related by the same complement operation that appears in the [Cayley diagram](Dihedral%20Symmetries%20of%20the%20Boolean%20Transform.md#cayley-diagram) of the group generated by $\mathsf B_n$ and $J_n$. The two order-3 compositions are
 
 $$
-\mathsf A_m=\mathsf B_mJ_m,
+\mathsf A_n=\mathsf B_nJ_n,
 \qquad
-\mathsf D_m=J_m\mathsf B_m.
+\mathsf D_n=J_n\mathsf B_n.
 $$
 
-The factor on the right acts first on a column vector. Thus $\mathsf A_m$ means “complement, then downward zeta,” while $\mathsf D_m$ means “downward zeta, then complement.” These descriptions are exact for coefficient, value, input-parity, or moment vectors. At the division-property level they become corresponding transformations of the label set, with the usual loss of precision caused by forgetting coefficients.
+The factor on the right acts first on a column vector. Thus $\mathsf A_n$ means “complement, then downward zeta,” while $\mathsf D_n$ means “downward zeta, then complement.” These descriptions are exact for coefficient, value, input-parity, or moment vectors.
+
+A division-property calculation tracks only which coordinates of such a vector can be nonzero, and for supports the matrices give an inclusion rather than an equality. Write $\operatorname{supp}v$ for the set of coordinates where $v$ is 1 and $e_i$ for the $i$-th standard basis vector. For a 0/1 matrix $\mathsf X$ we have $\mathsf Xv=\bigoplus_{i\in\operatorname{supp}v}\mathsf Xe_i$, so
+
+$$
+\operatorname{supp}(\mathsf Xv)\subseteq\bigcup_{i\in\operatorname{supp}v}\operatorname{supp}(\mathsf Xe_i).
+$$
+
+The inclusion can be strict, because two columns $\mathsf Xe_i$ that are both 1 in the same coordinate cancel there.
+
+> **OPEN:** What map do $\mathsf A_n$ and $\mathsf D_n$ induce on division-property labels $\alpha$? — needs author input.
+> Established so far: their exact action on vectors, and the support inclusion above. No rule sending a label $D_\alpha$ to a label is stated in this document.
 
 ## Types of Division Property
 
 ### Bit-based
 
-A bit-based label is $\alpha\in\{0,1\}^n$. It distinguishes individual coordinates and uses the Boolean-lattice order $\preceq$. It is the most direct form for bit-oriented Boolean circuits and is the form defined above.
+A bit-based label is $\alpha\in\{0,1\}^n$. It distinguishes individual coordinates and uses the Boolean-lattice order $\preccurlyeq$. It is the most direct form for bit-oriented Boolean circuits and is the form defined above.
 
 Its main strength is precision about individual variables. Its main cost is a label space of size $2^n$, which becomes large even when the cipher operates on a small number of words.
 
@@ -135,11 +153,13 @@ This direction matters. When analysing a forward computation $y=L(x)$, one often
 
 ### AND and multiplication
 
-At the monomial level, multiplying $x^S$ and $x^T$ gives $x^{S\cup T}$ because Boolean variables are idempotent. Thus an AND combines masks by set union, or bitwise OR:
+At the monomial level, multiplying $x^S$ and $x^T$ gives $x^{S\cup T}$ because Boolean variables are idempotent. Thus an AND combines masks by set union:
 
 $$
- x^Sx^T=x^{S\cup T},\qquad s\mathbin{\mathrm{OR}}t.
+ x^Sx^T=x^{S\cup T}.
 $$
+
+On the bit masks $s$ and $t$ of $S$ and $T$, the union is the bitwise OR $s\mathbin{\mathrm{OR}}t$.
 
 For generalized degree labels, the corresponding operation is usually componentwise addition followed by whatever saturation or truncation the definition prescribes. The bit-based OR rule and the generalized addition rule should not be conflated.
 
@@ -156,13 +176,13 @@ The Boolean-lattice transforms explain how to change coordinates between input-s
 - A zeta transform does not determine the nonlinear behaviour of an S-box.
 - A complemented mask is not automatically the same cryptanalytic statement as the original mask; it is a statement in a different presence/absence convention.
 - Support propagation is an upper bound whenever different exact coefficients can cancel.
-- Word-based and generalized properties require their own label semantics even though they use the same poset intuition.
+- Word-based and generalized properties require their own label semantics: each has its own label set and its own order, as described in [Types of Division Property](#types-of-division-property).
 
-The practical rule is to state three things whenever a division property is used: the label space, the partial order, and the direction in which a transition is being propagated. Once those are fixed, the upward/downward zeta transforms and the $J_m$ complement give a consistent way to move between the corresponding descriptions.
+The practical rule is to state three things whenever a division property is used: the label space, the partial order, and the direction in which a transition is being propagated. Once those are fixed, the upward/downward zeta transforms and the $J_n$ complement give a consistent way to move between the corresponding descriptions.
 
 ## References
 
-- Yosuke Todo, “Structural Evaluation by Generalized Integral Property,” EUROCRYPT 2015. See the [bibliography entry](../conventions/bibliography.bib#L351) for publication details.
+- Yosuke Todo, “Structural Evaluation by Generalized Integral Property,” EUROCRYPT 2015. See the [bibliography entry](../conventions/bibliography.bib) for publication details.
 - [Algebraic Normal Form](Algebraic%20Normal%20Form.md) for the exact coefficient-to-value transform.
 - [Möbius Inversion on the Bit-Subset Lattice](Moebius%20Inversion%20on%20the%20Bit-Subset%20Lattice.md) for the poset proof of the zeta/Möbius identities.
 - [Dihedral Symmetries of the Boolean Transform](Dihedral%20Symmetries%20of%20the%20Boolean%20Transform.md) for the six compositions generated by zeta transformation and complementation.

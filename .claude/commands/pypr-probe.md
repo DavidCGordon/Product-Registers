@@ -72,7 +72,7 @@ M7 = MPR(7, [1,1,0,0,0,0,0,1], [1,0,0,0,0,1,0])
 
 # Small CMPR: M5+M3, period = lcm(31,7) = 217
 C = CMPR([M5, M3])
-C.generateChaining(template=arman_template(max_and=2))
+C.generate_chaining(template=arman_template(max_and=2))
 
 # Register — always pass compiled=False in probe scripts
 F = FeedbackRegister(1, M3)
@@ -186,7 +186,7 @@ print("idx_to_comb:", store.idx_to_comb)   # column index → monomial tuple
 
 ```python
 C = CMPR([M7, M5, M3])
-C.generateChaining(template=arman_template(max_and=2))
+C.generate_chaining(template=arman_template(max_and=2))
 
 print("total size:", C.size)                   # 7+5+3 = 15
 print("num_components:", C.num_components)     # 3
@@ -229,7 +229,7 @@ lc, poly = berlekamp_massey(stream)
 print(f"linear complexity: {lc}, poly: {poly}")
 
 # Recover as Fibonacci LFSR from stream
-seed, fib = Fibonacci.fromSeq(stream.tolist())
+seed, fib = Fibonacci.from_seq(stream.tolist())
 print(f"recovered seed: {seed}")
 print(f"recovered poly: {fib.primitive_polynomial}")
 ```
@@ -275,7 +275,7 @@ for ann in basis:
 ```python
 import json
 C = CMPR([M5, M3])
-C.generateChaining(template=arman_template(max_and=2))
+C.generate_chaining(template=arman_template(max_and=2))
 
 json_data = C.to_JSON()
 C2 = CMPR.from_JSON(json_data)

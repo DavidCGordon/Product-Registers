@@ -29,13 +29,20 @@ clause $(1)$, which fixes variable 1 to true. Nothing else emits clauses.
 variables. The walks visit nodes in post-order, so a node is reached only after
 its arguments. Suppose every argument's result wire already carries its
 subfunction's value in every model. By requirement 3, $N$'s clauses can be
-satisfied, and only with $N$'s result wire carrying $N$'s value; by requirement
-2 they constrain no other node's wires, so satisfying them cannot disturb what
-was established beneath. By induction from the leaves, every assignment of the
-inputs extends to a model, and in every model every node's result wire carries
-that node's value. `sat` and `enum_models` add the root's result wire as a unit
-clause, so their models are exactly the input assignments on which the function
-is true.
+satisfied whatever values the arguments' result wires carry, and only with
+$N$'s result wire carrying $N$'s value. Satisfying them cannot disturb what was
+established beneath: by requirement 2 the only wires they mention besides the
+arguments' result wires are $N$'s own, and the own wires of a non-leaf node are
+fresh, claimed from the next free wire when the node is labelled (see "The two walks" below), so they are not among any other node's own wires; requirement 2, applied to
+the other nodes, then says their clauses do not mention $N$'s wires except its
+result wire. By induction from the leaves, every
+assignment of the inputs extends to a model, and in every model every node's
+result wire carries that node's value. `sat` and `enum_models` add the root's
+result wire as a unit clause, so their models, restricted to the input
+variables, are exactly the assignments on which the function is true. A model
+also assigns the interior wires, which are whatever the clauses allow
+(requirement 3), so this does not say that models and input assignments
+correspond one to one.
 
 ### Leaves
 
@@ -77,9 +84,7 @@ Neither knows how any class encodes itself.
 - **Sharing.** A node used in several places, or in several threaded circuits,
   is labelled and encoded once.
 - **Local change.** A class can change its encoding without touching any other
-  class, and its correctness is checked in isolation. The encoding of one-input
-  XNOR, NAND and NOR, and of NAND and NOR over three or more inputs, was once
-  wrong. It was fixed class by class, and no other node's encoding moved.
+  class, and its correctness is checked in isolation.
 - **Fusion**, below: a node that encodes a whole subtree its own way.
 
 ## Fusion nodes
@@ -107,7 +112,7 @@ Any other template uses its own ordinary encoding, which is always correct.
 Requirement 3 is not automatic for a hand-written encoding.
 `node.verify()` checks it by a SAT equivalence call between the node and its
 expansion (`node.expand()`). It is kept out of emission, since its cost is
-unbounded and it would encode the node it is checking.
+exponential in the worst case and it would encode the node it is checking.
 
 The template is copied when the node is constructed and again when the node is
 copied, and the walks never enter it. A fusion node therefore shares no objects

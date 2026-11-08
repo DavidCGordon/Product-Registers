@@ -18,9 +18,10 @@ def monomial_compare(term_1,term_2):
     """
     Compare two monomials (frozensets):
     returns:
-      -   0  if term1 == term2
-      -   1  if term1  > term2
-      - (-1) if term1  < term2
+
+    - 0  if term1 == term2
+    - 1  if term1  > term2
+    - (-1) if term1  < term2
     """
     # handle equals case first:
     if term_1 == term_2:
@@ -42,7 +43,7 @@ def monomial_compare(term_1,term_2):
         return -1
 monomial_order = cmp_to_key(monomial_compare)
 
-class pq_node:
+class PQNode:
     def __init__(self,lead_monomial,poly):
         self.poly = poly
         self.lead_term = lead_monomial
@@ -159,7 +160,7 @@ class GroebnerEqStore(FilteringEqStore):
         equation = BooleanANF.from_BooleanFunction(equation)
 
         if equation.terms and equation not in self.seen:
-            heapq.heappush(self.queue, pq_node(lead_term(equation), equation))
+            heapq.heappush(self.queue, PQNode(lead_term(equation), equation))
             self.seen.add(equation)
 
     def process_pending(self, *, batch_size=None):
@@ -262,7 +263,7 @@ class GroebnerEqStore(FilteringEqStore):
 
                     s_poly = self.syzygy(insert_idx, eq_idx)
                     if s_poly.terms and s_poly not in self.seen:
-                        heapq.heappush(self.queue, pq_node(lead_term(s_poly), s_poly))
+                        heapq.heappush(self.queue, PQNode(lead_term(s_poly), s_poly))
                         self.seen.add(s_poly)
                         count += 1
 
@@ -430,7 +431,7 @@ class GroebnerEqStore(FilteringEqStore):
 
 #             if selected == None:
 #                 output.terms ^= frozenset([curr_term])
-#                 selected = pq_node(curr_term,BooleanANF([curr_term]))
+#                 selected = PQNode(curr_term,BooleanANF([curr_term]))
 
 #             poly += (
 #                 BooleanANF([curr_term - selected.lead_term]) *
@@ -448,7 +449,7 @@ class GroebnerEqStore(FilteringEqStore):
 #         self.known_vars |= set(poly.idxs_used())
 
 #         if new_equation.terms:# and (new_equation not in self.seen):
-#             heapq.heappush(self.queues[1], pq_node(lead_term(new_equation), new_equation))
+#             heapq.heappush(self.queues[1], PQNode(lead_term(new_equation), new_equation))
 #             #self.seen.add(new_equation)
 
 #     def _consume_queue(self, num=None, verbose = False):
@@ -498,7 +499,7 @@ class GroebnerEqStore(FilteringEqStore):
 
 
 #             # split and reinsert equations (queue 0)
-#             node = pq_node(reduced_lead,reduced)
+#             node = PQNode(reduced_lead,reduced)
 #             insertion_idx = bisect.bisect(self.equations, node)
 
 #             for idx in range(insertion_idx, len(self.equations)):
@@ -520,7 +521,7 @@ class GroebnerEqStore(FilteringEqStore):
 
 #                     s_poly = self.syzygy(-1, eq_idx)
 #                     if s_poly.terms: # and s_poly not in self.seen:
-#                         heapq.heappush(self.queues[1], pq_node(lead_term(s_poly), s_poly))
+#                         heapq.heappush(self.queues[1], PQNode(lead_term(s_poly), s_poly))
 #                         #self.seen.add(s_poly)
 #                         count += 1
 

@@ -1,6 +1,6 @@
 # leq_ordering(A,B) returns true if A <= B
 # input sets is an iterable of iterables.
-def maximalElements(leq_ordering, inputs):
+def maximal_elements(leq_ordering, inputs):
     maximal_set = set()
     for container in inputs:
         for element in container:
@@ -29,7 +29,7 @@ def maximalElements(leq_ordering, inputs):
 # If the roots in A are a subset of those in B, with the same multiplicity, then A is redundant
 # For general cleaning, we can't necessarily remove different multiplicies due needing them for future jordan calculations
 # We remove these frequently to declutter root expressions
-def isExactSubset(a,b):
+def is_exact_subset(a,b):
     if a.m != b.m:
         return False
 
@@ -46,7 +46,7 @@ def isExactSubset(a,b):
 
 # If the roots in A are a subset of those in B, with same or lower multiplicity
 # We can finally remove these at evaluation to avoid double counting.
-def isSubset(a,b):
+def is_subset(a,b):
 
     # this is subset check using >
     if (a.mults > b.mults):
@@ -63,7 +63,7 @@ def isSubset(a,b):
     # if all conditions pass, return true
     return True
 
-def isSubspace(a,b):
+def is_subspace(a,b):
     a_keyset = set(a.roots.keys())
     b_keyset = set(b.roots.keys())
 
@@ -82,7 +82,7 @@ def isSubspace(a,b):
 # If a copy of A might be embedded in B, with the same multiplicity
 # This is handled in the evaluation method (e.g. <7,7> = 126 or 127)
 # We remove these frequently, to declutter the root expressions
-def isEmbeddedSet(a,b):
+def is_embedded_set(a,b):
     if a.m != b.m:
         return False
 
@@ -112,7 +112,7 @@ def isEmbeddedSet(a,b):
 # if we aren't optimistic, we might still want the smaller one.
 
 # unclear if we can ever actually get these?
-def isEmbeddedSubset(a,b):
+def is_embedded_subset(a,b):
     if a.m > b.m:
         return False
 

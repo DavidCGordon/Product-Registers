@@ -45,4 +45,4 @@ as an identity in $\mathbb{Z}[n]$, and $c_i = 0$ for $i > k$ because $\binom{dn}
 ## Connections
 
 - **[Möbius Inversion on the Bit-Subset Lattice](Moebius%20Inversion%20on%20the%20Bit-Subset%20Lattice.md):** The transform machinery underlying Step 3.
-- **[Decimation, Expansion, and Linear Complexity](Decimation%20Expansion%20and%20Linear%20Complexity.md):** Decimation by $d$ maps roots via $\alpha^{p/q} \mapsto \alpha^{dp/q}$; the Jordan block behavior under odd decimation involves $\binom{dt}{r} \pmod{2}$, which is exactly the predicate this identity decomposes.
+- **[Decimation, Expansion, and Linear Complexity](Decimation%20Expansion%20and%20Linear%20Complexity.md):** Decimation by $d$ maps roots via $\alpha^{p/q} \mapsto \alpha^{dp/q}$; the Jordan block behavior under odd decimation involves $\binom{dt}{r} \pmod{2}$, which is exactly the predicate this identity decomposes. That document uses the integer identity of Step 4, whose top coefficient is $c_r = d^r$, to show that decimation by an odd $d$ coprime to the period preserves Jordan size.

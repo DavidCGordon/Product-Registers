@@ -73,13 +73,13 @@ def test_cmpr_json_round_trip():
     M5 = MPR(5, "12")
     M3 = MPR(3, "5")
     C = CMPR([M7, M5, M3])
-    C.generateChaining(template=fast_template())
+    C.generate_chaining(template=fast_template())
     _ff_json_round_trip(C, seed=2**C.size - 1)
 
 def test_crossjoin_json_round_trip():
     random.seed(0)
     CJ = CrossJoin(7, "65")
-    CJ.generateNonlinearity(maxAnds=3)
+    CJ.generate_nonlinearity(max_ands=3)
     _ff_json_round_trip(CJ, seed=2**7 - 1)
 
 def test_tfunction_json_round_trip():
@@ -109,7 +109,7 @@ def test_register_json_round_trip_cmpr():
     M7 = MPR(7, "65")
     M5 = MPR(5, "12")
     C = CMPR([M7, M5])
-    C.generateChaining(template=fast_template())
+    C.generate_chaining(template=fast_template())
     seed = 2**C.size - 1
 
     reg = FeedbackRegister(seed, C)

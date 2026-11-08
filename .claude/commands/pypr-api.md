@@ -29,7 +29,7 @@ FeedbackRegister(
 | `set_state(s)` | `int\|list\|ndarray → None` | Overwrites current state (copies ndarray in) |
 | `clock(compiled=True)` | `→ None` | One cycle. Raises if compiled and fn not compiled |
 | `run(limit=None, compiled=True)` | `→ Iterator[self]` | Yields self n times (t=0..n-1); register lands at t=n after |
-| `period(compiled=True, safe=True, limit=None)` | `→ tuple[int,int]\|None` | `(period, preperiod)`. Does not modify state. Brent (safe) or naive |
+| `period(compiled=True, safe=True, limit=None)` | `→ tuple[int,int]\|None` | `(period, preperiod)`. Does not modify state. Brent (safe) or naive. `safe=False` runs one clock per state where Brent runs three to four; it measured 2.2–2.8× faster, and is only correct when the update is a bijection |
 | `copy()` | `→ FeedbackRegister` | Deep copy |
 | `to_JSON()` / `from_JSON(d)` | | Round-trip through dict |
 | `to_file(path)` / `from_file(path)` | | JSON file I/O (`.json` extension required) |
@@ -56,12 +56,16 @@ from PyPR.FeedbackFunctions import MPR, CMPR, Fibonacci, Galois, CrossJoin, TFun
 
 | Method | Notes |
 |--------|-------|
-| `compile()` | Numba-JIT the function. Must call before `compiled=True` in register |
+| `compile(optimize=True)` | Numba-JIT the function. Must call before `compiled=True` in register. Compiles `generate_python(optimize=optimize)`: by default the optimized update when that saves operations, else each bit as written. Composed/unrolled updates, T-functions and dense ANFs clock 1.1–3× faster; LFSRs, MPRs and chained CMPRs are unchanged |
+| `generate_python(output_name="next_state", array_name="curr_state", optimize=False)` | `→ list[str]` — statements computing the whole update, highest bit first. `optimize=True` rewrites the bits together to share logic and use fewer operations (`fn_list` is not changed) |
+| `optimize()` | `→ FeedbackFunction` (plain base class) — the same update with the bits rewritten together to use fewer operations. For inspecting or exporting what `generate_python(optimize=True)` and `compile` use |
 | `copy()` | Deep copy; `copy.copy` and `copy.deepcopy` are identical. Keeps node sharing and the compiled functions |
 | `iterator(n)` | Yields `list[BooleanFunction]` — one per bit, symbolically unrolled for n steps |
-| `gateSummary()` | `→ dict[str,int]` — counts of AND/XOR/NOT/VAR/CONST nodes. Linear registers still contain AND (one per ANF monomial) |
-| `isLinear(allowAffine=False)` | `→ bool` — every bit's ANF has degree ≤ 1 and, unless `allowAffine`, no constant term. |
+| `gate_summary()` | `→ dict[str,int]` — counts of AND/XOR/NOT/VAR/CONST nodes. Linear registers still contain AND (one per ANF monomial) |
+| `is_linear(allow_affine=False)` | `→ bool` — every bit's ANF has degree ≤ 1 and, unless `allow_affine`, no constant term. |
 | `dense_str()` / `pretty_str()` / `anf_str()` | String representations |
+| `generate_latex(output_name="x_{$bit}[t+1]", subfunction_name="g_{$bit,$index}", style=None, environment="align*", inline_subfunctions=False)` | `→ str` — the update as LaTeX, one equation per bit from the highest down; a subfunction shared between bits is defined once. `environment=None` returns the bare lines joined by `\\` (a LaTeX line break). See "LaTeX" under BooleanFunction |
+| `write_VHDL(filename)` | Writes a VHDL entity for the update; each split-out subfunction becomes a declared signal |
 | `to_JSON()` / `from_JSON(d)` / `to_file(p)` / `from_file(p)` | Serialization |
 
 ### MPR
@@ -90,7 +94,7 @@ CMPR(components: list[MPR | CMPR | FeedbackFunction])
 
 | Method / Property | Notes |
 |-------------------|-------|
-| `generateChaining(template)` | Apply chaining template (arman_template, fast_template, etc.) |
+| `generate_chaining(template)` | Apply chaining template (arman_template, fast_template, etc.) |
 | `update_MPR(mpr_index, new_update_poly)` | Replace one block's update poly (invalidates cached props) |
 | `blocks` | `@cached_property → list[list[int]]` — bit indices per block, high-to-low |
 | `divisions` | Bit-index boundaries between blocks |
@@ -117,21 +121,21 @@ Galois(size: int, primitive_polynomial: str | list[int])
 
 | Class method | Class | Notes |
 |-------------|-------|-------|
-| `fromSeq(seq, nonlinear=False, bijective=False)` | Fibonacci | `→ (seed, register)` from output sequence (BM internally) |
-| `fromSeq(seq)` | Galois | `→ (seed, register)` from output sequence |
-| `fromReg(F, bit=0, numIters=None, nonlinear=False)` | Fibonacci | `→ (seed, register)` from running register |
-| `fromReg(F, bit=0, numIters=None)` | Galois | `→ (seed, register)` from running register |
+| `from_seq(seq, nonlinear=False, bijective=False)` | Fibonacci | `→ (seed, register)` from output sequence (BM internally) |
+| `from_seq(seq)` | Galois | `→ (seed, register)` from output sequence |
+| `from_reg(F, bit=0, num_iters=None, nonlinear=False)` | Fibonacci | `→ (seed, register)` from running register |
+| `from_reg(F, bit=0, num_iters=None)` | Galois | `→ (seed, register)` from running register |
 | `invert()` | both | Toggle time-reversed mode |
 
 `bijective=True` restricts the search to registers whose update map is a
 bijection, on both the linear and nonlinear paths. It raises `ValueError` when
 no such register shorter than `len(seq)` exists, and degenerates (returning a
 length that grows with `len(seq)`) on sequences that are not purely periodic.
-See `docs/architecture/Nonlinear Register Synthesis.md`.
+See `docs/architecture/Bijective Register Synthesis.md`.
 
 `Fibonacci.invert()` raises `ValueError` when the register is not a bijection
 — the discarded bit must enter the feedback as a lone linear term. Registers
-from `fromSeq(..., nonlinear=True)` generally fail this unless `bijective=True`
+from `from_seq(..., nonlinear=True)` generally fail this unless `bijective=True`
 was also passed.
 
 **Attribute:** `update_matrix: @cached_property ndarray` (on both `Fibonacci`
@@ -145,8 +149,8 @@ CrossJoin(size: int, primitive_poly: str | list[int])
 
 | Method | Notes |
 |--------|-------|
-| `generateNonlinearity(maxAnds=4, tapDensity=0.75)` | Add random AND terms |
-| `addNonLinearTerm(maxAnds)` | Add one random AND term |
+| `generate_nonlinearity(max_ands=4, tap_density=0.75)` | Add random AND terms |
+| `add_nonlinear_term(max_ands)` | Add one random AND term |
 | `blocks` | `@property → list[list[int]]` — single block |
 | `monomial_profiles()` | `→ list[MonomialProfile]` |
 | `root_expressions()` | `→ list[RootExpression]` |
@@ -171,8 +175,8 @@ FCSR(diadic_complexity: int, q: int)   # q must be odd positive
 
 | Class method | Notes |
 |-------------|-------|
-| `fromSeq(seq, bijective=False)` | `→ (seed, register)` from sequence (2-adic BM) |
-| `fromReg(F, bit=0, numIters=None)` | `→ (seed, register)` from running register |
+| `from_seq(seq, bijective=False)` | `→ (seed, register)` from sequence (2-adic BM) |
+| `from_reg(F, bit=0, num_iters=None)` | `→ (seed, register)` from running register |
 | `state_from_frac(num, den)` | `→ (size, state)` from 2-adic fraction |
 
 **Properties:** `carries → list[BooleanFunction]`, `values → list[BooleanFunction]`
@@ -220,16 +224,26 @@ XNOR(*args)
 
 | Method | Notes |
 |--------|-------|
-| `copy()` | Deep copy |
+| `copy()` | Deep copy of the DAG; a node shared in the original is shared in the copy. `copy.copy` and `copy.deepcopy` do the same |
+| `postorder(stop=None)` | `→ Iterator[BooleanFunction]` — each node once, after all its arguments (iterative, so deep DAGs are fine). `stop(node) → True` skips a node and everything below it. Nodes are identified by object identity |
 | `subfunctions()` | `→ list[BooleanFunction]` — reused subexpressions, topologically sorted |
 | `inputs()` | `→ list[BooleanFunction]` — all VAR/CONST leaves |
 | `idxs_used()` | `→ set[int]` — VAR indices that appear |
 | `max_idx()` | `→ int` — highest VAR index |
 | `is_leaf()` | `→ bool` |
-| `gateSummary()` | `→ dict[str,int]` — node counts by type |
+| `gate_summary()` | `→ dict[str,int]` — node counts by type |
 | `num_nodes()` | `→ int` |
-| `merge_redundant(in_place=False)` | Remove duplicate subexpressions |
+| `merge_redundant(in_place=False)` | Flatten nested XOR/AND/OR into one gate (repeats cancel in XOR, collapse in AND/OR), drop one-argument gates. Subfunctions are kept whole. Linear in the DAG size; the order of a merged gate's arguments is unspecified |
 | `binarize(in_place=False)` | Convert to binary (2-arg) gates |
+
+**Logic optimization** (`from PyPR.BooleanLogic.Optimization import optimize, operation_count`):
+
+| Function | Notes |
+|----------|-------|
+| `optimize(functions)` | `→ list[BooleanFunction]` — several functions rewritten as one DAG computing the same outputs in fewer two-input operations: equal logic built once across outputs, constants and cancelling terms simplified, shared pairs of terms extracted, common literals factored. Assumes bit values (0/1); other node classes and non-bit constants are kept as they are. Never more operations than the input; not guaranteed minimal. Inputs unchanged |
+| `operation_count(functions)` | `→ int` — two-input operations to evaluate the functions together, each node object counted once |
+
+See `docs/architecture/Logic Optimization.md` for the passes, their sources and measurements.
 
 **String / code generation:**
 
@@ -237,9 +251,42 @@ XNOR(*args)
 |--------|-------|
 | `dense_str()` | Single-line nested form |
 | `pretty_str()` | Multiline with subfunctions listed |
-| `generate_python(output_name, subfunction_prefix, array_name, overrides)` | `→ list[str]` |
-| `generate_c(...)` | `→ list[str]` |
-| `generate_VHDL(...)` | `→ list[str]` |
+| `generate_python(output_name="output", subfunction_prefix="fn", array_name="array", overrides=None, optimize=False)` | `→ list[str]` — one assignment per subfunction, then the output. `optimize=True` writes an optimized form (fewer operations, bits only) when there is one; it cannot be combined with `overrides`. `compile()` uses `optimize=True` |
+| `generate_c(...)` | Same arguments and shape, C syntax |
+| `generate_VHDL(...)` | Same arguments and shape, VHDL syntax |
+| `generate_latex(output_name="f", subfunction_name="g_{$index}", style=None, overrides=None, inline_subfunctions=False)` | `→ list[str]` — LaTeX equations, subfunctions first. See below |
+
+`overrides` maps a node to text written in its place (it is not expanded and gets no line of its own).
+
+**LaTeX.** `generate_latex` places parentheses by precedence, not around every gate, and takes all of
+its notation from a `LatexStyle` (`from PyPR.BooleanLogic import LatexStyle, LatexOperator`):
+
+```python
+g = AND(VAR(0), VAR(1))
+f = XOR(g, VAR(2), NOT(AND(g, VAR(3))))
+
+f.generate_latex()
+# ['g_{1} &= x_{0} x_{1}', 'f &= g_{1} \oplus x_{2} \oplus \overline{g_{1} x_{3}}']
+f.generate_latex(inline_subfunctions=True)
+# ['f &= x_{0} x_{1} \oplus x_{2} \oplus \overline{x_{0} x_{1} x_{3}}']
+f.generate_latex(style=LatexStyle.logical())    # \wedge, \vee, prefix \neg
+# ['g_{1} &= x_{0} \wedge x_{1}', 'f &= g_{1} \oplus x_{2} \oplus \neg \left(g_{1} \wedge x_{3}\right)']
+
+style = LatexStyle(variable="s_{$index}")              # any field, independently
+style.operators["XOR"] = LatexOperator(" + ", precedence=1)
+f.generate_latex(style=style, output_name="z_t")
+# ['g_{1} &= s_{0} s_{1}', 'z_t &= g_{1} + s_{2} + \overline{g_{1} s_{3}}']
+f.generate_latex(overrides={g: r"\gamma"})
+# ['f &= \gamma \oplus x_{2} \oplus \overline{\gamma x_{3}}']
+```
+
+`LatexStyle` fields: `operators` (gate class name → `LatexOperator(join, precedence, negated=False,
+associative=True)`), `variable` (`$index`), `constant` (`$value`), `negation` (`$expr`) with
+`negation_delimits`, `parentheses`, and `line` (`$name`, `$expr`; default `"$name &= $expr"` for
+`align`). Templates are `string.Template` strings (`$$` is a literal dollar); a callable taking the
+same fields as keywords works anywhere a template does. Precedence constants `SUM`, `PRODUCT`,
+`UNARY`, `ATOM` live in `PyPR.BooleanLogic.Latex`. XOR and OR share a precedence, so where they
+meet the argument is always parenthesized.
 
 **SAT:**
 
@@ -296,7 +343,7 @@ from PyPR.BooleanLogic.ChainingGeneration.Templates import arman_template, fast_
 
 # arman_template: structured random AND terms between blocks
 template_fn = arman_template(max_and: int = 4)
-C.generateChaining(template=template_fn)
+C.generate_chaining(template=template_fn)
 
 # fast_template: simpler random AND terms
 template_fn = fast_template(max_and: int = 4)
@@ -559,7 +606,7 @@ bijection (for `BM_FCSR`, to numerators with `-q <= p <= 0`, which makes the
 *emitted sequence* purely periodic). It raises `ValueError` when no such fit
 exists below `len(seq)`. Read the precondition before using it: on a sequence
 with a genuine transient the search degenerates silently rather than failing.
-See `docs/architecture/Nonlinear Register Synthesis.md`.
+See `docs/architecture/Bijective Register Synthesis.md`.
 
 Streaming variants: `berlekamp_massey_iterator(seq, yield_rate=1000)`,
 `BM_NL_iterator(seq, yield_rate=1000, yield_corrected=True)`,
@@ -652,7 +699,7 @@ print(f"rank {store.rank} / {store.num_vars} monomials")
 M5 = MPR(5, [1,0,1,0,0,1], [1,1,0,0,1])
 M3 = MPR(3, [1,1,0,1], [1,0,1])
 C = CMPR([M5, M3])
-C.generateChaining(template=arman_template(max_and=2))
+C.generate_chaining(template=arman_template(max_and=2))
 output_fn = XOR(AND(VAR(0), VAR(1)), VAR(2))
 
 (d_ann, d_mult), basis = annihilators(output_fn)
@@ -684,7 +731,7 @@ for b_idx, block in enumerate(C.blocks):
 ```python
 from PyPR.FeedbackFunctions import CrossJoin
 cj = CrossJoin(7, [1,0,0,0,0,1,1,1])   # primitive degree-7 poly
-cj.generateNonlinearity(maxAnds=3, tapDensity=0.5)
+cj.generate_nonlinearity(max_ands=3, tap_density=0.5)
 F = FeedbackRegister(1, cj)
 print(F.period(compiled=False))
 ```

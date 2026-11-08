@@ -29,7 +29,7 @@ class Fibonacci(FeedbackFunction):
     primal/dual terminology pays off: see
     `docs/conventions/Polynomial Conventions.md` for the full primal/dual framework
     and worked-out matrix examples. As a practical consequence,
-    `Fibonacci(*Fibonacci.fromSeq(seq))` reproduces `seq` with no manual
+    `Fibonacci(*Fibonacci.from_seq(seq))` reproduces `seq` with no manual
     reversal at the user boundary.
 
     Fibonacci is mathematically equivalent to Galois with the same input
@@ -37,7 +37,7 @@ class Fibonacci(FeedbackFunction):
     concentrates the XOR into a single wide gate at position n-1, giving a
     longer critical path but a tap pattern that mirrors the polynomial
     coefficients more directly. The class also supports a nonlinear
-    Fibonacci-style register via `fromSeq(..., nonlinear=True)`, in which
+    Fibonacci-style register via `from_seq(..., nonlinear=True)`, in which
     the top-bit feedback is an arbitrary boolean function recovered by
     nonlinear Berlekamp-Massey.
 
@@ -78,16 +78,16 @@ class Fibonacci(FeedbackFunction):
         """
         # Create the top function (reciprocal polynomial):
         # Example: [1,0,1,1] -> [0,2,3] -> [[3],[1],[0]]
-        topFn = [[size-idx] for (idx, t) in enumerate(primitive_polynomial) if t == 1]
-        topFn = [topFn[1:]]
+        top_fn = [[size-idx] for (idx, t) in enumerate(primitive_polynomial) if t == 1]
+        top_fn = [top_fn[1:]]
 
         # Cosmetic Changes to order:
-        topFn = topFn[::-1]
+        top_fn = top_fn[::-1]
 
         #create the shift for all other bits
-        shiftFn = [[[i+1]] for i in range(size-1)]
+        shift_fn = [[[i+1]] for i in range(size-1)]
 
-        return [BooleanFunction.from_ANF(bitFn) for bitFn in (shiftFn + topFn)]
+        return [BooleanFunction.from_ANF(bitFn) for bitFn in (shift_fn + top_fn)]
 
     def __init__(self,
         size: int,
@@ -236,7 +236,7 @@ class Fibonacci(FeedbackFunction):
         `_inverse_feedback` reaches the same register without going through the
         polynomial at all, which is why it is the only route used here: it also
         covers the registers that have no polynomial to reverse, such as the
-        nonlinear ones from `fromSeq(..., nonlinear=True)`. A test asserts that
+        nonlinear ones from `from_seq(..., nonlinear=True)`. A test asserts that
         the two agree wherever both apply.
 
         :raises ValueError: If the register is not a bijection, so no inverse
@@ -255,7 +255,7 @@ class Fibonacci(FeedbackFunction):
         if 'update_matrix' in self.__dict__: del self.update_matrix
 
     @classmethod
-    def fromSeq(cls,
+    def from_seq(cls,
         seq: list[int],
         nonlinear: bool = False,
         bijective: bool = False
@@ -324,17 +324,17 @@ class Fibonacci(FeedbackFunction):
         return init_state, fn
 
     @classmethod
-    def fromReg(cls,
+    def from_reg(cls,
         F: "FeedbackRegister",
         bit: int = 0,
-        numIters: int | None = None,
+        num_iters: int | None = None,
         nonlinear: bool = False
     ) -> tuple[list[int], "Fibonacci"]:
         """Recover the Fibonacci register which reproduces a single bit of a
         running register.
 
-        Observes the specified bit of `F` over `numIters` clock cycles to
-        obtain a binary sequence, then applies `fromSeq` to recover the
+        Observes the specified bit of `F` over `num_iters` clock cycles to
+        obtain a binary sequence, then applies `from_seq` to recover the
         Fibonacci register realizing it. Useful for converting an arbitrary
         register into a (possibly nonlinear) Fibonacci surrogate that matches
         a chosen output bit.
@@ -343,21 +343,21 @@ class Fibonacci(FeedbackFunction):
         :type F: FeedbackRegister
         :param bit: The index of the bit to observe.
         :type bit: int
-        :param numIters: The number of clock cycles to observe. Defaults to
+        :param num_iters: The number of clock cycles to observe. Defaults to
             2*F.size + 4, which is enough for linear Berlekamp-Massey to
             recover any linear recurrence of complexity at most F.size.
-        :type numIters: int | None
-        :param nonlinear: Forwarded to `fromSeq`; if True, attempt to recover
+        :type num_iters: int | None
+        :param nonlinear: Forwarded to `from_seq`; if True, attempt to recover
             a nonlinear feedback rule.
         :type nonlinear: bool
         :return: The initial state and the recovered Fibonacci register.
         :rtype: tuple[list[int], Fibonacci]
         """
-        if not numIters:
-            numIters = 2*F.size + 4
+        if not num_iters:
+            num_iters = 2*F.size + 4
 
-        seq = [state[bit] for state in F.run(numIters)]
-        return Fibonacci.fromSeq(seq, nonlinear = nonlinear)
+        seq = [state[bit] for state in F.run(num_iters)]
+        return Fibonacci.from_seq(seq, nonlinear = nonlinear)
 
     @cached_property
     def update_matrix(self) -> np.ndarray:

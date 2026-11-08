@@ -46,7 +46,7 @@ class CrossJoin(FeedbackFunction):
 
         Builds the linear Fibonacci shift from the given primitive
         polynomial. Nonlinear terms are not added until
-        :meth:`generateNonlinearity` is called.
+        :meth:`generate_nonlinearity` is called.
 
         :param size: The number of bits in the register.
         :type size: int
@@ -72,23 +72,23 @@ class CrossJoin(FeedbackFunction):
         self.size = size
         self.tau = self.size-1
 
-    def shiftTerms(self,
+    def shift_terms(self,
         terms: list[Any],
-        idxA: int,
-        idxB: int
+        idx_a: int,
+        idx_b: int
     ) -> None:
         """Move nonlinear terms from one bit position to another.
 
-        Each term is shifted by (idxB - idxA) positions: all VAR indices
-        are adjusted accordingly. The term is removed from position idxA's
-        nonlinear node and added to position idxB's.
+        Each term is shifted by (idx_b - idx_a) positions: all VAR indices
+        are adjusted accordingly. The term is removed from position idx_a's
+        nonlinear node and added to position idx_b's.
 
         :param terms: The AND terms to move.
         :type terms: list[BooleanFunction]
-        :param idxA: The source bit position.
-        :type idxA: int
-        :param idxB: The destination bit position.
-        :type idxB: int
+        :param idx_a: The source bit position.
+        :type idx_a: int
+        :param idx_b: The destination bit position.
+        :type idx_b: int
         :raises ValueError: If a term contains non-VAR leaves, or if the
             shift would produce negative indices.
         """
@@ -97,16 +97,16 @@ class CrossJoin(FeedbackFunction):
             for var in term.args:
                 if type(var) != VAR:
                     raise ValueError("types other than VAR are not currently supported")
-                valid &= (var.index >= (idxA-idxB))
+                valid &= (var.index >= (idx_a-idx_b))
             if not valid:
                 raise ValueError("Invalid shift attempted for term: " + str(term))
 
-            newTerm = AND(*(VAR(var.index - idxA + idxB) for var in term.args))
+            new_term = AND(*(VAR(var.index - idx_a + idx_b) for var in term.args))
 
-            self.fn_list[idxA].args[-1].remove_arguments(term)
-            self.fn_list[idxB].args[-1].add_arguments(newTerm)
+            self.fn_list[idx_a].args[-1].remove_arguments(term)
+            self.fn_list[idx_b].args[-1].add_arguments(new_term)
 
-    def getMinDestination(self, term: Any) -> int:
+    def get_min_destination(self, term: Any) -> int:
         """The lowest bit index to which this term can be shifted.
 
         :param term: An AND term.
@@ -116,7 +116,7 @@ class CrossJoin(FeedbackFunction):
         """
         return max((self.size - 1) - min(value.index for value in term.args), self.tau)
 
-    def getMaxDestination(self, term: Any) -> int:
+    def get_max_destination(self, term: Any) -> int:
         """The highest bit index to which this term can be shifted.
 
         :param term: An AND term.
@@ -127,56 +127,56 @@ class CrossJoin(FeedbackFunction):
         return min((self.size + self.tau) - (max(value.index for value in term.args)+1), self.size - 1)
 
 
-    def addNonLinearTerm(self, maxAnds: int) -> None:
+    def add_nonlinear_term(self, max_ands: int) -> None:
         """Add a random nonlinear AND term at two valid shifted positions.
 
-        Randomly generates a product of 2 to `maxAnds` variables, then
+        Randomly generates a product of 2 to `max_ands` variables, then
         places it at two randomly chosen positions within the valid shift
         range. This paired placement is the core of the crossjoin
         construction.
 
-        :param maxAnds: The maximum number of variables in the AND term.
-        :type maxAnds: int
+        :param max_ands: The maximum number of variables in the AND term.
+        :type max_ands: int
         """
-        minDest = maxDest = 0
+        min_dest = max_dest = 0
         # the guard is false on entry, so the body always runs and replaces
         # this before anything reads it
-        newTerm = AND()
+        new_term = AND()
 
-        while not (minDest < maxDest):
-            numTaps = randint(2,maxAnds)
-            newTerm = AND(*(VAR(i) for i in sample(range(1, self.size), numTaps)))
-            maxDest = self.getMaxDestination(newTerm)
-            minDest = self.getMinDestination(newTerm)
+        while not (min_dest < max_dest):
+            num_taps = randint(2,max_ands)
+            new_term = AND(*(VAR(i) for i in sample(range(1, self.size), num_taps)))
+            max_dest = self.get_max_destination(new_term)
+            min_dest = self.get_min_destination(new_term)
 
-        idx1,idx2 = sample(range(minDest,maxDest+1),2)
+        idx1,idx2 = sample(range(min_dest,max_dest+1),2)
 
         # add first copy
-        self.fn_list[self.size - 1].args[-1].add_arguments(newTerm)
-        self.shiftTerms([newTerm], self.size-1, idx1)
+        self.fn_list[self.size - 1].args[-1].add_arguments(new_term)
+        self.shift_terms([new_term], self.size-1, idx1)
 
         # add second copy
-        self.fn_list[self.size - 1].args[-1].add_arguments(newTerm)
-        self.shiftTerms([newTerm], self.size-1, idx2)
+        self.fn_list[self.size - 1].args[-1].add_arguments(new_term)
+        self.shift_terms([new_term], self.size-1, idx2)
 
 
-    def generateNonlinearity(self,
-        maxAnds: int = 4,
-        tapDensity: float = .75
+    def generate_nonlinearity(self,
+        max_ands: int = 4,
+        tap_density: float = .75
     ) -> None:
         """Populate the register with random nonlinear crossjoin terms.
 
         Adds paired AND terms until every bit below tau is referenced by
-        at least one nonlinear term. The parameter `tapDensity` controls
+        at least one nonlinear term. The parameter `tap_density` controls
         how much of the register is designated as the nonlinear region
-        (tau = tapDensity * size).
+        (tau = tap_density * size).
 
-        :param maxAnds: The maximum number of variables per AND term.
-        :type maxAnds: int
-        :param tapDensity: The fraction of bits in the nonlinear region.
-        :type tapDensity: float
+        :param max_ands: The maximum number of variables per AND term.
+        :type max_ands: int
+        :param tap_density: The fraction of bits in the nonlinear region.
+        :type tap_density: float
         """
-        self.tau = min(self.tau,int(tapDensity * self.size))
+        self.tau = min(self.tau,int(tap_density * self.size))
 
         # add a set of nodes for nonlinear terms:
         for bit in range(self.size):
@@ -191,7 +191,7 @@ class CrossJoin(FeedbackFunction):
         # main loop:
         tapped = set()
         while len(tapped) < self.tau:
-            self.addNonLinearTerm(maxAnds)
+            self.add_nonlinear_term(max_ands)
 
             # for all nonlinear terms (tau & up)
             # determine which bits are tapped:

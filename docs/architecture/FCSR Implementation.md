@@ -1,9 +1,11 @@
 # FCSR Implementation
 
-How `FeedbackFunctions/FCSR.py` realizes a 2-adic rational as a shift register:
-the cell layout, why the carries are stored explicitly, how the connection
-integer becomes tap positions, and which bit pattern corresponds to which
-fraction.
+A feedback-with-carry shift register (FCSR) emits, one bit per clock, the 2-adic
+expansion of a fraction $p/q$ with $q$ odd: $q$ is the register's **connection
+integer**, and $p$ is fixed by its initial state. This document describes how
+`FeedbackFunctions/FCSR.py` realizes such a fraction as a shift register: the
+cell layout, why the carries are stored explicitly, how the connection integer
+becomes tap positions, and which bit pattern corresponds to which fraction.
 
 For the arithmetic this implements — the shift on numerators, which fractions
 give purely periodic sequences, and the cycle structure — see
@@ -24,8 +26,8 @@ There are two places to put it, mirroring the LFSR situation.
   taps, $m \leq k-1$ is invariant — $m' \leq \lfloor (k+m)/2 \rfloor \leq
   \lfloor (2k-1)/2 \rfloor = k-1$ — so the memory ranges over $0, \ldots, k-1$
   and holding it takes a carry *register* of $\lceil \log_2 k \rceil$ bits,
-  feeding back into itself. One multi-bit adder, whose size grows with the
-  number of taps.
+  feeding back into itself. The form uses one multi-bit adder, whose size grows
+  with the number of taps.
 - **Galois form** distributes the addition. Each tapped position gets its own
   one-bit full adder and its own one-bit carry cell, with the output bit
   broadcast to all of them. No adder is wider than one bit, and each carry path
@@ -36,7 +38,7 @@ buys: a carry is stored next to the position that produced it.
 
 ## Layout
 
-A register of 2-adic complexity $d$ occupies $2d - 1$ cells, interleaved:
+A register with $d$ value cells occupies $2d - 1$ cells in all, interleaved:
 
 ```
 index:   0       1       2       3       4      ...   2d-2
@@ -164,9 +166,9 @@ states differently, which is the subject of the next section.
 Each (value, carry) pair contributes $\text{value} + 2\cdot\text{carry}$: by
 §What each cell computes the carry cell holds the carry-out of the adder whose
 sum bit is the value cell beside it, and a carry-out is worth twice its sum bit.
-The integer identity in step 1 below is that statement written arithmetically,
-and it is what settles the weighting; this sentence only says where the factor
-$2$ comes from. Write $v_i$ for the value bits and $c_i$ for the carry bits, and
+That remark says where the factor $2$ comes from; what establishes the
+weighting is the integer identity in step 1 below, which is the same statement
+written arithmetically. Write $v_i$ for the value bits and $c_i$ for the carry bits, and
 collect them into the two words
 
 $$a = \sum_{i=0}^{d-1} v_i 2^i, \qquad c = \sum_{i=0}^{d-2} c_i 2^i$$
@@ -410,18 +412,19 @@ of each: $-1/3$ sits on `FCSR(2, 3)`, closed at $q = 3 = 2^2 - 1$, and $-3/9$ on
 `FCSR(4, 9)`, open at $q = 9 < 15$.
 
 The fraction is deliberately **not** reduced first, and the reason is that
-reducing it would silently change which register you are talking about.
+reducing it would silently change which register is meant.
 
 A fraction and its reduction generate the *same sequence* — $-3/9$ and $-1/3$
 both expand to $1,0,1,0,\ldots$ — but they name different registers. The
 denominator is the connection integer, so reducing changes the tap word
 $(q+1)/2$ and therefore the whole machine: $-3/9$ lives on `FCSR(4, 9)` in state
-`[1,1,0,0,0,0,0]`, while $-1/3$ lives on `FCSR(2, 3)` in state `[1,0,0]`. Larger
-$q$, larger numerator, larger register, same output.
+`[1,1,0,0,0,0,0]`, while $-1/3$ lives on `FCSR(2, 3)` in state `[1,0,0]`. The
+unreduced fraction has the larger $q$, the larger numerator and the larger
+register, and the same output.
 
 Keeping the fraction as given is what preserves that distinction. A caller who
 asks for $p/q$ gets a state for the register on $q$, not for whichever smaller
-register happens to emit the same bits — which matters because `fromSeq` passes
+register happens to emit the same bits — which matters because `from_seq` passes
 the recovered denominator straight to the constructor, so the register and the
 state have to agree on which $q$ they are built for.
 
@@ -471,23 +474,29 @@ it with room.
 
 ## API
 
+The class exposes one constructor, two ways of recovering a register from
+observed output, the fraction-to-state encoding, and two views of the cell
+functions:
+
 ```python
 FCSR(diadic_complexity, q)          # d value cells, d-1 carry cells, width 2d-1
-FCSR.fromSeq(seq)                   # -> (state, register)
-FCSR.fromReg(F, bit, numIters)      # -> (state, register), observing one bit
+FCSR.from_seq(seq)                   # -> (state, register)
+FCSR.from_reg(F, bit, num_iters)      # -> (state, register), observing one bit
 FCSR.state_from_frac(num, den)      # -> (d, state)
 fcsr.carries                        # the d-1 carry functions
 fcsr.values                         # the paired value functions
 ```
 
 `state_from_frac` takes the fraction as it is: `num` carries its own sign and
-`den` is the positive connection integer. `fromSeq` runs `BM_FCSR` to recover
+`den` is the positive connection integer. `from_seq` runs `BM_FCSR` to recover
 $p/q$ from the observation, builds the state from it, then constructs the
-register from $q$.
+register from $q$. `from_reg` records bit `bit` of a running `FeedbackRegister`
+for `num_iters` clocks, `2*F.size + 4` when `num_iters` is not given, and
+passes the recorded sequence to `from_seq`.
 
 ## Source
 
 | | |
 |---|---|
-| `FeedbackFunctions/FCSR.py` | `__init__`, `state_from_frac`, `fromSeq`, `fromReg`, `carries`, `values` |
+| `FeedbackFunctions/FCSR.py` | `__init__`, `state_from_frac`, `from_seq`, `from_reg`, `carries`, `values` |
 | `Tools/RegisterSynthesis/fcsrSynthesis.py` | `BM_FCSR`, `FCSR_size` |

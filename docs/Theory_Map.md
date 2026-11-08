@@ -8,8 +8,10 @@ Paths are relative to `docs/`.
 ## Documentation Categories
 
 - **`theory/`** — Pure mathematical foundations: roots and the algebraic closure, polynomial types, root expressions, root multiplicities and Jordan decomposition, decimation/expansion and LC, monomial profiles, division property, resolvent analysis, cube equation generation, algebraic attack theory, trajectory vs column LC
-- **`architecture/`** — Library structure and implementation details: component interactions, store/solver/generator compatibility, attack implementation specifics, mesh optimization, nonlinear register synthesis
+- **`architecture/`** — Library structure and implementation details: component interactions, store/solver/generator compatibility, attack implementation specifics, mesh optimization, nonlinear register synthesis, BooleanFunction traversal and code generation, logic optimization, compiled evaluation
 - **`conventions/`** — Style, terminology, patterns: notation, matrix indexing, bit ordering, coefficient representation, vocabulary, polynomial conventions, coset region diagrams, writing standards
+
+- **`Getting Started.md`** — Worked usage examples (clocking, Boolean functions, synthesis, an algebraic attack, logging, serialization). Moved out of the README; every code block was run as written, so rerun them when the API they use changes.
 
 ## Writing Documentation
 
@@ -45,17 +47,18 @@ Tools/RegisterSynthesis/nlfsrSynthesis.py → architecture/Bijective Register Sy
 Tools/RegisterSynthesis/fcsrSynthesis.py  → theory/2-adic Integers and Rational Sequences.md, architecture/FCSR Implementation.md
 Tools/AlgClosure/*              → theory/Roots and the Algebraic Closure.md, theory/Algebraic Closure.md, theory/Decimation Expansion and Linear Complexity.md
 Tools/CostEstimation.py         → theory/Cube Equation Generation.md
+Tools/ClockControlled.py        → theory/Interleaving and Clock-Controlled Registers.md
 ```
 
 ## FeedbackFunctions
 
 ```
-FeedbackFunctions/Fibonacci.py  → conventions/Polynomial Conventions.md, architecture/Bijective Register Synthesis.md (for fromSeq / invert / _inverse_feedback)
-FeedbackFunctions/Galois.py     → conventions/Polynomial Conventions.md, architecture/Bijective Register Synthesis.md (for fromSeq / invert)
+FeedbackFunctions/Fibonacci.py  → conventions/Polynomial Conventions.md, architecture/Bijective Register Synthesis.md (for from_seq / invert / _inverse_feedback)
+FeedbackFunctions/Galois.py     → conventions/Polynomial Conventions.md, architecture/Bijective Register Synthesis.md (for from_seq / invert)
 FeedbackFunctions/FCSR.py       → architecture/FCSR Implementation.md, theory/2-adic Integers and Rational Sequences.md
 FeedbackFunctions/MPR.py        → conventions/Polynomial Conventions.md (MPR section)
 FeedbackFunctions/CMPR.py       → conventions/Notation and Terminology.md, theory/Root Expressions and LC Estimation.md, theory/Root Multiplicities and Jordan Decomposition.md, architecture/Mesh Optimization.md
-FeedbackFunctions/TFunction.py  → conventions/Notation and Terminology.md (T-Function Bit Order section), theory/Root Multiplicities and Jordan Decomposition.md
+FeedbackFunctions/TFunction.py  → architecture/Feedback Family Implementation Details/TFunctions.md, conventions/Notation and Terminology.md (CMPR Block Ordering and T-Functions section), theory/Root Multiplicities and Jordan Decomposition.md
 FeedbackFunctions/CrossJoin.py  → conventions/Notation and Terminology.md, theory/Root Multiplicities and Jordan Decomposition.md
 ```
 
@@ -64,6 +67,12 @@ FeedbackFunctions/CrossJoin.py  → conventions/Notation and Terminology.md, the
 ```
 BooleanLogic/*                  → (no required theory docs — self-contained)
 BooleanLogic/SAT.py             → architecture/SAT Encoding.md (per-node encoding invariant, threading, fusion nodes)
+BooleanLogic/BooleanFunction.py → architecture/BooleanFunction Traversal and Code Generation.md (postorder contract, per-node hooks, code generation driver, copying)
+BooleanLogic/Latex.py           → architecture/BooleanFunction Traversal and Code Generation.md §4
+BooleanLogic/Optimization.py    → architecture/Logic Optimization.md (network, passes and their sources, guarantees)
+FeedbackRegister.py             → architecture/Compiled Evaluation.md (the compiled loops, what each path costs, and why the update is not inlined into them)
+FeedbackFunctions/FeedbackFunction.py (generate_python, compile) → architecture/Compiled Evaluation.md, architecture/Logic Optimization.md §6
+BooleanLogic/Gates.py, BooleanLogic/FunctionInputs.py → architecture/BooleanFunction Traversal and Code Generation.md §2 (hooks a node class provides)
 ```
 
 ## Division Property

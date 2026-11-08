@@ -14,6 +14,8 @@ from PyPR.JSON_Serialization import Serializable
 
 from PyPR.BooleanLogic import VAR, BooleanANF, BooleanFunction
 from PyPR.BooleanLogic.Latex import LatexStyle, fill_template, partial_name
+from PyPR.BooleanLogic.Optimization import operation_count
+from PyPR.BooleanLogic.Optimization import optimize as optimize_functions
 
 u8 = nb_types.u8
 void = nb_types.void
@@ -131,12 +133,14 @@ class FeedbackFunction(Serializable):
         the function can also recieve the output of previous calls as input, and will continue 
         to add in new IDs, reusing IDs where possible. This means the same function can also be
         used to add onto existing output. For example:
-        ```python
-        ids = object_1.generate_ids()
-        ids = object_2.generate_ids(ids)
-        ids = object_3.generate_ids(ids)
-        ...
-        ```
+
+        .. code-block:: python
+
+            ids = object_1.generate_ids()
+            ids = object_2.generate_ids(ids)
+            ids = object_3.generate_ids(ids)
+            ...
+
         For efficiency reasons, this method both mutates the input and returns the mutated
         list of ids by default. This can be disabled by setting the parameter `in_place=False`
 
@@ -380,55 +384,159 @@ end run;
         return f"\\begin{{{environment}}}\n{body}\n\\end{{{environment}}}"
 
     # Compilation
-    def compile(self):
+    def optimize(self) -> "FeedbackFunction":
+        """A feedback function with the same update, rewritten to take fewer operations.
+
+        The bits are optimized together (`PyPR.BooleanLogic.Optimization.optimize`),
+        so logic several bits have in common is one node shared between their
+        functions. The update is the same on every state of bits; only the
+        structure of `fn_list` differs. `generate_python(optimize=True)` and
+        `compile` do this themselves, so this is for inspecting or exporting
+        the optimized form.
+
+        :return: A plain `FeedbackFunction` over the optimized functions. It
+            does not keep the subclass or its attributes (the blocks of a CMPR, say).
+        :rtype: FeedbackFunction
+        """
+        return FeedbackFunction(optimize_functions(self.fn_list))
+
+    def _straight_line_program(self,
+        functions: list[BooleanFunction],
+        output_name: str,
+        array_name: str
+    ) -> list[str]:
+        """Python statements computing `functions` from `array_name` into `output_name`.
+
+        Every gate object is computed once, however many of the functions use
+        it: a gate with several users gets a local, as does any expression long
+        enough that nesting it further would only deepen the source.
+
+        The layout otherwise follows the unoptimized code, because measurement
+        favoured it. Bits are written from the highest index down, each as soon
+        as its value is ready, and a state bit is read from the array at every
+        use, not held in a local. Reading every state bit into a local first
+        measured 5-20% slower on registers that are mostly shifts, which then
+        hold more values at once than there are machine registers to keep them
+        in. Like the unoptimized code, this writes before it has finished
+        reading, so the two arrays must be distinct.
+
+        :param functions: One function per bit, sharing nodes where they share logic.
+        :type functions: list[BooleanFunction]
+        :param output_name: The name of the array the new state is written to.
+        :type output_name: str
+        :param array_name: The name of the array holding the current state.
+        :type array_name: str
+        :return: The statements, in order, unindented.
+        :rtype: list[str]
+        """
+        uses: dict[BooleanFunction, int] = {}
+        order = []
+        for function in functions:
+            for node in function.postorder(stop=uses.__contains__):
+                uses[node] = 0
+                order.append(node)
+        for node in order:
+            for arg in node.args:
+                uses[arg] += 1
+        for function in functions:
+            uses[function] += 1
+
+        lines = []
+        values: dict[BooleanFunction, str] = {}
+        temporaries = 0
+        for i in range(len(functions) - 1, -1, -1):
+            for node in functions[i].postorder(stop=values.__contains__):
+                text = node._generate_python(values, array_name)
+                if not node.is_leaf() and (uses[node] > 1 or len(text) > 120):
+                    values[node] = f"t{temporaries}"
+                    temporaries += 1
+                    lines.append(f"{values[node]} = {text}")
+                else:
+                    values[node] = text
+            lines.append(f"{output_name}[{i}] = {values[functions[i]]}")
+        return lines
+
+    def generate_python(self,
+        output_name: str = "next_state",
+        array_name: str = "curr_state",
+        optimize: bool = False
+    ) -> list[str]:
+        """Generates Python statements computing the whole update.
+
+        The statements read the current state from the array `array_name` and
+        write bit i of the next state to `output_name[i]`, highest bit first.
+        They use only `^`, `&`, `|` and `1 - x`, so they are valid numba code
+        over integer bits; `compile` is built on this. The two arrays must be
+        distinct, since bits are written before all of them have been read.
+
+        :param output_name: The name of the array the next state is written to.
+            Defaults to 'next_state'.
+        :type output_name: str
+        :param array_name: The name of the array holding the current state.
+            Defaults to 'curr_state'.
+        :type array_name: str
+        :param optimize: If False (the default), each bit's function is written
+            as it stands, by `BooleanFunction.generate_python`: every
+            subfunction of a bit gets a variable, and one already named by a
+            higher bit is reused. If True, the bits are first rewritten
+            together to share common logic and use fewer operations (see
+            `optimize`), and every gate shared between any of them gets a
+            variable. The update computed is the same on every state of bits,
+            and `fn_list` is not changed. When the rewrite saves no operations
+            the result is the same as with False.
+        :type optimize: bool
+        :return: One Python statement per line, dependencies first.
+        :rtype: list[str]
+        """
+        if optimize:
+            functions = optimize_functions(self.fn_list)
+            # nothing saved: the functions as written are already as good, and
+            # writing those keeps the code in step with fn_list
+            if operation_count(functions) < operation_count(self.fn_list):
+                return self._straight_line_program(functions, output_name, array_name)
+
+        lines = []
+        overrides: dict[BooleanFunction, str] = {}
+        for i in range(self.size - 1, -1, -1):
+            lines += self.fn_list[i].generate_python(
+                output_name = f"{output_name}[{i}]",
+                array_name = array_name,
+                subfunction_prefix = f"fn_{i}",
+                overrides = overrides
+            )
+            # a subfunction named here is reused by the bits written after it
+            for j, node in enumerate(self.fn_list[i].subfunctions()):
+                if node not in overrides:
+                    overrides[node] = f"fn_{i}_{j+1}"
+        return lines
+
+    def compile(self, optimize: bool = True):
+        """Compile the update with numba, and return the compiled function.
+
+        Two functions are built and stored: `_compiled(state)` returns the next
+        state as a new array, and `_compiled_inplace(state, buffer)` writes it
+        into `buffer`, which is what `FeedbackRegister` clocks with. Both are
+        the statements of `generate_python`, wrapped in a function.
+
+        :param optimize: Passed to `generate_python`. True (the default)
+            compiles the optimized form of the update when it saves operations:
+            updates with shared or redundant logic then clock faster, and
+            compile faster too, there being less code to compile, while an
+            update the optimizer cannot improve is compiled exactly as written.
+            False always compiles each bit's function as written.
+        :type optimize: bool
+        :return: The compiled `_compiled` function.
+        :rtype: Callable
+        """
         exec_locals = {}
-
-        # return a new answer
-        overrides = {}
-        exec_str = """
-def _compiled(curr_state):
-    next_state = np.zeros_like(curr_state)
-"""
-        exec_str += "\n    "
-        for i in range(self.size - 1, -1 , -1):
-            exec_str += ("\n    ".join(self.fn_list[i].generate_python(
-                output_name = f"next_state[{i}]",
-                array_name = "curr_state",
-                subfunction_prefix = f"fn_{i}",
-                overrides = overrides
-            )) + "\n    ")
-
-            for j, node in enumerate(self.fn_list[i].subfunctions()):
-                if node not in overrides:
-                    overrides[node] = f'fn_{i}_{j+1}'
-
-        exec_str += "return next_state\n\n"
-        exec(exec_str, globals(), exec_locals)
-
-
-        # write to an existing buffer
-        overrides = {}
-        exec_str = """
-#@numba.jit(parallel=True)
-def _compiled_inplace(curr_state,output_buffer):
-"""
-        exec_str += ("    ")
-        for i in range(self.size - 1, -1 , -1):
-            # Add the lines to python string
-            exec_str += ("\n    ".join(self.fn_list[i].generate_python(
-                output_name = f"output_buffer[{i}]",
-                array_name = "curr_state",
-                subfunction_prefix = f"fn_{i}",
-                overrides = overrides
-            )) + "\n    ")
-
-            # update the overrides with subfunctions to avoid reuse:
-            for j, node in enumerate(self.fn_list[i].subfunctions()):
-                if node not in overrides:
-                    overrides[node] = f'fn_{i}_{j+1}'
-
-        exec_str += "return\n\n"
-        exec(exec_str, globals(), exec_locals)
+        for name, signature, setup, output_name, result in (
+            ("_compiled", "curr_state", "next_state = np.zeros_like(curr_state)", "next_state", "return next_state"),
+            ("_compiled_inplace", "curr_state,output_buffer", "", "output_buffer", "return"),
+        ):
+            lines = self.generate_python(output_name, "curr_state", optimize=optimize)
+            lines = ([setup] if setup else []) + lines + [result]
+            exec_str = f"def {name}({signature}):\n" + "".join(f"    {line}\n" for line in lines)
+            exec(exec_str, globals(), exec_locals)
 
         # u8[:](u8[:])
         self._compiled = numba.njit()(
@@ -453,7 +561,7 @@ def _compiled_inplace(curr_state,output_buffer):
 
 
     # Statistics:
-    def gateSummary(self):
+    def gate_summary(self):
         # get and merge counts from all fns
         dicts = [f.component_count() for f in self.fn_list]
         unified_keys = set.union(*(set(d.keys()) for d in dicts))
@@ -465,7 +573,7 @@ def _compiled_inplace(curr_state,output_buffer):
                 output[key] += d.get(key, 0)
         return output
 
-    def isLinear(self, allowAffine: bool = False) -> bool:
+    def is_linear(self, allow_affine: bool = False) -> bool:
         """Whether every bit's update is a linear (or affine) function of the state.
 
         Decided on each bit's ANF, not on the gate types: ANF-derived DAGs wrap
@@ -474,16 +582,16 @@ def _compiled_inplace(curr_state,output_buffer):
         at most 1, and linear when it is affine and has no constant monomial
         (the empty term), so that it maps the zero state to zero.
 
-        :param allowAffine: Whether to accept a constant term, i.e. test for affine
+        :param allow_affine: Whether to accept a constant term, i.e. test for affine
             rather than linear updates.
-        :type allowAffine: bool
-        :return: True if every bit's update is linear (affine, if `allowAffine`).
+        :type allow_affine: bool
+        :return: True if every bit's update is linear (affine, if `allow_affine`).
         :rtype: bool
         """
         for f in self.fn_list:
             anf = BooleanANF.from_BooleanFunction(f)
             if anf.degree() > 1:
                 return False
-            if not allowAffine and frozenset() in anf.terms:
+            if not allow_affine and frozenset() in anf.terms:
                 return False
         return True

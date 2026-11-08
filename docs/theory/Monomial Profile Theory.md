@@ -1,5 +1,7 @@
 # Monomial Profile Theory
 
+A monomial profile is an upper bound on the set of monomials that can appear in the [Algebraic Normal Form](Algebraic%20Normal%20Form.md) (ANF) of a signal produced by a CMPR, a register composed of several MPR blocks in which some blocks receive chaining input (extra nonlinear feedback terms) from others. This document defines monomial profiles, states the five propositions used to count and combine them, compares them with [root expressions](Root%20Expressions%20and%20LC%20Estimation.md), and gives a statistical model for how many of the bounded monomials survive in an actual ANF. It assumes the ANF and its monomials; block ordering follows [Notation and Terminology](../conventions/Notation%20and%20Terminology.md).
+
 ## What is a Monomial Profile?
 
 The ANF of a signal coming out of a CMPR can contain an enormous number of monomials. Rather than tracking the exact set, we track an **upper bound** on which monomials can appear. This is analogous to the root expression approach for linear complexity: instead of computing which roots are actually present, we bound the set of possible roots.
@@ -12,7 +14,7 @@ A full monomial profile for a signal is a collection of such products (one produ
 
 ## The Five Core Propositions
 
-These give the rules for counting and combining monomial profiles. They parallel the rules for [root expressions](Root%20Expressions%20and%20LC%20Estimation.md) almost exactly.
+The five propositions below give the rules for counting and combining monomial profiles. They parallel the five propositions for [root expressions](Root%20Expressions%20and%20LC%20Estimation.md); the section [Similarity to Root Expressions](#similarity-to-root-expressions) below states where the parallel holds and where it fails.
 
 ---
 
@@ -22,15 +24,17 @@ These give the rules for counting and combining monomial profiles. They parallel
 
 ---
 
-**Proposition 2** (Same-register product): If all pairs share the same register size $e$, then
+**Proposition 2** (Same-register product): If all pairs come from the same register, of size $e$, then
 
 $$\prod_{i=1}^{k} \langle e \cdot w_i \rangle = \left\langle e \cdot \sum_{i=1}^{k} w_i \right\rangle$$
 
-*Proof:* All variables come from the same register, so the product of monomials of lengths $\leq w_1, \ldots, w_k$ is just a monomial of length at most $\sum w_i$ (with equality when all chosen variables are distinct).
+where the weight saturates at $e$: a monomial cannot contain more than the $e$ variables of the register, so the right-hand side is $\langle e \cdot \min(e, \sum_i w_i) \rangle$.
+
+*Proof:* For one inclusion, all variables come from the same register, so the product of monomials of lengths $\leq w_1, \ldots, w_k$ is a monomial of length at most $\sum w_i$ (with equality when all chosen variables are distinct), and at most $e$. For the other, take a monomial of degree $D$ with $1 \leq D \leq \min(e, \sum_i w_i)$. Distribute its $D$ variables among the $k$ factors so that factor $i$ receives at most $w_i$ of them, and give any factor left empty a copy of a variable already used. Since $x^2 = x$, the product of the factors is the original monomial.
 
 ---
 
-**Proposition 3** (Cross-register product): If all register sizes $e_i$ are distinct, then
+**Proposition 3** (Cross-register product): If the pairs come from pairwise different registers (whose sizes $e_i$ may coincide), then
 
 $$\left| \prod_{i=1}^{k} \langle e_i \cdot w_i \rangle \right| = \prod_{i=1}^{k} |\langle e_i \cdot w_i \rangle|$$
 
@@ -71,31 +75,40 @@ For monomial profiles, the full-weight monomial (all $e$ variables) is a perfect
 
 ### 2. Multiple Registers of the Same Size
 
-When a CMPR contains multiple registers with the same size (and therefore the same minimal polynomial), root expressions require a Jordan-length mechanism to handle the algebraic interaction between the identical fields. This is implemented in the library (necessary for T-Functions) but is complicated, fragile, and excluded from the paper because it has more degenerate edge cases. See [Root Multiplicities and Jordan Decomposition](Root%20Multiplicities%20and%20Jordan%20Decomposition.md) for the decomposition behind it.
+When a CMPR contains multiple registers with the same size (and therefore the same minimal polynomial), root expressions require a Jordan-length mechanism to handle the algebraic interaction between the identical fields. The library implements this mechanism, which T-Functions require, but it has more degenerate edge cases than the distinct-size case and is excluded from the paper for that reason. See [Root Multiplicities and Jordan Decomposition](Root%20Multiplicities%20and%20Jordan%20Decomposition.md) for the decomposition behind it.
+
+> **OPEN:** Which paper is "the paper"? — needs author input.
+> The repository's bibliography has no entry for it. A citation is needed here and in the example under [Statistical Model for Expected Behavior](#statistical-model-for-expected-behavior).
 
 For monomial profiles, the proofs only require that variables come from *different registers*, not differently-sized registers. In code, each pair tracks the index of the MPR it came from (not just its size). No multiplicity mechanism is needed.
 
-In the simple case where all component sizes are distinct, neither multiplicities nor block indices matter, and the two systems are completely equivalent.
+In the simple case where all component sizes are distinct, neither multiplicities nor block indices matter, and the five counting rules of the two systems coincide: [Root Expressions and LC Estimation](Root%20Expressions%20and%20LC%20Estimation.md) states the same five rules as its Propositions 1–5. The full-weight element still differs ($2^e - 2$ against $2^e - 1$, as in the first difference above) whatever the sizes are.
 
-**Overall:** monomial profile upper bounds are higher than (but usually close to) root expression bounds, and the system is simpler to reason about and implement.
+Overall, monomial profile upper bounds are higher than (but usually close to) root expression bounds, and the system is simpler to reason about and implement.
+
+> **OPEN:** When all component sizes are distinct, are the `upper()` values of a monomial profile and of the corresponding root expression equal? If they are, what does "higher than" in the sentence above compare? — needs author input.
+> The two documents state the same five counting rules (Propositions 1–5 here and in [Root Expressions and LC Estimation](Root%20Expressions%20and%20LC%20Estimation.md)), which suggests equal counts, while the sentence above and the full-weight difference suggest unequal ones. Nothing in the repository settles which holds.
 
 ## Statistical Model for Expected Behavior
 
-The upper bound is not always tight — some monomials in the profile may cancel out of the actual ANF. The question is: how much do they degenerate?
+The upper bound is not always tight: some monomials in the profile may cancel out of the actual ANF. This section gives a model for how many do.
 
 For **root expressions**, cancellation is unlikely because roots appear in Frobenius cosets. For a coset of size $n$, all $n$ roots must cancel simultaneously for the bound to be loose. Assuming statistical independence, this happens with probability only $1/2^n$. This makes the root expression bound very tight almost always.
 
-For **monomial profiles**, monomials don't come in cosets. There is no structure that makes simultaneous cancellation rare. The natural model is that each monomial independently cancels with probability $1/2$.
+For **monomial profiles**, monomials do not come in cosets. There is no structure that makes simultaneous cancellation rare. The model used here is that each monomial independently cancels with probability $1/2$.
 
 Under this model, for a profile predicting $M$ possible monomials, the expected number of surviving monomials is $M/2$, with standard deviation $\sqrt{M}/2$.
 
-*Example:* For the C17 CMPR used in the paper, the profile predicts $M = 12515$ monomials. The expected surviving count is $12515/2 = 6257.5$ with standard deviation $\sqrt{12515}/2 \approx 55.93$. Empirical ANF iteration confirmed this model matches the observed behavior well.
+> **OPEN:** What is the C17 CMPR, where does $M = 12515$ come from, and where is the empirical confirmation recorded? — needs author input.
+> The text as it stands reads: "*Example:* For the C17 CMPR used in the paper, the profile predicts $M = 12515$ monomials. The expected surviving count is $12515/2 = 6257.5$ with standard deviation $\sqrt{12515}/2 \approx 55.93$. Empirical ANF iteration confirmed this model matches the observed behavior well."
+> None of the three has a referent in the repository: there is no definition of C17, no computation giving 12515, and no data for the ANF iteration.
 
 This statistical model also appears in the analysis of [algebraic attacks](Algebraic%20Attacks.md) and [cube-based equation generation](Cube%20Equation%20Generation.md), where the expected number of surviving monomials determines the difficulty of equation generation.
 
 ## API
 
+In the entries below, `C` is a `CMPR` instance and `mp` is a `MonomialProfile` (defined in `PyPR.Tools.RootCounting.MonomialProfile`).
+
 - `C.monomial_profiles()` — returns a list of `MonomialProfile` objects, one per bit.
 - `mp.upper()` — the upper bound on the number of monomials.
-- `mp.lower()` — a lower estimate (holds with high probability).
 - `BooleanFunction.eval_ANF(profiles)` — evaluate a function symbolically with monomial profiles as inputs, giving the output's profile. Works for any function using only AND, XOR, and CONST(1). The profiles also drive [cube-based equation generation cost estimates](Cube%20Equation%20Generation.md), where each profile's degree vector determines the per-monomial cube-sum cost.

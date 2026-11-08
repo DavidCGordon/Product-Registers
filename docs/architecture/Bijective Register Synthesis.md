@@ -1,8 +1,12 @@
 # Bijective Register Synthesis
 
-What the `bijective=True` option means in `Tools/RegisterSynthesis`, why the
-condition it imposes is the right one, and how the same condition is applied on
-the linear and nonlinear paths.
+The synthesis routines in `Tools/RegisterSynthesis` take an observed binary
+sequence and return a short feedback shift register that generates it. By
+default nothing in the search requires that register's update map to be
+invertible. This document describes the `bijective=True` option, which restricts
+the search to registers whose update map is a bijection: what the restriction
+means, why the condition it imposes on the feedback function is the right one,
+and how the same condition is applied on the linear and nonlinear paths.
 
 For Berlekamp-Massey itself — which polynomial it returns, and in which
 coefficient convention — see [Polynomial Conventions](../conventions/Polynomial%20Conventions.md).
@@ -86,11 +90,11 @@ the full frame subject to an invertibility side-condition; it ranges over $B$ on
 the internal window, with no side-condition at all. Every $B$ yields a bijective
 register, and every bijective register arises this way.
 
-## Imposing the existing condition on that set
+## The consistency condition on each path
 
-What remains is a consistency question, and it is the same question each path
-already answered — asked about $(w_t, d_t)$ instead of about frames and next
-bits. A fit exists at length $m$ exactly when the pairs are consistent; the two
+What remains is a consistency question, and it is the same question each
+synthesis path answers in the unconstrained search — asked about $(w_t, d_t)$
+instead of about frames and next bits. A fit exists at length $m$ exactly when the pairs are consistent; the two
 paths differ only in what $B$ is allowed to be.
 
 **Nonlinear** (`BM_NL`). $B$ may be any Boolean function, so the pairs are
@@ -123,8 +127,8 @@ transient. This is a condition on the input, not merely a property of the
 output, and it is the one way to use the flag wrongly.
 
 If the sequence has a genuine transient, no bijective register reproduces it,
-and the search does not fail cleanly — it degenerates. Write $\rho$ for the least
-period and $\tau$ for the minimal preperiod. Positions $t_1 = \tau - 1$ and
+and the search does not fail cleanly — it degenerates. Write $N$ for the number of
+observed bits, $\rho$ for the least period and $\tau$ for the minimal preperiod. Positions $t_1 = \tau - 1$ and
 $t_2 = \tau - 1 + \rho$ have equal windows, since every index in them is at least
 $\tau$ and so lies in the periodic part; and their targets differ, because
 $d_{t_1} \oplus d_{t_2} = \text{seq}[\tau-1] \oplus \text{seq}[\tau-1+\rho] = 1$
@@ -140,8 +144,8 @@ degenerate one grows with slope $1$.
 ## API
 
 `bijective` is accepted uniformly across the batch fits, their iterators, and
-both register constructors. It defaults to `False` everywhere, and `False` is
-the original behaviour in every case.
+both register constructors. It defaults to `False` everywhere, and with `False`
+each function runs its unconstrained search.
 
 ```python
 berlekamp_massey(seq, bijective=False)                          # -> (L, polynomial)
@@ -150,22 +154,22 @@ BM_NL(seq, bijective=False)                                     # -> (m, f)
 berlekamp_massey_iterator(seq, yield_rate, bijective=False)     # -> yields (L, polynomial)
 BM_NL_iterator(seq, yield_rate, yield_corrected, bijective=False)  # -> yields (m, f)
 
-Fibonacci.fromSeq(seq, nonlinear=False, bijective=False)        # -> (state, register)
-Galois.fromSeq(seq, bijective=False)                            # -> (state, register)
+Fibonacci.from_seq(seq, nonlinear=False, bijective=False)        # -> (state, register)
+Galois.from_seq(seq, bijective=False)                            # -> (state, register)
 ```
 
 Each iterator agrees with its batch counterpart on the full sequence. With
 `bijective=True` the fit is a rescan over $m$ rather than an incremental update,
-so the iterators have no streaming core to reuse there: each yield reports the
-batch fit for the prefix consumed so far, at the batch cost.
+so the iterators do not stream in that mode: each yield reports the batch fit
+for the prefix consumed so far, at the batch cost.
 
-`Galois.fromSeq` delegates to the same constrained search. Bijectivity is a
+`Galois.from_seq` delegates to the same constrained search. Bijectivity is a
 property of the polynomial, not of the realization — the Galois and Fibonacci
 registers built from one polynomial have update matrices that are transposes of
 each other, so one is invertible exactly when the other is.
 
-A register returned under `bijective=True` reproduces the sequence, passes
-`invert()`, and has preperiod $0$ from every seed. When no bijective register
+A register returned under `bijective=True` reproduces the sequence, is accepted
+by `invert()`, and has preperiod $0$ from every seed. When no bijective register
 shorter than the sequence generates it, the search raises `ValueError` rather
 than returning a register that does not.
 
@@ -175,5 +179,5 @@ than returning a register that does not.
 |---|---|
 | `Tools/RegisterSynthesis/lfsrSynthesis.py` | `berlekamp_massey`, `berlekamp_massey_iterator` |
 | `Tools/RegisterSynthesis/nlfsrSynthesis.py` | `BM_NL`, `BM_NL_iterator`, `KMP_table` |
-| `FeedbackFunctions/Fibonacci.py` | `fromSeq`, `invert`, `_inverse_feedback` |
-| `FeedbackFunctions/Galois.py` | `fromSeq`, `invert` |
+| `FeedbackFunctions/Fibonacci.py` | `from_seq`, `invert`, `_inverse_feedback` |
+| `FeedbackFunctions/Galois.py` | `from_seq`, `invert` |

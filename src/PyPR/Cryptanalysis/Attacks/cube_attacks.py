@@ -265,8 +265,8 @@ def cmpr_cube_attack_offline(
     Candidates come from the output's monomial profile, lowest superpoly degree
     first. For a cube I whose superpoly has degree at most d over the unknown
     bits U of its target blocks, the coefficient of each monomial x^m (m a subset
-    of U, |m| <= d) follows by Moebius inversion from the superpoly's values at
-    the points e_s, |s| <= d:
+    of U, ``|m| <= d``) follows by Moebius inversion from the superpoly's values at
+    the points e_s, ``|s| <= d``:
 
         P(e_s) = XOR over u subset of s of coef(u),  so
         coef(s) = P(e_s) XOR (XOR over u proper subset of s of coef(u)).

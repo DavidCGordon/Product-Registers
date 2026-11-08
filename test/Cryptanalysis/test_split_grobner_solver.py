@@ -159,7 +159,7 @@ def test_split_loop_runs_during_a_real_attack(monkeypatch):
     np.random.seed(1)
     cmpr = CMPR([MPR(5, [1, 0, 1, 0, 0, 1], [1, 1, 0, 0, 1]),
                  MPR(3, [1, 1, 0, 1], [1, 0, 1])])
-    cmpr.generateChaining(template=arman_template(max_and=2))
+    cmpr.generate_chaining(template=arman_template(max_and=2))
     output_fn = XOR(AND(VAR(0), VAR(1)), VAR(2))
     _degrees, basis = annihilators(output_fn)
     annihilator = basis[0]

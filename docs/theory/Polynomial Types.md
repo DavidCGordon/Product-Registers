@@ -1,6 +1,6 @@
 # Polynomial Types
 
-Three types of polynomial arise naturally when working with field elements and feedback registers: minimal, characteristic, and primitive. They are related but distinct, and each plays a specific role in register analysis. This document defines them and traces their relationships.
+Three types of polynomial arise when working with field elements and feedback registers: minimal, characteristic, and primitive. They are related but distinct, and each plays a specific role in register analysis. This document defines them and traces their relationships.
 
 For the algebraic closure and field structure these polynomials live over, see [Roots and the Algebraic Closure](Roots%20and%20the%20Algebraic%20Closure.md). For how polynomials relate to sequences (primal vs dual), see [Polynomial Conventions](../conventions/Polynomial%20Conventions.md). For notation conventions, see [Notation and Terminology](../conventions/Notation%20and%20Terminology.md).
 
@@ -9,8 +9,8 @@ For the algebraic closure and field structure these polynomials live over, see [
 The **minimal polynomial** $m_\alpha(x)$ of an element $\alpha \in \overline{\mathbb{F}_2}$ is the unique monic polynomial of smallest degree over $\mathbb{F}_2$ that has $\alpha$ as a root. Its key properties:
 
 - It is irreducible over $\mathbb{F}_2$.
-- Its degree equals $\text{Ord}(q)$, the size of the Frobenius orbit of $\alpha$ (see [Roots — Frobenius](Roots%20and%20the%20Algebraic%20Closure.md#the-frobenius-automorphism-and-conjugates)).
-- Its roots are exactly the conjugates of $\alpha$: $\{\alpha, \alpha^2, \alpha^{2^2}, \ldots, \alpha^{2^{d-1}}\}$.
+- Its degree equals $\text{Ord}(q)$, the size of the Frobenius orbit of $\alpha$, where $q$ is the multiplicative order of $\alpha$ and $\text{Ord}(q)$ is the multiplicative order of 2 modulo $q$ (see [Roots — Frobenius](Roots%20and%20the%20Algebraic%20Closure.md#the-frobenius-automorphism-and-conjugates)).
+- Its roots are exactly the conjugates of $\alpha$: $\{\alpha, \alpha^2, \alpha^{2^2}, \ldots, \alpha^{2^{d-1}}\}$, where $d = \text{Ord}(q)$.
 - It divides every polynomial over $\mathbb{F}_2$ that has $\alpha$ as a root.
 
 For the generator $\alpha$ of the representation $\mathbb{F}_2[x]/\langle P \rangle$, the minimal polynomial is $P$ itself — this is the tautological case where representation polynomial and minimal polynomial coincide.
@@ -36,4 +36,4 @@ Key facts about primitive polynomials:
 
 The library's `NumberTheory` module provides `num_primitive_polynomials(n)` to count them and `generate_primitive_polynomials(base)` to enumerate them by decimation from a known primitive polynomial (see [Roots — Arithmetic](Roots%20and%20the%20Algebraic%20Closure.md#arithmetic-in-exponential-form) for how decimation works).
 
-In the [Notation and Terminology](../conventions/Notation%20and%20Terminology.md) conventions: "primitive polynomial" is the default noun for the polynomial associated with a register. Use "primal" / "dual" only when disambiguating which exact relationship that association entails. For many properties there is no difference, but it can be important when trying to replicate exact circuits or hardware.
+Under the [Notation and Terminology](../conventions/Notation%20and%20Terminology.md) conventions, "primitive polynomial" is the default noun for the polynomial associated with a register. The words "primal" and "dual" are used only to disambiguate which exact relationship that association entails. For many properties there is no difference, but it can be important when trying to replicate exact circuits or hardware.

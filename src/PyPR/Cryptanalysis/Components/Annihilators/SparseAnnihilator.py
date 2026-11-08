@@ -32,9 +32,10 @@ def monomial_compare(term_1,term_2):
     """
     Compare two monomials (frozensets):
     returns:
-      -   0  if term1 == term2
-      -   1  if term1  > term2
-      - (-1) if term1  < term2
+
+    - 0  if term1 == term2
+    - 1  if term1  > term2
+    - (-1) if term1  < term2
     """
     # handle equals case first:
     if term_1 == term_2:

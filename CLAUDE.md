@@ -45,6 +45,10 @@ pip install -e .          # editable install from project root
 
 Requires Python 3.12+. Key dependencies: `numba` (JIT), `numpy`, `galois` (finite fields), `python-sat` (SAT solving), `sympy` (integer factorization).
 
+## Branches and Releases
+
+(Proposed; not yet enforced.) Work happens on side branches, started from and squash-merged into their own mainline: `feature/`, `chore/`, `bugfix/` into `dev`; `testfix/`, `chore/` into the open `test/M.m.0`; `hotfix/M.m.p` into `main` (landed by the Release action). Never commit to `main`, `dev`, or `test/*` directly, never merge one mainline into another by hand, and never merge `sync/*` PRs — the Stage, Release, Manage staged release, and Resolve syncs actions own every mainline-to-mainline move, every merge commit, and every `v*` tag (including the `-rcN` candidate tags on staged releases and hotfix branches). "Release" means only what is on `main`; an open `test/` branch is a staged release. Release notes live in `docs/changelog/M.m.p.md`, one file per version: never edit an unreleased version's file on `dev` — curate it on the staged release (or the hotfix branch). A sync merges the pre-squash branch and records the squash commit as its second parent; merging a squash commit directly causes conflicts that grow every release. The version lives in `pyproject.toml` and must match the `test/` or `hotfix/` branch name. Full rules, rationale, and edge cases: `docs/Branching and Releases.md`.
+
 ## Running Tests
 
 The suite is **pytest**-based — about 1,030 tests across `test/`, mirroring the `src/` structure.
@@ -65,7 +69,7 @@ Tests are plain `def test_*()` functions using bare `assert`. They carry no
 Tests that need randomness seed it explicitly (`random.seed(42)`) inside the test
 body, so every test is reproducible on its own. Seed every generator the code
 draws from: CMPR chaining templates use both `random` and `np.random`, so a test
-that calls `generateChaining` seeds both (`random.seed(n); np.random.seed(n)`).
+that calls `generate_chaining` seeds both (`random.seed(n); np.random.seed(n)`).
 
 Mark anything long-running with `@pytest.mark.slow` so it can be deselected with
 `-m "not slow"`. CI runs the full suite; the marker exists to keep local
@@ -170,9 +174,11 @@ Documentation lives in `docs/` at the project root, organized into three categor
 
 See `docs/Theory_Map.md` for the full index mapping source modules to required reading.
 
+`docs/` is also a Sphinx site (`docs/conf.py`, `docs/index.md`): `pip install -e ".[docs]"`, then `sphinx-build -b html docs docs/_build/html`. The Markdown is read as it stands through MyST, and the API reference under `docs/api/` is generated from the docstrings on each build and is not checked in. Keep doc links working on GitHub and in the site: relative paths, and no spaces in image folder names (the site cannot resolve `%20` in an image path).
+
 ### Performance Pattern
 
-Critical paths use numba `@njit`. All feedback functions and register clocking have both compiled and uncompiled modes. Call `.compile()` on a `FeedbackFunction` before creating a `FeedbackRegister` to enable the compiled path. Pointer swapping via XOR avoids array copies in the hot loop.
+Critical paths use numba `@njit`. All feedback functions and register clocking have both compiled and uncompiled modes. Call `.compile()` on a `FeedbackFunction` before creating a `FeedbackRegister` to enable the compiled path. `compile()` compiles `generate_python(optimize=True)`: the update's logic is optimized first where that saves operations (`docs/architecture/Logic Optimization.md`). The `optimize` flag lives on `generate_python` and is off by default there; it changes generated code only, never `fn_list`. Pointer swapping via XOR avoids array copies in the hot loop. The compiled loops in `FeedbackRegister.py` keep their declared numba signatures on purpose: inlining the update by dropping them was measured and rejected (`docs/architecture/Compiled Evaluation.md` §3).
 
 ### Serialization Pattern
 

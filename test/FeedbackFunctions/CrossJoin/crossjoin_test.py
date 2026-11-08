@@ -32,7 +32,7 @@ def test_crossjoin_koopman_vs_list():
 def test_generate_nonlinearity():
     random.seed(42)
     C = CrossJoin(7, '69')
-    C.generateNonlinearity(maxAnds=4, tapDensity=0.75)
+    C.generate_nonlinearity(max_ands=4, tap_density=0.75)
     # tau should have been set
     assert C.tau <= int(0.75 * 7)
     # the register should still produce binary output
@@ -46,7 +46,7 @@ def test_generate_nonlinearity():
 def test_compensation_list_length():
     random.seed(42)
     C = CrossJoin(7, '69')
-    C.generateNonlinearity()
+    C.generate_nonlinearity()
     comp = C.compensation_list()
     assert len(comp) == C.size
 
@@ -54,7 +54,7 @@ def test_compensation_preserves_sequence():
     """Applying compensation to the base LFSR should match the crossjoin output."""
     random.seed(42)
     C = CrossJoin(7, '69')
-    C.generateNonlinearity(maxAnds=3, tapDensity=0.75)
+    C.generate_nonlinearity(max_ands=3, tap_density=0.75)
 
     seed = 2**7 - 1
     cj_reg = FeedbackRegister(seed, C)
@@ -82,7 +82,7 @@ def test_filter_generator_returns_pair():
 def test_convert_state():
     random.seed(42)
     C = CrossJoin(5, '12')
-    C.generateNonlinearity()
+    C.generate_nonlinearity()
     state = [1, 0, 1, 1, 0]
     converted = C.convert_state(state)
     assert len(converted) == 5
@@ -101,14 +101,14 @@ def test_blocks():
 def test_root_expressions():
     random.seed(42)
     C = CrossJoin(7, '69')
-    C.generateNonlinearity()
+    C.generate_nonlinearity()
     REs = C.root_expressions()
     assert len(REs) == 7
 
 def test_monomial_profiles():
     random.seed(42)
     C = CrossJoin(7, '69')
-    C.generateNonlinearity()
+    C.generate_nonlinearity()
     MPs = C.monomial_profiles()
     assert len(MPs) == 7
 
@@ -119,7 +119,7 @@ def test_crossjoin_higher_lc_than_lfsr():
     """CrossJoin should have higher linear complexity than its base LFSR."""
     random.seed(42)
     C = CrossJoin(7, '69')
-    C.generateNonlinearity(maxAnds=3, tapDensity=0.75)
+    C.generate_nonlinearity(max_ands=3, tap_density=0.75)
 
     reg = FeedbackRegister(2**7 - 1, C)
     seq = [state[0] for state in reg.run(compiled=False, limit=500)]

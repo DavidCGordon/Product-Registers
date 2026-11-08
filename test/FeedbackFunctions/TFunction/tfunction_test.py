@@ -74,7 +74,7 @@ def test_tfunction_with_chaining():
     # chaining draws from both random and numpy's generator, so seed both
     random.seed(0)
     np.random.seed(0)
-    C.generateChaining(template=arman_template())
+    C.generate_chaining(template=arman_template())
     reg = FeedbackRegister(2**C.size - 1, C)
     output = [state[0] for state in reg.run(compiled=False, limit=50)]
     assert all(b in (0, 1) for b in output)
@@ -93,7 +93,7 @@ def test_tfunction_monomial_profiles():
     # chaining draws from both random and numpy's generator, so seed both
     random.seed(0)
     np.random.seed(0)
-    C.generateChaining(template=arman_template())
+    C.generate_chaining(template=arman_template())
     MPs = C.monomial_profiles()
     assert len(MPs) == C.size
 

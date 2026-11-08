@@ -41,28 +41,31 @@ def tseytin(self,
     """Generate constraints corresponding to the tseytin transformation of the function.
 
     This function primarily deals with three objects:
+
     - **Clauses**: A list of constraints, suitable for a sat solver. Each constraint is a tuple
-        of integers, which represents an OR clause which must be satisfied (CNF). Negative integers
-        represent the negation of a variable.
+      of integers, which represents an OR clause which must be satisfied (CNF). Negative integers
+      represent the negation of a variable.
     - **Node Labels**: The Tseytin transform introduces new variables for each gate in the function.
-        This dict maps every node to the list of variables which are used to encode it, and can be used 
-        to convert the sat solution back to values in the wires of the circuit, or to impose additional
-        conditions based on extra information.
+      This dict maps every node to the list of variables which are used to encode it, and can be used
+      to convert the sat solution back to values in the wires of the circuit, or to impose additional
+      conditions based on extra information.
     - **Variable Labels**: Because the input variables are always supposed to be the same (even
-        in different VAR `nodes`), we use this dict to map input variables to the corresponding
-        variables in the sat solver. This can be used to convert the sat solution back to a satisfying
-        assignment of input variables, or to impose additional conditions based on extra information.
+      in different VAR `nodes`), we use this dict to map input variables to the corresponding
+      variables in the sat solver. This can be used to convert the sat solution back to a satisfying
+      assignment of input variables, or to impose additional conditions based on extra information.
 
     When called with no inputs, this function will create these three from scratch. However,
     the function can also recieve the output of previous calls as input, and will continue to build
     out the constraints, reusing variables where possible. This means the same function can also be
     used to add onto existing output. For example:
-    ```python
-    tseytin_data = function_1.tseytin()
-    tseytin_data = function_2.tseytin(*tseytin_data)
-    tseytin_data = function_3.tseytin(*tseytin_data)
-    ...
-    ```
+
+    .. code-block:: python
+
+        tseytin_data = function_1.tseytin()
+        tseytin_data = function_2.tseytin(*tseytin_data)
+        tseytin_data = function_3.tseytin(*tseytin_data)
+        ...
+
     Or equivalently called in a for loop will create a set of constraints which describes all functions
     and which reuses variables where appropriate. This updating lets you create complicated queries,
     if you need to interact with the sat solver more deeply than just calling `fn.sat()`
@@ -87,7 +90,7 @@ def tseytin(self,
         list[tuple[int, ...]],
         dict[BooleanFunction,list[int]],
         dict[int,int]
-    ]
+        ]
     """
     clauses: dict[tuple,None]
     if not prev_clauses: clauses = dict.fromkeys([(1,)])
@@ -111,25 +114,28 @@ def tseytin_labels(self,
     Tseytin primarily deals with three objects: Clauses, Node Labels and variable labels. This
     function is responsible for generating the latter two, which are then used to create clauses.
     In more detail, this  method produces:
+
     - **Node Labels**: The Tseytin transform introduces new variables for each gate in the function.
-        This dict maps every node to the list of variables which are used to encode it, and can be used 
-        to convert the sat solution back to values in the wires of the circuit, or to impose additional
-        conditions based on extra information.
+      This dict maps every node to the list of variables which are used to encode it, and can be used
+      to convert the sat solution back to values in the wires of the circuit, or to impose additional
+      conditions based on extra information.
     - **Variable Labels**: Because the input variables are always supposed to be the same (even
-        in different VAR `nodes`), we use this dict to map input variables to the corresponding
-        variables in the sat solver. This can be used to convert the sat solution back to a satisfying
-        assignment of input variables, or to impose additional conditions based on extra information.
+      in different VAR `nodes`), we use this dict to map input variables to the corresponding
+      variables in the sat solver. This can be used to convert the sat solution back to a satisfying
+      assignment of input variables, or to impose additional conditions based on extra information.
 
     When called with no inputs, this function will create these two from scratch. However,
     the function can also recieve the output of previous calls as input, and will continue to build
     out the constraints, reusing variables where possible. This means the same function can also be
     used to add onto existing output. For example:
-    ```python
-    labels = function_1.tseytin_labels()
-    labels = function_2.tseytin_labels(*labels)
-    labels = function_3.tseytin_labels(*labels)
-    ...
-    ```
+
+    .. code-block:: python
+
+        labels = function_1.tseytin_labels()
+        labels = function_2.tseytin_labels(*labels)
+        labels = function_3.tseytin_labels(*labels)
+        ...
+
     Or equivalently called in a for loop will create a set of labels which covers all functions
     and which reuses variables where appropriate. This is an important part of the `tseytin` function.
     
@@ -147,7 +153,7 @@ def tseytin_labels(self,
     :rtype: tuple[
         dict[BooleanFunction,list[int]],
         dict[int,int]
-    ]
+        ]
     """
     # initialize index maps if needed
     if node_labels == None and variable_labels == None:

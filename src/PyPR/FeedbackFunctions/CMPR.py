@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from functools import cached_property
 from typing import Any
@@ -118,7 +119,7 @@ class CMPR(FeedbackFunction):
         self.primitive_polynomials = self.primitive_polynomials[::-1]
         self.update_polynomials = self.update_polynomials[::-1]
 
-    def generateChaining(self,
+    def generate_chaining(self,
         template: Any
     ) -> None:
         """Install chaining logic from a template function.
@@ -321,12 +322,14 @@ class CMPR(FeedbackFunction):
         :return: A list of binary masks, one per block.
         :rtype: list[numpy.ndarray]
         """
-        propagation_matrices = []
-        for resolvent_matrix in self.resolvent_matrices:
-            mask = np.zeros_like(resolvent_matrix) # ignoring error cause by dtype being object
-            mask[resolvent_matrix != resolvent_matrix.dtype.zero] = 1 #type: ignore
-            propagation_matrices.append(mask)
-        return propagation_matrices
+        # An entry is a BooleanGF fraction; it is zero exactly when its
+        # numerator is. Testing the numerator avoids depending on whether
+        # the fraction was reduced (BooleanGF equality compares both parts).
+        nonzero = np.vectorize(
+            lambda entry: int(np.count_nonzero(entry.num.coeffs) > 0),
+            otypes = [np.uint8],
+        )
+        return [nonzero(resolvent_matrix) for resolvent_matrix in self.resolvent_matrices]
 
 
 
@@ -409,6 +412,32 @@ class CMPR(FeedbackFunction):
 
 
 
+    def _require_chaining_linear_in_own_bits(self) -> None:
+        """Raise if any block's update is nonlinear in that block's own bits.
+
+        Root expressions and monomial profiles model each block as its MPR
+        (linear in its own state) driven by a function of upstream blocks.
+        A product involving a block's own bits falls outside that model, and
+        neither algorithm then returns a bound (docs/architecture/Mesh
+        Optimization.md).
+
+        :raises ValueError: If a block's merged update contains a product
+            with at least one factor from the block itself.
+        """
+        for block_id, block in enumerate(self.blocks):
+            profile = MonomialProfile.from_merged(
+                fn_list = [self.fn_list[i] for i in block],
+                blocks = self.blocks
+            ).to_BooleanFunction()
+            for term in profile.args:
+                factors = term.args if type(term) not in (VAR, CONST) else ()
+                if len(factors) > 1 and any(var.index == block_id for var in factors):
+                    raise ValueError(
+                        f"block {block_id}'s update multiplies its own bits ({term}); "
+                        f"root expressions and monomial profiles require each block's "
+                        f"update to be linear in its own bits"
+                    )
+
     @log.stage("Monomial profiles", level=logging.DEBUG)
     def monomial_profiles(self,
         force_default: bool = False
@@ -421,36 +450,29 @@ class CMPR(FeedbackFunction):
         upper bound on the algebraic structure and, in turn, the linear
         complexity.
 
-        When the block configuration is amenable (no 1-bit blocks, no
-        repeated sizes, simple chaining), a mesh optimization is used for
-        faster computation. Otherwise falls back to the default
-        composition-based algorithm.
+        When the chaining is simple (each block reads only itself and the
+        block before it), a mesh optimization is used for faster
+        computation; block sizes place no condition on it. Otherwise falls
+        back to the default composition-based algorithm.
 
         :param force_default: If True, skip the mesh optimization even
             when it would be valid.
         :type force_default: bool
         :return: A per-bit list of monomial profiles.
         :rtype: list[MonomialProfile]
+        :raises ValueError: If a block's update multiplies its own bits.
         """
-        block_sizes = set()
+        self._require_chaining_linear_in_own_bits()
+
+        # Monomials are indexed by register, not by field, so block sizes
+        # place no condition on the mesh here: only the chaining must be
+        # simple (each block reads only itself and the block before it).
         use_mesh_optimization = True
 
         for block_id in range(len(self.blocks)):
-            # check if optimization not valid due to 1 bit MPR:
-            if len(self.blocks[block_id]) == 1:
-                use_mesh_optimization = False
-                log.debug("Mesh optimization unavailable: block %d has one bit", block_id)
-                break
-
-            # check if optimization not valid due to repeated sizes
-            if len(self.blocks[block_id]) in block_sizes:
-                use_mesh_optimization = False
-                log.debug("Mesh optimization unavailable: block size %d repeats", len(self.blocks[block_id]))
-                break
-            block_sizes.add(len(self.blocks[block_id]))
-
-            # check if optimization not valid due to complex chaining
-            allowed_bits = set(self.blocks[block_id]) | set(self.blocks[block_id-1])
+            # the source (block 0) may read only itself; blocks[-1] would be the last block
+            upstream = set(self.blocks[block_id-1]) if block_id > 0 else set()
+            allowed_bits = set(self.blocks[block_id]) | upstream
             used_bits = set().union(*(
                 self.fn_list[bit].idxs_used() for bit in self.blocks[block_id]
             ))
@@ -514,6 +536,7 @@ class CMPR(FeedbackFunction):
         degrees = []
         sizes = [len(block) for block in self.blocks]
         constants_possible = [False for block in self.blocks]
+        chains_upstream = [False for block in self.blocks]
         for block_id in range(len(self.blocks)):
             chaining_profile = MonomialProfile.from_merged(
                 fn_list = [self.fn_list[i] for i in self.blocks[block_id]],
@@ -525,12 +548,24 @@ class CMPR(FeedbackFunction):
             for term in chaining_profile.args:
                 if type(term) == VAR:
                     degree = max(degree, 1)
-                elif type(term) == CONST and term.value == 1:
-                    constants_possible[block_id] = True
+                    upstream = term.index != block_id
+                elif type(term) == CONST:
+                    if term.value == 1:
+                        constants_possible[block_id] = True
+                    upstream = False
                 else:
                     degree = max(degree,len(term.args))
+                    # the profile's variables are block ids
+                    upstream = any(var.index != block_id for var in term.args)
+                if upstream:
+                    chains_upstream[block_id] = True
             degrees.append(degree)
 
+        # as in _re_mesh_optimization: a block after the source with no
+        # upstream input would be traded through as if it chained linearly
+        if not all(chains_upstream[1:]):
+            log.debug("Mesh optimization unavailable: a block takes no chaining input")
+            return self._mp_default()
 
         # write the first block directly:
         size = len(self.blocks[0])
@@ -545,6 +580,10 @@ class CMPR(FeedbackFunction):
                 sizes[:block_id+1],
                 degrees[:block_id+1],
             )
+
+            # an upstream constant survives any product of upstream terms
+            if constants_possible[block_id - 1]:
+                constants_possible[block_id] = True
 
             if constants_possible[block_id]:
                 monomial_profile += MonomialProfile.logical_one()
@@ -582,8 +621,8 @@ class CMPR(FeedbackFunction):
         linear complexity, which measures the shortest LFSR that
         reproduces the sequence.
 
-        Blocks listed in `locked_list` are treated as fixed (their root
-        contributions are not extended), useful for analyzing the effect of
+        Blocks whose `locked_list` flag is falsy are treated as fixed (their
+        own roots are not added), useful for analyzing the effect of
         chaining with some components held constant.
 
         :param locked_list: A list of flags (one per block), where a
@@ -595,7 +634,10 @@ class CMPR(FeedbackFunction):
         :type force_default: bool
         :return: A per-bit list of root expressions.
         :rtype: list[RootExpression]
+        :raises ValueError: If a block's update multiplies its own bits.
         """
+        self._require_chaining_linear_in_own_bits()
+
         block_sizes = set()
         use_mesh_optimization = True
 
@@ -606,15 +648,21 @@ class CMPR(FeedbackFunction):
                 log.debug("Mesh optimization unavailable: block %d has one bit", block_id)
                 break
 
-            # check if optimization not valid due to repeated sizes
-            if len(self.blocks[block_id]) in block_sizes:
+            # check if optimization not valid due to sizes sharing a factor:
+            # the mesh multiplies root counts across fields, which is exact
+            # only when the fields meet in F_2, i.e. for pairwise coprime
+            # sizes (Root Expressions, Proposition 3)
+            size = len(self.blocks[block_id])
+            if any(math.gcd(size, other) != 1 for other in block_sizes):
                 use_mesh_optimization = False
-                log.debug("Mesh optimization unavailable: block size %d repeats", len(self.blocks[block_id]))
+                log.debug("Mesh optimization unavailable: block size %d shares a factor with another block", size)
                 break
-            block_sizes.add(len(self.blocks[block_id]))
+            block_sizes.add(size)
 
             # check if optimization not valid due to complex chaining
-            allowed_bits = set(self.blocks[block_id]) | set(self.blocks[block_id-1])
+            # the source (block 0) may read only itself; blocks[-1] would be the last block
+            upstream = set(self.blocks[block_id-1]) if block_id > 0 else set()
+            allowed_bits = set(self.blocks[block_id]) | upstream
             used_bits = set().union(*(
                 self.fn_list[bit].idxs_used() for bit in self.blocks[block_id]
             ))
@@ -693,6 +741,7 @@ class CMPR(FeedbackFunction):
         degrees = []
         sizes = [len(block) for block in self.blocks]
         constants_possible = [False for block in self.blocks]
+        chains_upstream = [False for block in self.blocks]
         for block_id in range(len(self.blocks)):
             chaining_profile = MonomialProfile.from_merged(
                 fn_list = [self.fn_list[i] for i in self.blocks[block_id]],
@@ -701,22 +750,46 @@ class CMPR(FeedbackFunction):
 
             block_fn = chaining_profile
             degree = 0
+            # CONST and VAR are tested first: both carry an (empty) `args`,
+            # so testing for `args` first would read a constant as degree 0
+            # and never record it.
             for term in block_fn.args:
-                if hasattr(term,'args'):
+                if type(term) == VAR:
+                    degree = max(degree, 1)
+                    upstream = term.index != block_id
+                elif type(term) == CONST:
+                    if term.value == 1:
+                        constants_possible[block_id] = True
+                    upstream = False
+                else:
                     degree = max(degree,len(term.args))
-                elif type(term) == CONST and term.value == 1:
-                    constants_possible[block_id] = True
+                    # the profile's variables are block ids
+                    upstream = any(var.index != block_id for var in term.args)
+                if upstream:
+                    chains_upstream[block_id] = True
             degrees.append(degree)
+
+        # The mesh reads each block's degree as the exchange rate for trading
+        # weight upstream, and that degree includes the block's own linear
+        # term. A block after the source that takes no input from upstream
+        # would therefore be traded through as if it chained linearly, so
+        # such registers use the default algorithm.
+        if not all(chains_upstream[1:]):
+            log.debug("Mesh optimization unavailable: a block takes no chaining input")
+            return self._re_default(locked_list)
 
         # if no locked list is passed, default to all registers unlocked:
         if not locked_list:
             locked_list = [1]*len(sizes)
 
-        # write the first block directly:
+        # write the first block directly (a locked source block has no roots):
         size = len(self.blocks[0])
         for bit in self.blocks[0]:
-            js = JordanSet({size:1}, {1})
-            expr_table[bit] = RootExpression({(size,):{js}})
+            if locked_list[0]:
+                js = JordanSet({size:1}, {1})
+                expr_table[bit] = RootExpression({(size,):{js}})
+            else:
+                expr_table[bit] = RootExpression({})
 
         # calculate the RE for each subsequent block:
         for block_id in range(1,len(self.blocks)):
@@ -727,6 +800,12 @@ class CMPR(FeedbackFunction):
                 degrees[:block_id+1],
                 locked_list[:block_id+1]
             )
+
+            # A constant in the upstream block's expression survives any
+            # product of upstream terms (1 * 1 = 1), so it is inherited
+            # whenever this block chains from upstream at all.
+            if constants_possible[block_id - 1] and chains_upstream[block_id]:
+                constants_possible[block_id] = True
 
             if constants_possible[block_id]:
                 root_expression += RootExpression.logical_one()
@@ -751,7 +830,7 @@ class CMPR(FeedbackFunction):
     def estimate_LC(self,
         output_bit: int,
         locked_list: list[int] | None = None,
-    ) -> tuple[int, int]:
+    ) -> tuple[int | float, int]:
         """Estimate the linear complexity bounds for a single output bit.
 
         Computes root expressions for the register and evaluates lower and
@@ -765,8 +844,10 @@ class CMPR(FeedbackFunction):
         :param locked_list: A list of flags (one per block) indicating
             which blocks are unlocked. If None, all blocks are unlocked.
         :type locked_list: list[int] | None
-        :return: A (lower, upper) pair bounding the linear complexity.
-        :rtype: tuple[int, int]
+        :return: A (lower, upper) pair bounding the linear complexity. The
+            lower value is a statistical estimate and is a float whenever
+            it comes from the root expression rather than the block size.
+        :rtype: tuple[int | float, int]
         :raises ValueError: If `output_bit` is not a bit of this register.
         """
         # Checked before any work is done. A negative index would otherwise
@@ -780,22 +861,25 @@ class CMPR(FeedbackFunction):
 
         log.step("Root expressions")
         REs = self.root_expressions(locked_list)
-        bitRE = REs[output_bit]
+        bit_re = REs[output_bit]
 
         log.step("Evaluating bounds")
         #get the length of the block bit is in.
         # the blocks partition the register, and output_bit was checked above,
         # so exactly one block contains it
         blocks = self.blocks
-        blockLen = next(len(block) for block in blocks if output_bit in block)
+        block_id = next(i for i, block in enumerate(blocks) if output_bit in block)
+        block_len = len(blocks[block_id])
 
-        #lower the minimum if this block is locked:
-        if locked_list and blockLen in locked_list:
-            blockLen = 1
+        # drop the floor if this block is locked (a falsy flag): its own
+        # roots are not added, so its size is no longer a lower bound, and
+        # with no chaining input the upper bound itself can be 0
+        if locked_list and not locked_list[block_id]:
+            block_len = 0
 
-        upper = bitRE.upper()
-        lower = max(blockLen,bitRE.lower())
-        log.info("Bit %d: linear complexity between %d and %d", output_bit, lower, upper)
+        upper = bit_re.upper()
+        lower = max(block_len,bit_re.lower())
+        log.info("Bit %d: linear complexity between %g and %d", output_bit, lower, upper)
 
         return (lower,upper)
 

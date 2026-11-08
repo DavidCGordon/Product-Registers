@@ -326,10 +326,11 @@ class FeedbackRegister(Serializable):
         which offers a good balance of performance and robustness. The default iteration limit,
         which is used unless an explicit limit is passed, is based on performance to keep the
         runtime roughly under a minute regardless of which implementation is used:
-         - For (compiled, unsafe), the default limit is 2^26 cycles.
-         - For (compiled, safe), the default limit is 2^25 cycles.
-         - For (uncompiled, unsafe), the default limit is 2^16 cycles.
-         - For (uncompiled, safe), the default limit is 2^14 cycles.
+
+        - For (compiled, unsafe), the default limit is 2^26 cycles.
+        - For (compiled, safe), the default limit is 2^25 cycles.
+        - For (uncompiled, unsafe), the default limit is 2^16 cycles.
+        - For (uncompiled, safe), the default limit is 2^14 cycles.
 
         :param compiled: A maximum iteration limit,
         :type compiled: bool
@@ -346,8 +347,10 @@ class FeedbackRegister(Serializable):
             larger than 64 bits) which is large enough to catch any cycle. The default values are
             given above.
         :type limit: int, optional
-        :return: The period (or None, if the inital state never repeats)
-        :rtype: int
+        :return: `(period, preperiod)`: the cycle length, and the number of clocks
+            before the state enters the cycle (always 0 when `safe = False`, and
+            for any bijective register). None if no repeat is found within `limit`.
+        :rtype: tuple[int, int] | None
         """
         if compiled:
             if getattr(self.fn, "_compiled", None) is None:
@@ -512,12 +515,14 @@ class FeedbackRegister(Serializable):
         the function can also recieve the output of previous calls as input, and will continue 
         to add in new IDs, reusing IDs where possible. This means the same function can also be
         used to add onto existing output. For example:
-        ```python
-        ids = object_1.generate_ids()
-        ids = object_2.generate_ids(ids)
-        ids = object_3.generate_ids(ids)
-        ...
-        ```
+
+        .. code-block:: python
+
+            ids = object_1.generate_ids()
+            ids = object_2.generate_ids(ids)
+            ids = object_3.generate_ids(ids)
+            ...
+
         For efficiency reasons, this method both mutates the input and returns the mutated
         list of ids by default. This can be disabled by setting the parameter `in_place=False`
 
@@ -615,11 +620,31 @@ class FeedbackRegister(Serializable):
                 setattr(new_obj,key,value)
         return new_obj
 
-# FULLY COMPILED IMPLEMENTATIONS FOR PERIOD:
+# FULLY COMPILED IMPLEMENTATIONS FOR PERIOD AND RUN:
+#
+# Each loop is compiled once, for every register, from a declared signature:
+# the update function arrives as a pointer of type `update_type`. Dropping the
+# signatures makes numba compile a loop per feedback function and inline the
+# update into it. That was tried and taken out again; the measurements and the
+# reasons are in docs/architecture/Compiled Evaluation.md section 3.
 u8 = nb_types.uint8
 u64 = nb_types.uint64
 output_type = nb_types.Optional(nb_types.Tuple([u64,u64]))
 update_type = nb_types.FunctionType(numba.void(u8[:],u8[:]))
+
+@numba.njit(nb_types.boolean(u8[:], u8[:]))
+def _same_state(a, b):
+    """Whether two states are equal, stopping at the first bit that differs.
+
+    `np.all(a == b)` computes the same thing, but builds a temporary array on
+    every call. In the period loops that cost 80-120 ns per clock, several
+    times the update itself; two different states usually differ within the
+    first byte or two, so this returns almost at once.
+    """
+    for i in range(len(a)):
+        if a[i] != b[i]:
+            return False
+    return True
 
 @numba.njit(output_type(u8[:], update_type, u64))
 def _period_compiled_unsafe_(state, update_fn, limit: int) -> tuple[int,int] | None:
@@ -645,7 +670,7 @@ def _period_compiled_unsafe_(state, update_fn, limit: int) -> tuple[int,int] | N
     update_fn(prev_state,state)
 
     for count in range(1,limit+1):
-        if np.all(state == init_state):
+        if _same_state(state, init_state):
             return (count,0)
 
         # compiled clock inlined:
@@ -682,7 +707,7 @@ def _period_compiled_safe_(state, update_fn, limit: int) -> tuple[int,int] | Non
     period = 1
     power = 1
 
-    while not np.all(slow_state == fast_state):
+    while not _same_state(slow_state, fast_state):
         if power == period:  # time to start a new power of two?
             slow_state = fast_state.copy()
             period = 0
@@ -706,7 +731,7 @@ def _period_compiled_safe_(state, update_fn, limit: int) -> tuple[int,int] | Non
     # The distance between the hare and tortoise is now λ.
     # Next, the hare and tortoise move at same speed until they agree
     preperiod = 0
-    while not np.all(slow_state == fast_state):
+    while not _same_state(slow_state, fast_state):
         #slow.clock_compiled() inlined:
         slow_state, slow_prev_state = slow_prev_state, slow_state
         update_fn(slow_prev_state,slow_state)

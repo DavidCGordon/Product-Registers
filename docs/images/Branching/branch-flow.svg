@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 345" width="800" height="345" role="img" aria-labelledby="title desc">
+  <title id="title">Branch and release flow</title>
+  <desc id="desc">Side branches are squash-merged into their mainline: feature, bugfix and chore into dev; testfix and chore into the staged release test/1.4.0. Stage moves dev into the staged release, and Release moves the staged release, or a hotfix branch, into main. After each move the bot syncs the change back: into dev after Stage and after Release, and into the staged release after a hotfix.</desc>
+  <style>
+    svg {
+      --bg: #ffffff; --border: #d0d7de; --text: #1f2328; --muted: #59636e;
+      --accent: #8250df; --accent-fill: #f6f0ff; --line: #59636e;
+      font-family: -apple-system, "Segoe UI", system-ui, Helvetica, Arial, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      svg {
+        --bg: #0d1117; --border: #3d444d; --text: #e6edf3; --muted: #9198a1;
+        --accent: #a371f7; --accent-fill: #1d1530; --line: #9198a1;
+      }
+    }
+    .card { fill: var(--bg); stroke: var(--border); }
+    .mainline { fill: var(--accent-fill); stroke: var(--accent); stroke-width: 1.5; }
+    .side { fill: var(--bg); stroke: var(--accent); stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .name { fill: var(--text); font-size: 15px; font-weight: 600; text-anchor: middle; }
+    .sub { fill: var(--muted); font-size: 12px; text-anchor: middle; }
+    .label { fill: var(--text); font-size: 12.5px; text-anchor: middle; }
+    .label-bg { fill: var(--bg); }
+    .move { fill: none; stroke: var(--line); stroke-width: 1.5; }
+    .sync { fill: none; stroke: var(--line); stroke-width: 1.4; stroke-dasharray: 3 4; }
+    .head { fill: var(--line); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path class="head" d="M 0 0 L 10 5 L 0 10 z"/>
+    </marker>
+  </defs>
+
+  <rect class="card" x="0.5" y="0.5" width="799" height="344" rx="10"/>
+
+  <!-- side branches, each above the mainline it is squashed into -->
+  <rect class="side" x="35" y="20" width="190" height="52" rx="6"/>
+  <text class="name" x="130" y="51" style="font-weight:500">feature/ · bugfix/ · chore/</text>
+  <rect class="side" x="305" y="20" width="190" height="52" rx="6"/>
+  <text class="name" x="400" y="51" style="font-weight:500">testfix/ · chore/</text>
+  <rect class="side" x="575" y="20" width="190" height="52" rx="6"/>
+  <text class="name" x="670" y="42" style="font-weight:500">hotfix/1.4.1</text>
+  <text class="sub" x="670" y="61">candidates v1.4.1-rcN</text>
+
+  <!-- squash and hotfix arrows -->
+  <line class="move" x1="130" y1="72" x2="130" y2="158" marker-end="url(#arrow)"/>
+  <line class="move" x1="400" y1="72" x2="400" y2="158" marker-end="url(#arrow)"/>
+  <line class="move" x1="670" y1="72" x2="670" y2="158" marker-end="url(#arrow)"/>
+  <rect class="label-bg" x="104" y="104" width="52" height="20"/>
+  <text class="label" x="130" y="118">squash</text>
+  <rect class="label-bg" x="374" y="104" width="52" height="20"/>
+  <text class="label" x="400" y="118">squash</text>
+  <rect class="label-bg" x="640" y="104" width="60" height="20"/>
+  <text class="label" x="670" y="118" style="font-weight:600">Release</text>
+
+  <!-- mainlines -->
+  <rect class="mainline" x="35" y="160" width="190" height="60" rx="30"/>
+  <text class="name" x="130" y="186">dev</text>
+  <text class="sub" x="130" y="205">work toward the next release</text>
+  <rect class="mainline" x="305" y="160" width="190" height="60" rx="30"/>
+  <text class="name" x="400" y="186">test/1.4.0</text>
+  <text class="sub" x="400" y="205">staged · candidates v1.4.0-rcN</text>
+  <rect class="mainline" x="575" y="160" width="190" height="60" rx="30"/>
+  <text class="name" x="670" y="186">main</text>
+  <text class="sub" x="670" y="205">releases v1.4.0, v1.4.1, …</text>
+
+  <!-- Stage and Release -->
+  <line class="move" x1="225" y1="190" x2="303" y2="190" marker-end="url(#arrow)"/>
+  <text class="label" x="265" y="182" style="font-weight:600">Stage</text>
+  <line class="move" x1="495" y1="190" x2="573" y2="190" marker-end="url(#arrow)"/>
+  <text class="label" x="535" y="182" style="font-weight:600">Release</text>
+
+  <!-- syncs back -->
+  <path class="sync" d="M 360 220 C 360 270, 170 270, 170 224" marker-end="url(#arrow)"/>
+  <rect class="label-bg" x="210" y="247" width="110" height="20"/>
+  <text class="label" x="265" y="261">sync after Stage</text>
+  <path class="sync" d="M 630 220 C 630 270, 440 270, 440 224" marker-end="url(#arrow)"/>
+  <rect class="label-bg" x="473" y="247" width="124" height="20"/>
+  <text class="label" x="535" y="261">sync after a hotfix</text>
+  <path class="sync" d="M 700 220 C 700 335, 100 335, 100 224" marker-end="url(#arrow)"/>
+  <rect class="label-bg" x="337" y="296" width="126" height="20"/>
+  <text class="label" x="400" y="310">sync after Release</text>
+</svg>

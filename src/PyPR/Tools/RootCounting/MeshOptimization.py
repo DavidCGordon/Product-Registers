@@ -27,9 +27,16 @@ def re_compute_single_mesh(sizes,degrees,locked_list: list | None = None):
         field = []
         counts = []
         for size, count in zip(size_arr,output):
-            if count != 0:
+            # the iterator zeroes the size of a locked block in place; a
+            # locked block contributes no field
+            if count != 0 and size != 0:
                 field.append(size)
                 counts.append(count)
+        # a vector whose weight lies only in locked blocks has no roots: an
+        # empty field here would otherwise read as the root 1, which only a
+        # constant in the chaining can supply (added by the caller)
+        if not field:
+            continue
         field_tuple = tuple(sorted(field))
         js = JordanSet({k:min(k,v) for k,v, in zip(field,counts)}, {1})
 

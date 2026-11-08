@@ -201,6 +201,13 @@ def test_meter_without_a_total_counts_and_takes_a_custom_summary():
         quiet.close(quiet=True)
     assert lines() == ["x_17 = 0) found inconsistent"]
 
+def test_a_meter_over_nothing_prints_no_summary():
+    with captured() as lines:
+        empty = log.progress("Matrix solves", total=0)
+        empty.close()
+        log.info("next")
+    assert lines() == ["next"]
+
 def test_open_meters_close_with_their_step():
     @log.stage("Stage")
     def stage():
@@ -291,6 +298,13 @@ def test_level_reads_back_as_a_logging_number():
 def test_a_misspelt_setting_raises():
     with pytest.raises(AttributeError):
         PyPR.logging.levle = logging.INFO  # type: ignore[attr-defined]
+
+def test_a_star_import_keeps_the_standard_logging_module():
+    """PyPR.logging is the settings object, not the standard module; a star
+    import must not replace a caller's own `import logging` with it."""
+    # a star import binds exactly the names in __all__
+    assert "logging" not in PyPR.__all__
+    assert "FeedbackRegister" in PyPR.__all__
 
 def test_a_logging_config_in_the_calling_script_does_not_duplicate_lines(capsys):
     """PyPR's logger does not propagate, so a root handler set up by the caller

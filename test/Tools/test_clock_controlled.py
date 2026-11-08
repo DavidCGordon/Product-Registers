@@ -1,11 +1,15 @@
 """Tests for shrinking, self-shrinking, and alternating-step generator constructions.
 
 Verifies:
-- SG LC = w * L_B (exact) when gcd(q_A, q_B) = 1
-- SSG LC ≤ 2^{n-1}
-- ASG LC ≤ w * L_B + (q_A - w) * L_C
+- SG LC ≤ w * L_B, attained at the tabulated parameters but not in general
+- SSG LC ≤ 2^{n-1}, and below it at the tested degrees
+- ASG LC ≤ q_A * (L_B + L_C), attained at the tested parameters
+- interleaving a sequence with itself gives LC 2L or 2L - 1
 - All three work on arbitrary (non-LFSR) sequences
+
+Theory: docs/theory/Interleaving and Clock-Controlled Registers.md
 """
+import itertools
 import random
 from math import gcd
 
@@ -170,3 +174,80 @@ def test_asg_arbitrary():
 
     output = alternating_step_generator(control, data_b, data_c)
     assert len(output) == len(control)
+
+
+# ── Bounds that are not equalities ────────────────────────────────────────
+
+def test_sg_bound_not_attained_for_general_control():
+    """w * L_B is an upper bound: a non-LFSR control with coprime period falls short.
+
+    Control 1110000000 has period 10 and w = 3; the data is an m-sequence of
+    period 7, so gcd(10, 7) = 1 and the bound is 3 * 3 = 9. The selected times
+    are 10k + j for j = 0, 1, 2, and 10k + j = 3k + j mod 7, which is the
+    output index: the output is the data itself, of LC 3.
+    """
+    data = lfsr_sequence(3, '3', 700)
+    control = ([1, 1, 1] + [0] * 7) * 70
+    output = shrinking_generator(control, data)
+    assert output == data[:len(output)]
+    lc, _ = berlekamp_massey(output)
+    assert lc == 3
+
+
+def test_sg_bound_depends_on_polynomial_pair():
+    """With m-sequence control and data, 2^{n_A-1} * n_B is not always attained.
+
+    For n_A = 5, n_B = 3 the bound is 48. Whether it is attained depends on
+    the pair of primitive polynomials and not on the phases: with coprime
+    periods, shifting both registers together shifts the output, and the
+    joint shift reaches every pair of phases.
+    """
+    n = 31 * 7 * 3
+    attained = shrinking_generator(lfsr_sequence(5, '12', n), lfsr_sequence(3, '3', n))
+    short = shrinking_generator(lfsr_sequence(5, '17', n), lfsr_sequence(3, '3', n))
+    assert berlekamp_massey(attained[:140])[0] == 48
+    assert berlekamp_massey(short[:140])[0] == 45
+
+
+def test_ssg_below_bound():
+    """The SSG bound 2^{n-1} is not attained at degrees 3, 4, 5."""
+    for n, poly, expected in [(3, '3', 2), (4, '3', 5), (5, '5', 10)]:
+        q = 2**n - 1
+        output = self_shrinking_generator(lfsr_sequence(n, poly, q * q * 4))
+        lc, _ = berlekamp_massey(output)
+        assert lc == expected
+        assert lc < 2**(n - 1)
+
+
+def test_asg_attains_bound():
+    """At (n_A, n_B, n_C) = (3, 4, 5) the ASG meets q_A * (L_B + L_C) = 63."""
+    length = 7 * 15 * 31 * 2
+    output = alternating_step_generator(
+        lfsr_sequence(3, '3', length),
+        lfsr_sequence(4, '3', length),
+        lfsr_sequence(5, '12', length),
+    )
+    lc, _ = berlekamp_massey(output)
+    assert lc == 63
+
+
+def test_self_interleaving_lc():
+    """Interleaving a with itself gives LC 2L(a) - 1 if 1 is a root of a, else 2L(a).
+
+    Y(D) = (1 + D) A(D^2) = (1 + D) A(D)^2 over F_2. The factor 1 + D sits in
+    the numerator, so it can cancel one factor of the squared denominator and
+    can never add a root. 1 is a root of a exactly when 1 + D divides its
+    minimal polynomial, i.e. when applying 1 + D to a lowers its LC.
+    """
+    for period in range(1, 8):
+        for bits in itertools.product([0, 1], repeat=period):
+            if not any(bits):
+                continue
+            a = list(bits) * (120 // period + 1)
+            interleaved = [bit for bit in a for _ in range(2)]
+            lc_a, _ = berlekamp_massey(a)
+            # (1 + D) a: the termwise sum of a and its shift.
+            differenced = [a[t] ^ a[t + 1] for t in range(len(a) - 1)]
+            one_is_a_root = berlekamp_massey(differenced)[0] == lc_a - 1
+            lc_y, _ = berlekamp_massey(interleaved)
+            assert lc_y == (2 * lc_a - 1 if one_is_a_root else 2 * lc_a)

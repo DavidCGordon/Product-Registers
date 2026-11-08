@@ -101,7 +101,8 @@ def CubeEqGenerator(
     to one of the output functions passed in. These tuples each have the same (time, equation, 
     extra_constant) format as if only one output function is passed.\n
 
-    ## How it works:
+    **How it works**
+
     The mechanism through which the CubeEqGenerator works is the most complicated of the eq generators,
     and it is the fastest, in places where it is applicable. The core idea is that the coefficient of
     each monomial is determinable by summing over a cube of evaluations with all variable set to zero 
@@ -115,15 +116,19 @@ def CubeEqGenerator(
     from 2^(size of monomial) to 2^(size of monomial / 2), effectively square rooting the number of 
     combinations needed for each coefficent (delaying the exponential blowup from cube sums).
 
-    ## Performance:
+    **Performance**
+
     The main speed gains come from a couple of things:
+
     1. There is huge amount of reuse, both in reusing evalutions of the states in different cubes, and
-        reusing older coefficients to cover large amounts of the sum. 
+       reusing older coefficients to cover large amounts of the sum.
     2. The summation indices are the same everytime; after precomputation, this looks like a very tight loop
-        of summing values in an array. The storage of everything in dense arrays also helps with cache locality
+       of summing values in an array. The storage of everything in dense arrays also helps with cache locality
     3. because the algorithm is so computer-friendly (especially relative to handling symbolics), we can
-        numba compile it to speed it up even further. 
-    altogether this is probably 2-3 orders of magnitude faster than the other methods
+       numba compile it to speed it up even further.
+
+    Measured comparisons with the other generators are in
+    `docs/theory/Cube Equation Generation.md`.
 
     :param feedback_fn: The function used to update the state on each clock cycle
     :type feedback_fn: FeedbackFunction
@@ -139,7 +144,7 @@ def CubeEqGenerator(
     :rtype: Iterator[
         tuple[int, np.ndarray[tuple[int],np.dtype[np.uint8]], int] | 
         list[tuple[int, np.ndarray[tuple[int],np.dtype[np.uint8]], int]] 
-    ]
+        ]
     """
     output_fn_list, return_list = normalize_output_fn(output_fn)
 
@@ -216,7 +221,7 @@ def update_states(
     :rtype: tuple[
         np.ndarray[tuple[int,int],np.dtype[np.uint8]],
         np.ndarray[tuple[int,int],np.dtype[np.uint8]]
-    ]
+        ]
     """
     prev_states, curr_states = curr_states, prev_states
     for i in range(len(curr_states)):
@@ -263,17 +268,21 @@ def combine_vecs(
 
     **Proof sketch:** For any sets of evaluations, we have a variant of the principle of
     inclusion-exclusion:
-    ```
-    (Sum over Set A) xor (Sum over Set B) = (Sum over A union B) xor (Sum over A intersect B)
-    ```
+
+    .. code-block:: text
+
+        (Sum over Set A) xor (Sum over Set B) = (Sum over A union B) xor (Sum over A intersect B)
+
      
     For a monomial `M` with variables from `V`, consider the cubes each missing one variable from some 
     set, `S` (i.e. for each `s` in `S`, consider the cube over `(V - s)`) The union of these cubes contains
     every evaluation needed to compute the coefficient of M (except those which contain all of S). 
     Using the identity above, we can calculate the sum over the union as:
-    ```
-    (Sum over A union B) = (Sum over A) xor (Sum over B) xor (Sum over A intersect B)
-    ```
+
+    .. code-block:: text
+
+        (Sum over A union B) = (Sum over A) xor (Sum over B) xor (Sum over A intersect B)
+
 
     And the intersection of any two cubes with missing variables (e.g. over `V_1 = V - S_1`, `V2 = V - S_2`, with 
     `S_i` being arbitrary subsets of `S`) is easy to compute: it's the cube over `V_1 intersect V_2` = `V - (S_1 union S_2)`. 

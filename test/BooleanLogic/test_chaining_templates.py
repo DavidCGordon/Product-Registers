@@ -113,6 +113,6 @@ def test_chaining_is_reproducible_when_both_generators_are_seeded():
         random.seed(11)
         np.random.seed(11)
         C = CMPR([MPR(7, "65"), MPR(5, "12"), MPR(3, "5")])
-        C.generateChaining(template=fast_template())
+        C.generate_chaining(template=fast_template())
         chainings.append([fn.dense_str() for fn in C.fn_list])
     assert chainings[0] == chainings[1]

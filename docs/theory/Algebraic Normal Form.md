@@ -12,7 +12,7 @@ $$\mathbf{f} = \bigl(f(0),\; f(1),\; f(2),\; \ldots,\; f(2^m - 1)\bigr)$$
 
 There are $2^{2^m}$ Boolean functions on $m$ variables — one for each possible truth table.
 
-## Multilinear Polynomials over $\mathbb{F}_2$
+## Multilinear Polynomials
 
 Over any field, a function from a finite set to the field can be represented by a polynomial. Over $\mathbb{F}_2$, the constraint $x^2 = x$ (every element of $\mathbb{F}_2$ is idempotent) forces a strong simplification: any polynomial in $x_0, \ldots, x_{m-1}$ can be reduced so that each variable appears with exponent at most 1. The result is a **multilinear** polynomial — a sum of terms, each a product of a distinct subset of the variables.
 
@@ -114,9 +114,9 @@ This per-coordinate factorization is precisely the defining property of the Kron
 
 The matrix $T$ whose entries are $\binom{n}{i} \pmod{2}$ is Pascal's triangle read mod 2. The pattern of 1s — the positions where $\binom{n}{i}$ is odd — forms the **Sierpiński triangle**, the well-known fractal.
 
-The Kronecker product explains the self-similarity. The recursion $T^{\otimes (m+1)} = T_1 \otimes T^{\otimes m}$ expands as:
+The Kronecker product explains the self-similarity. The recursion $T_1^{\otimes (m+1)} = T_1 \otimes T_1^{\otimes m}$ expands as:
 
-$$T^{\otimes(m+1)} = \begin{pmatrix} 1 \cdot T^{\otimes m} & 0 \cdot T^{\otimes m} \\[4pt] 1 \cdot T^{\otimes m} & 1 \cdot T^{\otimes m} \end{pmatrix} = \begin{pmatrix} T^{\otimes m} & 0 \\[4pt] T^{\otimes m} & T^{\otimes m} \end{pmatrix}$$
+$$T_1^{\otimes(m+1)} = \begin{pmatrix} 1 \cdot T_1^{\otimes m} & 0 \cdot T_1^{\otimes m} \\[4pt] 1 \cdot T_1^{\otimes m} & 1 \cdot T_1^{\otimes m} \end{pmatrix} = \begin{pmatrix} T_1^{\otimes m} & 0 \\[4pt] T_1^{\otimes m} & T_1^{\otimes m} \end{pmatrix}$$
 
 Each doubling of the number of bits produces a matrix with three copies of the previous level arranged in a triangle — the defining construction of the Sierpiński fractal. The top-right block is always zero because $\binom{n}{i} = 0$ when $i > n$, and the three nonzero blocks arise from the three nonzero entries of $T_1$.
 
@@ -128,7 +128,7 @@ $$\begin{pmatrix} 1 & 0 \\ 1 & 1 \end{pmatrix}^2 = \begin{pmatrix} 1 & 0 \\ 1+1 
 
 Since the Kronecker product respects powers — $(A^{\otimes m})^2 = (A^2)^{\otimes m}$ — the full transform is also self-inverse:
 
-$$(T^{\otimes m})^2 = (T_1^2)^{\otimes m} = I^{\otimes m} = I$$
+$$T^2 = (T_1^{\otimes m})^2 = (T_1^2)^{\otimes m} = I^{\otimes m} = I$$
 
 This means the **same matrix** converts in both directions:
 
@@ -164,7 +164,7 @@ Pass for bit 1 ($b = 1$): XOR each entry with bit 1 set with the entry with bit 
 - $a[3] \leftarrow a[3] \oplus a[1] = 0 \oplus 1 = 1$
 - State: $(0, 1, 0, 1)$
 
-Result: $\mathbf{a} = (0, 1, 0, 1)$, so $f(n) = \binom{n}{1} + \binom{n}{3} \pmod{2}$ — matching the [example](Moebius%20Inversion%20on%20the%20Bit-Subset%20Lattice.md#example) in the Möbius inversion doc.
+Result: $\mathbf{a} = (0, 1, 0, 1)$, so $f(n) = \binom{n}{1} + \binom{n}{3} \pmod{2}$ — matching the [example](Moebius%20Inversion%20on%20the%20Bit-Subset%20Lattice.md#example) in [Möbius Inversion on the Bit-Subset Lattice](Moebius%20Inversion%20on%20the%20Bit-Subset%20Lattice.md).
 
 ## Connections
 

@@ -133,7 +133,7 @@ class FCSR(FeedbackFunction):
         return [self.fn_list[2*i] for i in range(self.size//2)]
 
     @classmethod
-    def fromSeq(cls,
+    def from_seq(cls,
         seq: list[int]
     ) -> tuple[list[int], "FCSR"]:
         """Recover the FCSR which generates a given binary sequence.
@@ -155,33 +155,33 @@ class FCSR(FeedbackFunction):
         return init_state, FCSR(size, den)
 
     @classmethod
-    def fromReg(cls,
+    def from_reg(cls,
         F: "FeedbackRegister",
         bit: int = 0,
-        numIters: int | None = None
+        num_iters: int | None = None
     ) -> tuple[list[int], "FCSR"]:
         """Recover the FCSR which reproduces a single bit of a running
         register.
 
-        Observes the specified bit of `F` over `numIters` clock cycles to
-        obtain a binary sequence, then applies `fromSeq` to recover the
+        Observes the specified bit of `F` over `num_iters` clock cycles to
+        obtain a binary sequence, then applies `from_seq` to recover the
         FCSR realizing it.
 
         :param F: The source register to observe.
         :type F: FeedbackRegister
         :param bit: The index of the bit to observe.
         :type bit: int
-        :param numIters: The number of clock cycles to observe. Defaults to
+        :param num_iters: The number of clock cycles to observe. Defaults to
             2*F.size + 4.
-        :type numIters: int | None
+        :type num_iters: int | None
         :return: The initial state and the recovered FCSR.
         :rtype: tuple[list[int], FCSR]
         """
-        if not numIters:
-            numIters = 2*F.size + 4
+        if not num_iters:
+            num_iters = 2*F.size + 4
 
-        seq = [state[bit] for state in F.run(numIters)]
-        return FCSR.fromSeq(seq)
+        seq = [state[bit] for state in F.run(num_iters)]
+        return FCSR.from_seq(seq)
 
     @classmethod
     def state_from_frac(cls,
@@ -195,15 +195,15 @@ class FCSR(FeedbackFunction):
         realizes that fraction. The fraction is intentionally not simplified:
         a fraction and its reduction generate the same sequence but name
         different registers, since q is the connection integer and reducing
-        it changes the taps. Keeping p/q as given is what lets `fromSeq`
+        it changes the taps. Keeping p/q as given is what lets `from_seq`
         hand the same den to this method and to the constructor, so that
         state and register are built for one q.
 
         For non-positive numerators, each (value, carry) pair contributes
-        value + 2 * carry, and |num| is split by thirds: the quotient
-        |num| // 3 goes to each of the value word a and the carry word c,
+        value + 2 * carry, and ``|num|`` is split by thirds: the quotient
+        ``|num|`` // 3 goes to each of the value word a and the carry word c,
         with the remainder allocated to a (remainder 1) or c (remainder 2).
-        The split is a choice among those with a + 2c = |num|, and the one
+        The split is a choice among those with a + 2c = ``|num|``, and the one
         made here is the one guaranteeing a < 2^(size-1) and c < 2^(size-1):
         the value word leaves the top cell -- the open loop's sign bit --
         clear, so the state reads the same in either regime, and the carry
